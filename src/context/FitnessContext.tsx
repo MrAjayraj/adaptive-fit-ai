@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup } from '@/types/fitness';
+import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup, WorkoutExercise, EXERCISE_DATABASE } from '@/types/fitness';
+import { WorkoutTemplate, TemplateExercise } from '@/types/workout-templates';
 import { generateWeeklyPlan } from '@/lib/workout-generator';
+import {
+  GamificationState, PR, Achievement, ACHIEVEMENT_DEFS,
+  XP_WORKOUT_COMPLETE, XP_NEW_PR, XP_STREAK_BONUS,
+  calculateLevel, detectNewPRs, updateStreak, checkAchievements,
+} from '@/lib/gamification';
+import { v4 } from '@/lib/id';
 
 interface FitnessState {
   profile: UserProfile | null;
@@ -8,6 +15,9 @@ interface FitnessState {
   currentPlan: Workout[];
   progressHistory: ProgressEntry[];
   activeWorkoutId: string | null;
+  gamification: GamificationState;
+  templates: WorkoutTemplate[];
+  recentPRs: PR[]; // PRs from most recent workout (for UI toast)
 }
 
 interface FitnessContextType extends FitnessState {
@@ -19,16 +29,41 @@ interface FitnessContextType extends FitnessState {
   getWeeklyStats: () => WeeklyStats;
   getTodaysWorkout: () => Workout | null;
   getExerciseHistory: (exerciseId: string) => ProgressEntry[];
+  saveTemplate: (template: WorkoutTemplate) => void;
+  deleteTemplate: (id: string) => void;
+  startCustomWorkout: (template: WorkoutTemplate) => void;
+  setStepsToday: (steps: number) => void;
+  clearRecentPRs: () => void;
+  getTotalVolume: () => number;
 }
 
 const FitnessContext = createContext<FitnessContextType | null>(null);
 
 const STORAGE_KEY = 'fitai-state';
 
+const defaultGamification: GamificationState = {
+  xp: 0,
+  level: 1,
+  streak: 0,
+  lastWorkoutDate: null,
+  prs: [],
+  achievements: ACHIEVEMENT_DEFS.map(a => ({ ...a })),
+  stepsToday: 0,
+  stepDate: null,
+};
+
 function loadState(): FitnessState {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      return {
+        ...parsed,
+        gamification: parsed.gamification || defaultGamification,
+        templates: parsed.templates || [],
+        recentPRs: [],
+      };
+    }
   } catch {}
   return {
     profile: null,
@@ -36,6 +71,9 @@ function loadState(): FitnessState {
     currentPlan: [],
     progressHistory: [],
     activeWorkoutId: null,
+    gamification: defaultGamification,
+    templates: [],
+    recentPRs: [],
   };
 }
 
@@ -43,7 +81,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FitnessState>(loadState);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const { recentPRs, ...toSave } = state;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }, [state]);
 
   const setProfile = useCallback((profile: UserProfile) => {
@@ -90,12 +129,66 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
+      // PR detection
+      const newPRs = detectNewPRs(completed, prev.gamification.prs);
+      const updatedPRs = [...prev.gamification.prs];
+      for (const pr of newPRs) {
+        const idx = updatedPRs.findIndex(
+          p => p.exerciseId === pr.exerciseId && p.type === pr.type
+        );
+        if (idx >= 0) updatedPRs[idx] = pr;
+        else updatedPRs.push(pr);
+      }
+
+      // Streak
+      const newStreak = updateStreak(prev.gamification.lastWorkoutDate, prev.gamification.streak);
+
+      // XP calculation
+      let xpGain = XP_WORKOUT_COMPLETE;
+      xpGain += newPRs.length * XP_NEW_PR;
+      if (newStreak > 1) xpGain += XP_STREAK_BONUS * Math.min(newStreak, 10);
+
+      const newXP = prev.gamification.xp + xpGain;
+      const newLevel = calculateLevel(newXP);
+
+      // Total volume for achievements
+      const allProgress = [...prev.progressHistory, ...newProgress];
+      const totalVol = allProgress.reduce((s, p) => s + p.totalVolume, 0);
+      const workoutCount = prev.workouts.length + 1;
+
+      // Achievement checks
+      const newAchievements = checkAchievements(
+        workoutCount,
+        totalVol,
+        newStreak,
+        newLevel,
+        updatedPRs.length,
+        prev.gamification.achievements
+      );
+
+      const mergedAchievements = prev.gamification.achievements.map(a => {
+        const unlocked = newAchievements.find(na => na.id === a.id);
+        return unlocked || a;
+      });
+
+      const today = new Date().toISOString().split('T')[0];
+
       return {
         ...prev,
         currentPlan: prev.currentPlan.map(w => (w.id === id ? completed : w)),
         workouts: [...prev.workouts, completed],
         progressHistory: [...prev.progressHistory, ...newProgress],
         activeWorkoutId: null,
+        recentPRs: newPRs,
+        gamification: {
+          ...prev.gamification,
+          xp: newXP,
+          level: newLevel,
+          streak: newStreak,
+          lastWorkoutDate: today,
+          prs: updatedPRs,
+          achievements: mergedAchievements,
+        },
       };
     });
   }, []);
@@ -144,6 +237,69 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     return state.progressHistory.filter(p => p.exerciseId === exerciseId);
   }, [state.progressHistory]);
 
+  const saveTemplate = useCallback((template: WorkoutTemplate) => {
+    setState(prev => {
+      const existing = prev.templates.findIndex(t => t.id === template.id);
+      if (existing >= 0) {
+        const updated = [...prev.templates];
+        updated[existing] = template;
+        return { ...prev, templates: updated };
+      }
+      return { ...prev, templates: [...prev.templates, template] };
+    });
+  }, []);
+
+  const deleteTemplate = useCallback((id: string) => {
+    setState(prev => ({ ...prev, templates: prev.templates.filter(t => t.id !== id) }));
+  }, []);
+
+  const startCustomWorkout = useCallback((template: WorkoutTemplate) => {
+    const today = new Date().toISOString().split('T')[0];
+    const exercises: WorkoutExercise[] = template.exercises.map(te => ({
+      id: v4(),
+      exerciseId: te.exerciseId,
+      exerciseName: te.exerciseName,
+      muscleGroup: te.muscleGroup,
+      sets: Array.from({ length: te.sets }, () => ({
+        id: v4(),
+        weight: te.weight,
+        reps: te.reps,
+        completed: false,
+      })),
+      restSeconds: 90,
+    }));
+
+    const workout: Workout = {
+      id: v4(),
+      date: today,
+      name: template.name,
+      exercises,
+      completed: false,
+    };
+
+    setState(prev => ({
+      ...prev,
+      currentPlan: [...prev.currentPlan, workout],
+      activeWorkoutId: workout.id,
+    }));
+  }, []);
+
+  const setStepsToday = useCallback((steps: number) => {
+    const today = new Date().toISOString().split('T')[0];
+    setState(prev => ({
+      ...prev,
+      gamification: { ...prev.gamification, stepsToday: steps, stepDate: today },
+    }));
+  }, []);
+
+  const clearRecentPRs = useCallback(() => {
+    setState(prev => ({ ...prev, recentPRs: [] }));
+  }, []);
+
+  const getTotalVolume = useCallback(() => {
+    return state.progressHistory.reduce((s, p) => s + p.totalVolume, 0);
+  }, [state.progressHistory]);
+
   return (
     <FitnessContext.Provider
       value={{
@@ -156,6 +312,12 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         getWeeklyStats,
         getTodaysWorkout,
         getExerciseHistory,
+        saveTemplate,
+        deleteTemplate,
+        startCustomWorkout,
+        setStepsToday,
+        clearRecentPRs,
+        getTotalVolume,
       }}
     >
       {children}
