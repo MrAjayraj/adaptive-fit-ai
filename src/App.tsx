@@ -24,6 +24,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/workout" element={<WorkoutLogger />} />
             <Route path="/progress" element={<Progress />} />
+            <Route path="/builder" element={<WorkoutBuilder />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

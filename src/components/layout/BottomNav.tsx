@@ -1,9 +1,10 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Dumbbell, BarChart3, User } from 'lucide-react';
+import { Home, Dumbbell, BarChart3, User, PlusCircle } from 'lucide-react';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'Home' },
   { path: '/workout', icon: Dumbbell, label: 'Workout' },
+  { path: '/builder', icon: PlusCircle, label: 'Create' },
   { path: '/progress', icon: BarChart3, label: 'Progress' },
   { path: '/profile', icon: User, label: 'Profile' },
 ];
