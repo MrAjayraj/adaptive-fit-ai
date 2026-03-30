@@ -8,6 +8,7 @@ import Index from "./pages/Index.tsx";
 import WorkoutLogger from "./pages/WorkoutLogger.tsx";
 import Progress from "./pages/Progress.tsx";
 import Profile from "./pages/Profile.tsx";
+import WorkoutBuilder from "./pages/WorkoutBuilder.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
