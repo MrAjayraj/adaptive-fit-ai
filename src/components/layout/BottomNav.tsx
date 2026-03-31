@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Dumbbell, BarChart3, User, PlusCircle } from 'lucide-react';
+import { Home, Dumbbell, BarChart3, User, BookOpen, Trophy } from 'lucide-react';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'Home' },
+  { path: '/exercises', icon: BookOpen, label: 'Library' },
   { path: '/workout', icon: Dumbbell, label: 'Workout' },
-  { path: '/builder', icon: PlusCircle, label: 'Create' },
+  { path: '/challenges', icon: Trophy, label: 'Compete' },
   { path: '/progress', icon: BarChart3, label: 'Progress' },
-  { path: '/profile', icon: User, label: 'Profile' },
 ];
 
 export default function BottomNav() {
@@ -15,14 +15,14 @@ export default function BottomNav() {
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card/90 backdrop-blur-xl border-t border-border safe-bottom">
-      <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
+      <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-1">
         {NAV_ITEMS.map(({ path, icon: Icon, label }) => {
           const isActive = location.pathname === path;
           return (
             <button
               key={path}
               onClick={() => navigate(path)}
-              className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-all ${
+              className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all ${
                 isActive
                   ? 'text-primary'
                   : 'text-muted-foreground hover:text-foreground'

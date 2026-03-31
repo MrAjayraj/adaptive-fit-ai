@@ -9,6 +9,8 @@ import WorkoutLogger from "./pages/WorkoutLogger.tsx";
 import Progress from "./pages/Progress.tsx";
 import Profile from "./pages/Profile.tsx";
 import WorkoutBuilder from "./pages/WorkoutBuilder.tsx";
+import ExerciseLibrary from "./pages/ExerciseLibrary.tsx";
+import Challenges from "./pages/Challenges.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -25,6 +27,8 @@ const App = () => (
             <Route path="/workout" element={<WorkoutLogger />} />
             <Route path="/progress" element={<Progress />} />
             <Route path="/builder" element={<WorkoutBuilder />} />
+            <Route path="/exercises" element={<ExerciseLibrary />} />
+            <Route path="/challenges" element={<Challenges />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
