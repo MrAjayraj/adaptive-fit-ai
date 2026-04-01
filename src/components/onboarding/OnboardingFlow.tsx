@@ -143,6 +143,17 @@ export default function OnboardingFlow() {
                   />
                 </label>
               </div>
+
+              <label className="flex flex-col gap-1.5">
+                <span className="text-sm text-muted-foreground">Body Fat % <span className="text-xs opacity-60">(optional — improves calorie accuracy)</span></span>
+                <input
+                  type="number"
+                  className="bg-input border border-border rounded-lg px-4 py-3 text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  value={form.bodyFat ?? ''}
+                  onChange={e => update({ bodyFat: parseFloat(e.target.value) || undefined })}
+                  placeholder="e.g. 15"
+                />
+              </label>
             </div>
           </div>
         )}
