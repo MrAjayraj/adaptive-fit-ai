@@ -8,8 +8,9 @@ export interface UserProfile {
   name: string;
   age: number;
   gender: Gender;
-  weight: number; // kg
+  weight: number; // kg — latest from weight_logs or onboarding
   height: number; // cm
+  bodyFat?: number; // percentage
   goal: FitnessGoal;
   experience: ExperienceLevel;
   daysPerWeek: number;
@@ -29,7 +30,7 @@ export interface WorkoutSet {
   id: string;
   weight: number;
   reps: number;
-  rpe?: number; // Rate of Perceived Exertion 1-10
+  rpe?: number;
   completed: boolean;
 }
 
@@ -45,12 +46,12 @@ export interface WorkoutExercise {
 
 export interface Workout {
   id: string;
-  date: string; // ISO date
+  date: string;
   name: string;
   exercises: WorkoutExercise[];
-  duration?: number; // minutes
+  duration?: number;
   completed: boolean;
-  rating?: number; // 1-5
+  rating?: number;
 }
 
 export interface WorkoutPlan {
@@ -66,7 +67,7 @@ export interface ProgressEntry {
   exerciseId: string;
   exerciseName: string;
   bestSet: { weight: number; reps: number };
-  totalVolume: number; // weight * reps across all sets
+  totalVolume: number;
 }
 
 export interface WeeklyStats {
