@@ -166,6 +166,87 @@ export type Database = {
         }
         Relationships: []
       }
+      user_profiles: {
+        Row: {
+          age: number
+          body_fat: number | null
+          created_at: string
+          days_per_week: number
+          experience: string
+          gender: string
+          goal: string
+          height: number
+          id: string
+          local_id: string | null
+          name: string
+          onboarding_complete: boolean
+          preferred_split: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          age?: number
+          body_fat?: number | null
+          created_at?: string
+          days_per_week?: number
+          experience?: string
+          gender?: string
+          goal?: string
+          height?: number
+          id?: string
+          local_id?: string | null
+          name?: string
+          onboarding_complete?: boolean
+          preferred_split?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          age?: number
+          body_fat?: number | null
+          created_at?: string
+          days_per_week?: number
+          experience?: string
+          gender?: string
+          goal?: string
+          height?: number
+          id?: string
+          local_id?: string | null
+          name?: string
+          onboarding_complete?: boolean
+          preferred_split?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      weight_logs: {
+        Row: {
+          created_at: string
+          id: string
+          local_id: string | null
+          logged_at: string
+          user_id: string | null
+          weight: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          local_id?: string | null
+          logged_at?: string
+          user_id?: string | null
+          weight: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          local_id?: string | null
+          logged_at?: string
+          user_id?: string | null
+          weight?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
