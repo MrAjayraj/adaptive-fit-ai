@@ -110,7 +110,7 @@ export async function addWeightLog(weight: number): Promise<WeightLogRow | null>
 
   const { data, error } = await supabase
     .from('weight_logs')
-    .insert({ weight, local_id: localId, logged_at: today } as Record<string, unknown>)
+    .insert([{ weight, local_id: localId, logged_at: today }])
     .select()
     .single();
   if (error) console.error('addWeightLog error:', error);
