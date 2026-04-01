@@ -170,31 +170,5 @@ export function checkAchievements(
   return newlyUnlocked;
 }
 
-export function calculateBMR(weight: number, height: number, age: number, gender: string): number {
-  // Mifflin-St Jeor
-  if (gender === 'female') {
-    return 10 * weight + 6.25 * height - 5 * age - 161;
-  }
-  return 10 * weight + 6.25 * height - 5 * age + 5;
-}
-
-export function calculateTargetCalories(
-  bmr: number,
-  goal: string,
-  daysPerWeek: number
-): { maintenance: number; target: number; label: string } {
-  // Activity multiplier based on training days
-  const multiplier = daysPerWeek <= 2 ? 1.375 : daysPerWeek <= 4 ? 1.55 : 1.725;
-  const maintenance = Math.round(bmr * multiplier);
-
-  switch (goal) {
-    case 'lose_fat':
-      return { maintenance, target: maintenance - 500, label: 'Fat Loss (−500 cal)' };
-    case 'build_muscle':
-      return { maintenance, target: maintenance + 300, label: 'Muscle Gain (+300 cal)' };
-    case 'strength':
-      return { maintenance, target: maintenance + 200, label: 'Strength (+200 cal)' };
-    default:
-      return { maintenance, target: maintenance, label: 'Maintenance' };
-  }
-}
+// Calorie functions re-exported from dedicated module
+export { calculateBMR, calculateTargetCalories } from '@/lib/calories';
