@@ -12,6 +12,7 @@ const defaultProfile: UserProfile = {
   gender: 'male',
   weight: 70,
   height: 175,
+  bodyFat: undefined,
   goal: 'build_muscle',
   experience: 'intermediate',
   daysPerWeek: 4,
