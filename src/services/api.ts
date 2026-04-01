@@ -57,7 +57,7 @@ export async function upsertProfile(profile: Partial<ProfileRow>): Promise<Profi
 
   const { data, error } = await supabase
     .from('user_profiles')
-    .insert({ ...profile, local_id: localId } as Record<string, unknown>)
+    .insert([{ ...profile, local_id: localId } as Record<string, unknown>])
     .select()
     .single();
   if (error) console.error('insertProfile error:', error);
