@@ -8,6 +8,7 @@ import {
   calculateLevel, detectNewPRs, updateStreak, checkAchievements,
 } from '@/lib/gamification';
 import { v4 } from '@/lib/id';
+import { fetchProfile, upsertProfile, addWeightLog, getLatestWeight, fetchWeightLogs, type WeightLogRow } from '@/services/api';
 
 interface FitnessState {
   profile: UserProfile | null;
@@ -17,7 +18,9 @@ interface FitnessState {
   activeWorkoutId: string | null;
   gamification: GamificationState;
   templates: WorkoutTemplate[];
-  recentPRs: PR[]; // PRs from most recent workout (for UI toast)
+  recentPRs: PR[];
+  weightLogs: WeightLogRow[];
+  isLoading: boolean;
 }
 
 interface FitnessContextType extends FitnessState {
@@ -35,6 +38,8 @@ interface FitnessContextType extends FitnessState {
   setStepsToday: (steps: number) => void;
   clearRecentPRs: () => void;
   getTotalVolume: () => number;
+  updateWeight: (weight: number) => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const FitnessContext = createContext<FitnessContextType | null>(null);
@@ -62,6 +67,8 @@ function loadState(): FitnessState {
         gamification: parsed.gamification || defaultGamification,
         templates: parsed.templates || [],
         recentPRs: [],
+        weightLogs: [],
+        isLoading: true,
       };
     }
   } catch {}
@@ -74,19 +81,102 @@ function loadState(): FitnessState {
     gamification: defaultGamification,
     templates: [],
     recentPRs: [],
+    weightLogs: [],
+    isLoading: true,
   };
 }
 
 export function FitnessProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FitnessState>(loadState);
 
+  // Persist to localStorage (exclude transient fields)
   useEffect(() => {
-    const { recentPRs, ...toSave } = state;
+    const { recentPRs, weightLogs, isLoading, ...toSave } = state;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
   }, [state]);
 
+  // Load profile from Supabase on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const dbProfile = await fetchProfile();
+        const logs = await fetchWeightLogs();
+        if (dbProfile) {
+          const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
+          const profile: UserProfile = {
+            name: dbProfile.name,
+            age: dbProfile.age,
+            gender: dbProfile.gender as UserProfile['gender'],
+            weight: latestWeight ?? 70,
+            height: Number(dbProfile.height),
+            bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
+            goal: dbProfile.goal as UserProfile['goal'],
+            experience: dbProfile.experience as UserProfile['experience'],
+            daysPerWeek: dbProfile.days_per_week,
+            preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
+            onboardingComplete: dbProfile.onboarding_complete,
+          };
+          setState(prev => ({ ...prev, profile, weightLogs: logs, isLoading: false }));
+        } else {
+          setState(prev => ({ ...prev, weightLogs: logs, isLoading: false }));
+        }
+      } catch {
+        setState(prev => ({ ...prev, isLoading: false }));
+      }
+    })();
+  }, []);
+
+  const refreshProfile = useCallback(async () => {
+    const dbProfile = await fetchProfile();
+    const logs = await fetchWeightLogs();
+    if (dbProfile) {
+      const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
+      const profile: UserProfile = {
+        name: dbProfile.name,
+        age: dbProfile.age,
+        gender: dbProfile.gender as UserProfile['gender'],
+        weight: latestWeight ?? Number(dbProfile.height),
+        height: Number(dbProfile.height),
+        bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
+        goal: dbProfile.goal as UserProfile['goal'],
+        experience: dbProfile.experience as UserProfile['experience'],
+        daysPerWeek: dbProfile.days_per_week,
+        preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
+        onboardingComplete: dbProfile.onboarding_complete,
+      };
+      setState(prev => ({ ...prev, profile, weightLogs: logs }));
+    }
+  }, []);
+
   const setProfile = useCallback((profile: UserProfile) => {
     setState(prev => ({ ...prev, profile }));
+    // Sync to Supabase
+    upsertProfile({
+      name: profile.name,
+      age: profile.age,
+      gender: profile.gender,
+      height: profile.height,
+      body_fat: profile.bodyFat ?? null,
+      goal: profile.goal,
+      experience: profile.experience,
+      days_per_week: profile.daysPerWeek,
+      preferred_split: profile.preferredSplit,
+      onboarding_complete: profile.onboardingComplete,
+    });
+    // Save initial weight
+    if (profile.weight > 0) {
+      addWeightLog(profile.weight);
+    }
+  }, []);
+
+  const updateWeight = useCallback(async (weight: number) => {
+    await addWeightLog(weight);
+    const logs = await fetchWeightLogs();
+    setState(prev => ({
+      ...prev,
+      profile: prev.profile ? { ...prev.profile, weight } : prev.profile,
+      weightLogs: logs,
+    }));
   }, []);
 
   const generatePlan = useCallback(() => {
@@ -113,7 +203,6 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
 
       const completed: Workout = { ...workout, completed: true, rating, duration };
 
-      // Extract progress entries
       const newProgress: ProgressEntry[] = workout.exercises.map(ex => {
         const completedSets = ex.sets.filter(s => s.completed);
         const bestSet = completedSets.reduce(
@@ -129,21 +218,16 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
-      // PR detection
       const newPRs = detectNewPRs(completed, prev.gamification.prs);
       const updatedPRs = [...prev.gamification.prs];
       for (const pr of newPRs) {
-        const idx = updatedPRs.findIndex(
-          p => p.exerciseId === pr.exerciseId && p.type === pr.type
-        );
+        const idx = updatedPRs.findIndex(p => p.exerciseId === pr.exerciseId && p.type === pr.type);
         if (idx >= 0) updatedPRs[idx] = pr;
         else updatedPRs.push(pr);
       }
 
-      // Streak
       const newStreak = updateStreak(prev.gamification.lastWorkoutDate, prev.gamification.streak);
 
-      // XP calculation
       let xpGain = XP_WORKOUT_COMPLETE;
       xpGain += newPRs.length * XP_NEW_PR;
       if (newStreak > 1) xpGain += XP_STREAK_BONUS * Math.min(newStreak, 10);
@@ -151,18 +235,12 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       const newXP = prev.gamification.xp + xpGain;
       const newLevel = calculateLevel(newXP);
 
-      // Total volume for achievements
       const allProgress = [...prev.progressHistory, ...newProgress];
       const totalVol = allProgress.reduce((s, p) => s + p.totalVolume, 0);
       const workoutCount = prev.workouts.length + 1;
 
-      // Achievement checks
       const newAchievements = checkAchievements(
-        workoutCount,
-        totalVol,
-        newStreak,
-        newLevel,
-        updatedPRs.length,
+        workoutCount, totalVol, newStreak, newLevel, updatedPRs.length,
         prev.gamification.achievements
       );
 
@@ -219,13 +297,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    return {
-      weekStart: weekStartStr,
-      totalWorkouts: weekWorkouts.length,
-      totalVolume,
-      totalDuration,
-      muscleGroupBreakdown: breakdown,
-    };
+    return { weekStart: weekStartStr, totalWorkouts: weekWorkouts.length, totalVolume, totalDuration, muscleGroupBreakdown: breakdown };
   }, [state.workouts]);
 
   const getTodaysWorkout = useCallback((): Workout | null => {
@@ -318,6 +390,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         setStepsToday,
         clearRecentPRs,
         getTotalVolume,
+        updateWeight,
+        refreshProfile,
       }}
     >
       {children}

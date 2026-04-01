@@ -1,19 +1,26 @@
+import { useState } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { useNavigate } from 'react-router-dom';
 import { detectFatigue } from '@/lib/workout-generator';
-import { calculateBMR, calculateTargetCalories, xpForNextLevel, xpForLevel } from '@/lib/gamification';
-import { Play, Flame, Dumbbell, TrendingUp, AlertTriangle, ChevronRight, Zap, Trophy, Footprints, Target, Minus, Plus } from 'lucide-react';
+import { calculateBMR, calculateTargetCalories } from '@/lib/calories';
+import { xpForNextLevel, xpForLevel } from '@/lib/gamification';
+import { Play, Flame, Dumbbell, TrendingUp, AlertTriangle, ChevronRight, Zap, Trophy, Footprints, Target, Minus, Plus, Scale, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import BottomNav from '@/components/layout/BottomNav';
+import { toast } from 'sonner';
 
 export default function Dashboard() {
   const {
     profile, currentPlan, workouts, gamification,
     getTodaysWorkout, getWeeklyStats, generatePlan, startWorkout,
-    setStepsToday,
+    setStepsToday, updateWeight,
   } = useFitness();
   const navigate = useNavigate();
+
+  const [weightInput, setWeightInput] = useState('');
+  const [showWeightInput, setShowWeightInput] = useState(false);
+  const [savingWeight, setSavingWeight] = useState(false);
 
   const todaysWorkout = getTodaysWorkout();
   const stats = getWeeklyStats();
@@ -27,10 +34,9 @@ export default function Dashboard() {
     : 100;
 
   // Calorie calculation
-  const bmr = profile ? calculateBMR(profile.weight, profile.height, profile.age, profile.gender) : 0;
+  const bmr = profile ? calculateBMR(profile.weight, profile.height, profile.age, profile.gender, profile.bodyFat) : 0;
   const calories = profile ? calculateTargetCalories(bmr, profile.goal, profile.daysPerWeek) : null;
 
-  // Steps (reset if different day)
   const today = new Date().toISOString().split('T')[0];
   const steps = stepDate === today ? stepsToday : 0;
   const estCalBurned = Math.round(steps * 0.04 + (stats.totalDuration * 6));
@@ -48,9 +54,20 @@ export default function Dashboard() {
     setStepsToday(Math.max(0, steps + delta));
   };
 
+  const handleWeightSave = async () => {
+    const w = parseFloat(weightInput);
+    if (!w || w <= 0) return;
+    setSavingWeight(true);
+    await updateWeight(w);
+    setSavingWeight(false);
+    setShowWeightInput(false);
+    setWeightInput('');
+    toast.success(`Weight updated to ${w} kg`);
+  };
+
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header with Level */}
+      {/* Header */}
       <div className="px-5 pt-6 pb-2">
         <div className="flex items-center justify-between">
           <div>
@@ -83,6 +100,44 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Quick Weight Update */}
+      <div className="px-5 mb-4">
+        {showWeightInput ? (
+          <div className="glass-card p-4 animate-scale-in">
+            <div className="flex items-center gap-2 mb-2">
+              <Scale className="w-4 h-4 text-accent" />
+              <span className="text-sm font-medium text-foreground">Update Weight</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                step="0.1"
+                placeholder={`${profile?.weight ?? ''} kg`}
+                className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                value={weightInput}
+                onChange={e => setWeightInput(e.target.value)}
+                autoFocus
+              />
+              <Button size="sm" onClick={handleWeightSave} disabled={savingWeight}>
+                <Check className="w-4 h-4" />
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => setShowWeightInput(false)}>✕</Button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowWeightInput(true)}
+            className="w-full glass-card-hover flex items-center justify-between p-3"
+          >
+            <div className="flex items-center gap-2">
+              <Scale className="w-4 h-4 text-accent" />
+              <span className="text-sm text-foreground">Current Weight</span>
+            </div>
+            <span className="text-sm font-bold text-primary">{profile?.weight ?? '—'} kg</span>
+          </button>
+        )}
+      </div>
+
       {/* Fatigue Alert */}
       {fatigue.fatigued && (
         <div className="mx-5 mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex gap-3 animate-fade-in">
@@ -105,7 +160,7 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-4 mb-3 text-sm text-muted-foreground">
             <span>{todaysWorkout.exercises.length} exercises</span>
-            <span>+{50} XP</span>
+            <span>+50 XP</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mb-4">
             {[...new Set(todaysWorkout.exercises.map(e => e.muscleGroup))].map(mg => (
@@ -113,28 +168,22 @@ export default function Dashboard() {
             ))}
           </div>
           <Button onClick={handleStartWorkout} className="w-full bg-gradient-primary hover:opacity-90">
-            <Play className="w-4 h-4" />
-            Start Workout
+            <Play className="w-4 h-4" /> Start Workout
           </Button>
         </div>
       ) : (
         <div className="mx-5 mb-5 glass-card p-5 text-center">
           <p className="text-muted-foreground mb-3">No workout planned</p>
           <div className="flex gap-2">
-            <Button onClick={generatePlan} className="flex-1 bg-gradient-primary hover:opacity-90">
-              Generate Plan
-            </Button>
-            <Button onClick={() => navigate('/builder')} variant="outline" className="flex-1">
-              Custom Workout
-            </Button>
+            <Button onClick={generatePlan} className="flex-1 bg-gradient-primary hover:opacity-90">Generate Plan</Button>
+            <Button onClick={() => navigate('/builder')} variant="outline" className="flex-1">Custom Workout</Button>
           </div>
         </div>
       )}
 
-      {/* Daily Stats Row */}
+      {/* Daily Stats */}
       <div className="px-5 mb-5">
         <div className="grid grid-cols-2 gap-3">
-          {/* Steps */}
           <div className="glass-card p-3">
             <div className="flex items-center gap-2 mb-2">
               <Footprints className="w-4 h-4 text-accent" />
@@ -142,20 +191,16 @@ export default function Dashboard() {
             </div>
             <p className="text-xl font-display font-bold text-foreground mb-1">{steps.toLocaleString()}</p>
             <div className="flex items-center gap-1">
-              <button onClick={() => adjustSteps(-500)}
-                className="w-6 h-6 rounded bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+              <button onClick={() => adjustSteps(-500)} className="w-6 h-6 rounded bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
                 <Minus className="w-3 h-3" />
               </button>
-              <button onClick={() => adjustSteps(500)}
-                className="w-6 h-6 rounded bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
+              <button onClick={() => adjustSteps(500)} className="w-6 h-6 rounded bg-muted flex items-center justify-center text-muted-foreground hover:text-foreground">
                 <Plus className="w-3 h-3" />
               </button>
-              <button onClick={() => adjustSteps(1000)}
-                className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground">+1k</button>
+              <button onClick={() => adjustSteps(1000)} className="text-[10px] px-2 py-0.5 rounded bg-muted text-muted-foreground hover:text-foreground">+1k</button>
             </div>
           </div>
 
-          {/* Calories */}
           {calories && (
             <div className="glass-card p-3">
               <div className="flex items-center gap-2 mb-2">
@@ -231,10 +276,7 @@ export default function Dashboard() {
             .map(workout => (
               <button
                 key={workout.id}
-                onClick={() => {
-                  startWorkout(workout.id);
-                  navigate('/workout');
-                }}
+                onClick={() => { startWorkout(workout.id); navigate('/workout'); }}
                 className="glass-card-hover flex items-center justify-between p-4"
               >
                 <div className="flex items-center gap-3">
