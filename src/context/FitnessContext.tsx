@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup, WorkoutExercise, EXERCISE_DATABASE } from '@/types/fitness';
+import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup, WorkoutExercise, EXERCISE_DATABASE, DailyMission } from '@/types/fitness';
 import { WorkoutTemplate, TemplateExercise } from '@/types/workout-templates';
 import { generateWeeklyPlan } from '@/lib/workout-generator';
 import {
   GamificationState, PR, Achievement, ACHIEVEMENT_DEFS,
-  XP_WORKOUT_COMPLETE, XP_NEW_PR, XP_STREAK_BONUS,
+  XP_WORKOUT_COMPLETE, XP_NEW_PR, XP_STREAK_BONUS, XP_LOG_STATS,
   calculateLevel, detectNewPRs, updateStreak, checkAchievements,
+  generateDailyMissions,
 } from '@/lib/gamification';
 import { v4 } from '@/lib/id';
 import { fetchProfile, upsertProfile, addWeightLog, getLatestWeight, fetchWeightLogs, type WeightLogRow } from '@/services/api';
@@ -40,6 +41,7 @@ interface FitnessContextType extends FitnessState {
   getTotalVolume: () => number;
   updateWeight: (weight: number) => Promise<void>;
   refreshProfile: () => Promise<void>;
+  getDailyMissions: () => DailyMission[];
 }
 
 const FitnessContext = createContext<FitnessContextType | null>(null);
@@ -55,6 +57,11 @@ const defaultGamification: GamificationState = {
   achievements: ACHIEVEMENT_DEFS.map(a => ({ ...a })),
   stepsToday: 0,
   stepDate: null,
+  totalSteps: 0,
+  dailyMissions: [],
+  missionsDate: null,
+  streakFreezeUsed: false,
+  streakFreezeWeek: null,
 };
 
 function loadState(): FitnessState {
@@ -64,7 +71,7 @@ function loadState(): FitnessState {
       const parsed = JSON.parse(stored);
       return {
         ...parsed,
-        gamification: parsed.gamification || defaultGamification,
+        gamification: { ...defaultGamification, ...parsed.gamification },
         templates: parsed.templates || [],
         recentPRs: [],
         weightLogs: [],
@@ -110,6 +117,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
             weight: latestWeight ?? 70,
             height: Number(dbProfile.height),
             bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
+            activityLevel: 'moderately_active',
             goal: dbProfile.goal as UserProfile['goal'],
             experience: dbProfile.experience as UserProfile['experience'],
             daysPerWeek: dbProfile.days_per_week,
@@ -138,6 +146,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         weight: latestWeight ?? Number(dbProfile.height),
         height: Number(dbProfile.height),
         bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
+        activityLevel: 'moderately_active',
         goal: dbProfile.goal as UserProfile['goal'],
         experience: dbProfile.experience as UserProfile['experience'],
         daysPerWeek: dbProfile.days_per_week,
@@ -150,7 +159,6 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
 
   const setProfile = useCallback((profile: UserProfile) => {
     setState(prev => ({ ...prev, profile }));
-    // Sync to Supabase
     upsertProfile({
       name: profile.name,
       age: profile.age,
@@ -163,7 +171,6 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       preferred_split: profile.preferredSplit,
       onboarding_complete: profile.onboardingComplete,
     });
-    // Save initial weight
     if (profile.weight > 0) {
       addWeightLog(profile.weight);
     }
@@ -176,6 +183,11 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       ...prev,
       profile: prev.profile ? { ...prev.profile, weight } : prev.profile,
       weightLogs: logs,
+      gamification: {
+        ...prev.gamification,
+        xp: prev.gamification.xp + XP_LOG_STATS,
+        level: calculateLevel(prev.gamification.xp + XP_LOG_STATS),
+      },
     }));
   }, []);
 
@@ -226,11 +238,12 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         else updatedPRs.push(pr);
       }
 
-      const newStreak = updateStreak(prev.gamification.lastWorkoutDate, prev.gamification.streak);
+      const canFreeze = !prev.gamification.streakFreezeUsed;
+      const streakResult = updateStreak(prev.gamification.lastWorkoutDate, prev.gamification.streak, canFreeze);
 
       let xpGain = XP_WORKOUT_COMPLETE;
       xpGain += newPRs.length * XP_NEW_PR;
-      if (newStreak > 1) xpGain += XP_STREAK_BONUS * Math.min(newStreak, 10);
+      if (streakResult.streak > 1) xpGain += XP_STREAK_BONUS * Math.min(streakResult.streak, 10);
 
       const newXP = prev.gamification.xp + xpGain;
       const newLevel = calculateLevel(newXP);
@@ -240,7 +253,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       const workoutCount = prev.workouts.length + 1;
 
       const newAchievements = checkAchievements(
-        workoutCount, totalVol, newStreak, newLevel, updatedPRs.length,
+        workoutCount, totalVol, streakResult.streak, newLevel, updatedPRs.length,
+        prev.gamification.stepsToday, prev.gamification.totalSteps,
         prev.gamification.achievements
       );
 
@@ -248,6 +262,13 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         const unlocked = newAchievements.find(na => na.id === a.id);
         return unlocked || a;
       });
+      // Add any new achievement defs not yet in state
+      for (const def of ACHIEVEMENT_DEFS) {
+        if (!mergedAchievements.find(a => a.id === def.id)) {
+          const unlocked = newAchievements.find(na => na.id === def.id);
+          mergedAchievements.push(unlocked || { ...def });
+        }
+      }
 
       const today = new Date().toISOString().split('T')[0];
 
@@ -262,10 +283,11 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
           ...prev.gamification,
           xp: newXP,
           level: newLevel,
-          streak: newStreak,
+          streak: streakResult.streak,
           lastWorkoutDate: today,
           prs: updatedPRs,
           achievements: mergedAchievements,
+          streakFreezeUsed: streakResult.usedFreeze ? true : prev.gamification.streakFreezeUsed,
         },
       };
     });
@@ -360,7 +382,12 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     const today = new Date().toISOString().split('T')[0];
     setState(prev => ({
       ...prev,
-      gamification: { ...prev.gamification, stepsToday: steps, stepDate: today },
+      gamification: {
+        ...prev.gamification,
+        stepsToday: steps,
+        stepDate: today,
+        totalSteps: prev.gamification.totalSteps + Math.max(0, steps - prev.gamification.stepsToday),
+      },
     }));
   }, []);
 
@@ -371,6 +398,14 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
   const getTotalVolume = useCallback(() => {
     return state.progressHistory.reduce((s, p) => s + p.totalVolume, 0);
   }, [state.progressHistory]);
+
+  const getDailyMissions = useCallback((): DailyMission[] => {
+    const today = new Date().toISOString().split('T')[0];
+    const hasWorkoutToday = state.workouts.some(w => w.date === today && w.completed);
+    const steps = state.gamification.stepDate === today ? state.gamification.stepsToday : 0;
+    const weightLoggedToday = state.weightLogs.some(l => l.logged_at === today);
+    return generateDailyMissions(today, hasWorkoutToday, steps, weightLoggedToday);
+  }, [state.workouts, state.gamification.stepsToday, state.gamification.stepDate, state.weightLogs]);
 
   return (
     <FitnessContext.Provider
@@ -392,6 +427,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         getTotalVolume,
         updateWeight,
         refreshProfile,
+        getDailyMissions,
       }}
     >
       {children}
