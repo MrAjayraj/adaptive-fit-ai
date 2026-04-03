@@ -1,8 +1,9 @@
-export type FitnessGoal = 'build_muscle' | 'lose_fat' | 'strength' | 'endurance' | 'general';
+export type FitnessGoal = 'build_muscle' | 'lose_fat' | 'strength' | 'endurance' | 'general' | 'lean_bulk' | 'maintenance' | 'aggressive_cut';
 export type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
 export type Gender = 'male' | 'female' | 'other';
 export type MuscleGroup = 'chest' | 'back' | 'shoulders' | 'biceps' | 'triceps' | 'legs' | 'core' | 'glutes' | 'cardio';
 export type WorkoutSplit = 'push_pull_legs' | 'upper_lower' | 'full_body' | 'bro_split';
+export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderately_active' | 'very_active' | 'extremely_active';
 
 export interface UserProfile {
   name: string;
@@ -11,6 +12,8 @@ export interface UserProfile {
   weight: number; // kg — latest from weight_logs or onboarding
   height: number; // cm
   bodyFat?: number; // percentage
+  goalWeight?: number; // kg
+  activityLevel: ActivityLevel;
   goal: FitnessGoal;
   experience: ExperienceLevel;
   daysPerWeek: number;
@@ -77,6 +80,45 @@ export interface WeeklyStats {
   totalDuration: number;
   muscleGroupBreakdown: Record<MuscleGroup, number>;
 }
+
+export interface DailyMission {
+  id: string;
+  title: string;
+  description: string;
+  xpReward: number;
+  type: 'workout' | 'steps' | 'weight_log' | 'streak';
+  target: number;
+  progress: number;
+  completed: boolean;
+}
+
+// ── Labels & constants ──
+
+export const ACTIVITY_LABELS: Record<ActivityLevel, string> = {
+  sedentary: 'Sedentary',
+  lightly_active: 'Lightly Active',
+  moderately_active: 'Moderately Active',
+  very_active: 'Very Active',
+  extremely_active: 'Extremely Active',
+};
+
+export const GOAL_LABELS: Record<FitnessGoal, string> = {
+  aggressive_cut: 'Aggressive Cut',
+  lose_fat: 'Fat Loss',
+  maintenance: 'Maintenance',
+  general: 'General Fitness',
+  endurance: 'Endurance',
+  lean_bulk: 'Lean Bulk',
+  build_muscle: 'Muscle Gain',
+  strength: 'Strength',
+};
+
+export const SPLIT_LABELS: Record<WorkoutSplit, string> = {
+  push_pull_legs: 'Push/Pull/Legs',
+  upper_lower: 'Upper/Lower',
+  full_body: 'Full Body',
+  bro_split: 'Body Part Split',
+};
 
 export const EXERCISE_DATABASE: Exercise[] = [
   // Chest
