@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { useNavigate } from 'react-router-dom';
 import { detectFatigue } from '@/lib/workout-generator';
-import { calculateBMR, calculateTargetCalories } from '@/lib/calories';
-import { xpForNextLevel, xpForLevel } from '@/lib/gamification';
-import { Play, Flame, Dumbbell, TrendingUp, AlertTriangle, ChevronRight, Zap, Trophy, Footprints, Target, Minus, Plus, Scale, Check } from 'lucide-react';
+import { calculateBMR, calculateFullCalories } from '@/lib/calories';
+import { xpForNextLevel, xpForLevel, getLevelTier, getStreakFlameSize } from '@/lib/gamification';
+import { Play, Flame, Dumbbell, TrendingUp, AlertTriangle, ChevronRight, Zap, Target, Minus, Plus, Scale, Check, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import BottomNav from '@/components/layout/BottomNav';
+import DailyMissions from '@/components/dashboard/DailyMissions';
+import LevelBadge from '@/components/dashboard/LevelBadge';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
@@ -33,9 +35,13 @@ export default function Dashboard() {
     ? ((xp - currentLevelXP) / (nextLevelXP - currentLevelXP)) * 100
     : 100;
 
-  // Calorie calculation
+  const tier = getLevelTier(level);
+  const flameSize = getStreakFlameSize(streak);
+  const flameSizeClass = { sm: 'w-3.5 h-3.5', md: 'w-4 h-4', lg: 'w-5 h-5', xl: 'w-6 h-6' }[flameSize];
+
+  // Calorie calculation using profile activity level
   const bmr = profile ? calculateBMR(profile.weight, profile.height, profile.age, profile.gender, profile.bodyFat) : 0;
-  const calories = profile ? calculateTargetCalories(bmr, profile.goal, profile.daysPerWeek) : null;
+  const calories = profile ? calculateFullCalories(bmr, profile.goal, profile.activityLevel) : null;
 
   const today = new Date().toISOString().split('T')[0];
   const steps = stepDate === today ? stepsToday : 0;
@@ -70,21 +76,28 @@ export default function Dashboard() {
       {/* Header */}
       <div className="px-5 pt-6 pb-2">
         <div className="flex items-center justify-between">
-          <div>
-            <p className="text-muted-foreground text-sm">Welcome back</p>
-            <h1 className="text-2xl font-display font-bold text-foreground">{profile?.name || 'Athlete'}</h1>
+          <div className="flex items-center gap-2">
+            <div>
+              <p className="text-muted-foreground text-sm">Welcome back</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-display font-bold text-foreground">{profile?.name || 'Athlete'}</h1>
+                {streak > 0 && (
+                  <div className="flex items-center gap-0.5">
+                    <Flame className={`${flameSizeClass} text-destructive`} />
+                    <span className="text-sm font-bold text-destructive">{streak}</span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div className="flex items-center gap-2">
-            {streak > 0 && (
-              <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-destructive/10">
-                <Flame className="w-3.5 h-3.5 text-destructive" />
-                <span className="text-xs font-bold text-destructive">{streak}</span>
-              </div>
-            )}
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10">
-              <Zap className="w-3.5 h-3.5 text-primary" />
+              <span className="text-xs">{tier.icon}</span>
               <span className="text-xs font-bold text-primary">Lv.{level}</span>
             </div>
+            <button onClick={() => navigate('/profile')} className="w-9 h-9 rounded-full bg-gradient-primary flex items-center justify-center">
+              <User className="w-4.5 h-4.5 text-primary-foreground" />
+            </button>
           </div>
         </div>
       </div>
@@ -93,7 +106,7 @@ export default function Dashboard() {
       <div className="px-5 mb-4">
         <div className="glass-card p-3">
           <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-muted-foreground">Level {level}</span>
+            <span className="text-xs text-muted-foreground">Level {level} · <span className={tier.color}>{tier.tier}</span></span>
             <span className="text-xs text-primary font-medium">{xp} / {nextLevelXP} XP</span>
           </div>
           <Progress value={xpProgress} className="h-2 bg-muted" />
@@ -110,25 +123,17 @@ export default function Dashboard() {
             </div>
             <div className="flex gap-2">
               <input
-                type="number"
-                step="0.1"
+                type="number" step="0.1"
                 placeholder={`${profile?.weight ?? ''} kg`}
                 className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={weightInput}
-                onChange={e => setWeightInput(e.target.value)}
-                autoFocus
+                value={weightInput} onChange={e => setWeightInput(e.target.value)} autoFocus
               />
-              <Button size="sm" onClick={handleWeightSave} disabled={savingWeight}>
-                <Check className="w-4 h-4" />
-              </Button>
+              <Button size="sm" onClick={handleWeightSave} disabled={savingWeight}><Check className="w-4 h-4" /></Button>
               <Button size="sm" variant="outline" onClick={() => setShowWeightInput(false)}>✕</Button>
             </div>
           </div>
         ) : (
-          <button
-            onClick={() => setShowWeightInput(true)}
-            className="w-full glass-card-hover flex items-center justify-between p-3"
-          >
+          <button onClick={() => setShowWeightInput(true)} className="w-full glass-card-hover flex items-center justify-between p-3">
             <div className="flex items-center gap-2">
               <Scale className="w-4 h-4 text-accent" />
               <span className="text-sm text-foreground">Current Weight</span>
@@ -160,7 +165,7 @@ export default function Dashboard() {
           </div>
           <div className="flex gap-4 mb-3 text-sm text-muted-foreground">
             <span>{todaysWorkout.exercises.length} exercises</span>
-            <span>+50 XP</span>
+            <span>+100 XP</span>
           </div>
           <div className="flex flex-wrap gap-1.5 mb-4">
             {[...new Set(todaysWorkout.exercises.map(e => e.muscleGroup))].map(mg => (
@@ -186,7 +191,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-2 gap-3">
           <div className="glass-card p-3">
             <div className="flex items-center gap-2 mb-2">
-              <Footprints className="w-4 h-4 text-accent" />
+              <span className="text-sm">👟</span>
               <span className="text-xs text-muted-foreground">Steps Today</span>
             </div>
             <p className="text-xl font-display font-bold text-foreground mb-1">{steps.toLocaleString()}</p>
@@ -208,7 +213,7 @@ export default function Dashboard() {
                 <span className="text-xs text-muted-foreground">Calories</span>
               </div>
               <p className="text-xl font-display font-bold text-foreground">{calories.target}</p>
-              <p className="text-[10px] text-muted-foreground">{calories.label}</p>
+              <p className="text-[10px] text-muted-foreground">{calories.label.split('(')[0].trim()}</p>
               <p className="text-[10px] text-accent mt-0.5">~{estCalBurned} burned today</p>
             </div>
           )}
@@ -231,6 +236,11 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Daily Missions */}
+      <div className="px-5 mb-5">
+        <DailyMissions />
       </div>
 
       {/* Recent PRs */}
@@ -285,7 +295,7 @@ export default function Dashboard() {
                   </div>
                   <div className="text-left">
                     <p className="text-sm font-medium text-foreground">{workout.name}</p>
-                    <p className="text-xs text-muted-foreground">{workout.exercises.length} exercises · +50 XP</p>
+                    <p className="text-xs text-muted-foreground">{workout.exercises.length} exercises · +100 XP</p>
                   </div>
                 </div>
                 <ChevronRight className="w-4 h-4 text-muted-foreground" />

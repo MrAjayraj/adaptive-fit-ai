@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Dumbbell, BarChart3, User, BookOpen, Trophy } from 'lucide-react';
+import { Home, Dumbbell, BarChart3, BookOpen, Trophy, User } from 'lucide-react';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'Home' },
   { path: '/exercises', icon: BookOpen, label: 'Library' },
   { path: '/workout', icon: Dumbbell, label: 'Workout' },
   { path: '/challenges', icon: Trophy, label: 'Compete' },
-  { path: '/progress', icon: BarChart3, label: 'Progress' },
+  { path: '/profile', icon: User, label: 'Profile' },
 ];
 
 export default function BottomNav() {
