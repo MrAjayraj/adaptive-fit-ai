@@ -1,4 +1,4 @@
-import { Workout, ProgressEntry } from '@/types/fitness';
+import { Workout, ProgressEntry, DailyMission } from '@/types/fitness';
 
 export interface PR {
   exerciseId: string;
@@ -8,12 +8,18 @@ export interface PR {
   date: string;
 }
 
+export type AchievementRarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type AchievementCategory = 'strength' | 'cardio' | 'consistency' | 'milestones';
+
 export interface Achievement {
   id: string;
   name: string;
   description: string;
   icon: string;
+  rarity: AchievementRarity;
+  category: AchievementCategory;
   unlockedAt?: string;
+  progressTarget?: number;
 }
 
 export interface GamificationState {
@@ -25,30 +31,71 @@ export interface GamificationState {
   achievements: Achievement[];
   stepsToday: number;
   stepDate: string | null;
+  totalSteps: number;
+  dailyMissions: DailyMission[];
+  missionsDate: string | null;
+  streakFreezeUsed: boolean; // one per week
+  streakFreezeWeek: string | null;
 }
 
 export const ACHIEVEMENT_DEFS: Achievement[] = [
-  { id: 'first_workout', name: 'First Rep', description: 'Complete your first workout', icon: '💪' },
-  { id: 'streak_3', name: 'On Fire', description: '3-day workout streak', icon: '🔥' },
-  { id: 'streak_7', name: 'Iron Will', description: '7-day workout streak', icon: '⚡' },
-  { id: 'streak_30', name: 'Unstoppable', description: '30-day workout streak', icon: '🏆' },
-  { id: 'volume_1000', name: 'Ton Lifter', description: 'Lift 1,000 kg total volume', icon: '🏋️' },
-  { id: 'volume_10000', name: 'Iron Giant', description: 'Lift 10,000 kg total volume', icon: '🦾' },
-  { id: 'volume_100000', name: 'Titan', description: 'Lift 100,000 kg total volume', icon: '👑' },
-  { id: 'workouts_10', name: 'Dedicated', description: 'Complete 10 workouts', icon: '🎯' },
-  { id: 'workouts_50', name: 'Veteran', description: 'Complete 50 workouts', icon: '🎖️' },
-  { id: 'pr_first', name: 'Record Breaker', description: 'Set your first PR', icon: '🏅' },
-  { id: 'pr_10', name: 'PR Machine', description: 'Set 10 personal records', icon: '🥇' },
-  { id: 'level_5', name: 'Rising Star', description: 'Reach level 5', icon: '⭐' },
-  { id: 'level_10', name: 'Elite', description: 'Reach level 10', icon: '💎' },
+  // Consistency
+  { id: 'first_workout', name: 'First Rep', description: 'Complete your first workout', icon: '💪', rarity: 'common', category: 'consistency' },
+  { id: 'streak_3', name: 'On Fire', description: '3-day workout streak', icon: '🔥', rarity: 'common', category: 'consistency', progressTarget: 3 },
+  { id: 'streak_7', name: '7-Day Warrior', description: '7-day workout streak', icon: '⚡', rarity: 'rare', category: 'consistency', progressTarget: 7 },
+  { id: 'streak_30', name: '30-Day Legend', description: '30-day workout streak', icon: '🏆', rarity: 'epic', category: 'consistency', progressTarget: 30 },
+  { id: 'streak_100', name: '100-Day Titan', description: '100-day workout streak', icon: '🗿', rarity: 'legendary', category: 'consistency', progressTarget: 100 },
+  { id: 'workouts_10', name: 'Dedicated', description: 'Complete 10 workouts', icon: '🎯', rarity: 'common', category: 'consistency', progressTarget: 10 },
+  { id: 'workouts_50', name: 'Veteran', description: 'Complete 50 workouts', icon: '🎖️', rarity: 'rare', category: 'consistency', progressTarget: 50 },
+
+  // Strength
+  { id: 'volume_1000', name: 'Ton Lifter', description: 'Lift 1,000 kg total volume', icon: '🏋️', rarity: 'common', category: 'strength', progressTarget: 1000 },
+  { id: 'volume_10000', name: '10k Club', description: 'Lift 10,000 kg total volume', icon: '🦾', rarity: 'rare', category: 'strength', progressTarget: 10000 },
+  { id: 'volume_50000', name: '50k Club', description: 'Lift 50,000 kg total volume', icon: '🔱', rarity: 'epic', category: 'strength', progressTarget: 50000 },
+  { id: 'volume_100000', name: '100k Club', description: 'Lift 100,000 kg total volume', icon: '👑', rarity: 'legendary', category: 'strength', progressTarget: 100000 },
+  { id: 'pr_first', name: 'Record Breaker', description: 'Set your first PR', icon: '🏅', rarity: 'common', category: 'strength' },
+  { id: 'pr_10', name: 'PR Machine', description: 'Set 10 personal records', icon: '🥇', rarity: 'rare', category: 'strength', progressTarget: 10 },
+
+  // Cardio
+  { id: 'steps_marathon', name: 'Marathon Walker', description: '42,195 steps in a day', icon: '🏃', rarity: 'epic', category: 'cardio', progressTarget: 42195 },
+  { id: 'steps_1m', name: 'Step Legend', description: '1M total steps', icon: '🌍', rarity: 'legendary', category: 'cardio', progressTarget: 1000000 },
+
+  // Milestones
+  { id: 'level_5', name: 'Rising Star', description: 'Reach level 5', icon: '⭐', rarity: 'common', category: 'milestones', progressTarget: 5 },
+  { id: 'level_10', name: 'Elite', description: 'Reach level 10', icon: '💎', rarity: 'rare', category: 'milestones', progressTarget: 10 },
+  { id: 'level_25', name: 'Champion', description: 'Reach level 25', icon: '🏛️', rarity: 'epic', category: 'milestones', progressTarget: 25 },
+  { id: 'level_50', name: 'Immortal', description: 'Reach level 50', icon: '🌟', rarity: 'legendary', category: 'milestones', progressTarget: 50 },
 ];
 
-export const XP_WORKOUT_COMPLETE = 50;
-export const XP_NEW_PR = 100;
-export const XP_STREAK_BONUS = 25; // per streak day above 1
+// XP Sources
+export const XP_WORKOUT_COMPLETE = 100;
+export const XP_NEW_PR = 200;
+export const XP_STREAK_BONUS = 50; // per streak day above 1
+export const XP_STEPS_PER_1000 = 25;
+export const XP_CHALLENGE_COMPLETE = 500;
+export const XP_LOG_STATS = 25;
+
+export const XP_SOURCES = [
+  { label: 'Complete a workout', xp: XP_WORKOUT_COMPLETE },
+  { label: 'Set a new PR', xp: XP_NEW_PR },
+  { label: 'Maintain a streak (per day)', xp: XP_STREAK_BONUS },
+  { label: 'Walk 1,000 steps', xp: XP_STEPS_PER_1000 },
+  { label: 'Complete a challenge', xp: XP_CHALLENGE_COMPLETE },
+  { label: 'Log body stats', xp: XP_LOG_STATS },
+];
+
+// Level badges
+export type LevelTier = 'bronze' | 'silver' | 'gold' | 'diamond' | 'platinum';
+
+export function getLevelTier(level: number): { tier: LevelTier; icon: string; color: string } {
+  if (level >= 41) return { tier: 'platinum', icon: '🌟', color: 'text-purple-400' };
+  if (level >= 31) return { tier: 'diamond', icon: '💎', color: 'text-cyan-400' };
+  if (level >= 21) return { tier: 'gold', icon: '👑', color: 'text-yellow-400' };
+  if (level >= 11) return { tier: 'silver', icon: '🥈', color: 'text-gray-300' };
+  return { tier: 'bronze', icon: '🥉', color: 'text-amber-600' };
+}
 
 export function calculateLevel(xp: number): number {
-  // Level = floor(sqrt(xp / 50)) + 1, so each level requires more XP
   return Math.floor(Math.sqrt(xp / 50)) + 1;
 }
 
@@ -71,65 +118,39 @@ export function detectNewPRs(
     const completedSets = ex.sets.filter(s => s.completed);
     if (completedSets.length === 0) continue;
 
-    // Max weight PR
     const maxWeight = Math.max(...completedSets.map(s => s.weight));
-    const existingWeightPR = existingPRs.find(
-      p => p.exerciseId === ex.exerciseId && p.type === 'weight'
-    );
+    const existingWeightPR = existingPRs.find(p => p.exerciseId === ex.exerciseId && p.type === 'weight');
     if (!existingWeightPR || maxWeight > existingWeightPR.value) {
-      newPRs.push({
-        exerciseId: ex.exerciseId,
-        exerciseName: ex.exerciseName,
-        type: 'weight',
-        value: maxWeight,
-        date: today,
-      });
+      newPRs.push({ exerciseId: ex.exerciseId, exerciseName: ex.exerciseName, type: 'weight', value: maxWeight, date: today });
     }
 
-    // Max reps in single set
     const maxReps = Math.max(...completedSets.map(s => s.reps));
-    const existingRepsPR = existingPRs.find(
-      p => p.exerciseId === ex.exerciseId && p.type === 'reps'
-    );
+    const existingRepsPR = existingPRs.find(p => p.exerciseId === ex.exerciseId && p.type === 'reps');
     if (!existingRepsPR || maxReps > existingRepsPR.value) {
-      newPRs.push({
-        exerciseId: ex.exerciseId,
-        exerciseName: ex.exerciseName,
-        type: 'reps',
-        value: maxReps,
-        date: today,
-      });
+      newPRs.push({ exerciseId: ex.exerciseId, exerciseName: ex.exerciseName, type: 'reps', value: maxReps, date: today });
     }
 
-    // Best volume (single exercise total)
     const totalVol = completedSets.reduce((s, set) => s + set.weight * set.reps, 0);
-    const existingVolPR = existingPRs.find(
-      p => p.exerciseId === ex.exerciseId && p.type === 'volume'
-    );
+    const existingVolPR = existingPRs.find(p => p.exerciseId === ex.exerciseId && p.type === 'volume');
     if (!existingVolPR || totalVol > existingVolPR.value) {
-      newPRs.push({
-        exerciseId: ex.exerciseId,
-        exerciseName: ex.exerciseName,
-        type: 'volume',
-        value: totalVol,
-        date: today,
-      });
+      newPRs.push({ exerciseId: ex.exerciseId, exerciseName: ex.exerciseName, type: 'volume', value: totalVol, date: today });
     }
   }
 
   return newPRs;
 }
 
-export function updateStreak(lastWorkoutDate: string | null, currentStreak: number): number {
+export function updateStreak(lastWorkoutDate: string | null, currentStreak: number, streakFreezeAvailable: boolean = false): { streak: number; usedFreeze: boolean } {
   const today = new Date().toISOString().split('T')[0];
-  if (!lastWorkoutDate) return 1;
+  if (!lastWorkoutDate) return { streak: 1, usedFreeze: false };
 
   const last = new Date(lastWorkoutDate);
   const now = new Date(today);
   const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (diffDays <= 1) return currentStreak + 1;
-  return 1; // streak broken
+  if (diffDays <= 1) return { streak: currentStreak + 1, usedFreeze: false };
+  if (diffDays === 2 && streakFreezeAvailable) return { streak: currentStreak + 1, usedFreeze: true };
+  return { streak: 1, usedFreeze: false }; // streak broken
 }
 
 export function checkAchievements(
@@ -138,6 +159,8 @@ export function checkAchievements(
   streak: number,
   level: number,
   prCount: number,
+  stepsToday: number,
+  totalSteps: number,
   existing: Achievement[]
 ): Achievement[] {
   const unlocked = new Set(existing.filter(a => a.unlockedAt).map(a => a.id));
@@ -149,15 +172,21 @@ export function checkAchievements(
     ['streak_3', streak >= 3],
     ['streak_7', streak >= 7],
     ['streak_30', streak >= 30],
+    ['streak_100', streak >= 100],
     ['volume_1000', totalVolume >= 1000],
     ['volume_10000', totalVolume >= 10000],
+    ['volume_50000', totalVolume >= 50000],
     ['volume_100000', totalVolume >= 100000],
     ['workouts_10', workoutCount >= 10],
     ['workouts_50', workoutCount >= 50],
     ['pr_first', prCount >= 1],
     ['pr_10', prCount >= 10],
+    ['steps_marathon', stepsToday >= 42195],
+    ['steps_1m', totalSteps >= 1000000],
     ['level_5', level >= 5],
     ['level_10', level >= 10],
+    ['level_25', level >= 25],
+    ['level_50', level >= 50],
   ];
 
   for (const [id, condition] of checks) {
@@ -170,5 +199,89 @@ export function checkAchievements(
   return newlyUnlocked;
 }
 
+export function generateDailyMissions(
+  todayStr: string,
+  hasWorkoutToday: boolean,
+  stepsToday: number,
+  weightLoggedToday: boolean
+): DailyMission[] {
+  return [
+    {
+      id: `mission-workout-${todayStr}`,
+      title: 'Complete a workout',
+      description: 'Finish any workout today',
+      xpReward: 50,
+      type: 'workout',
+      target: 1,
+      progress: hasWorkoutToday ? 1 : 0,
+      completed: hasWorkoutToday,
+    },
+    {
+      id: `mission-steps-${todayStr}`,
+      title: 'Walk 5,000 steps',
+      description: 'Get moving today',
+      xpReward: 30,
+      type: 'steps',
+      target: 5000,
+      progress: Math.min(stepsToday, 5000),
+      completed: stepsToday >= 5000,
+    },
+    {
+      id: `mission-weight-${todayStr}`,
+      title: 'Log your weight',
+      description: 'Track your progress',
+      xpReward: 20,
+      type: 'weight_log',
+      target: 1,
+      progress: weightLoggedToday ? 1 : 0,
+      completed: weightLoggedToday,
+    },
+  ];
+}
+
+export function getAchievementProgress(
+  id: string,
+  workoutCount: number,
+  totalVolume: number,
+  streak: number,
+  level: number,
+  prCount: number,
+  stepsToday: number,
+  totalSteps: number
+): number {
+  const map: Record<string, number> = {
+    first_workout: Math.min(workoutCount, 1),
+    streak_3: Math.min(streak, 3),
+    streak_7: Math.min(streak, 7),
+    streak_30: Math.min(streak, 30),
+    streak_100: Math.min(streak, 100),
+    volume_1000: Math.min(totalVolume, 1000),
+    volume_10000: Math.min(totalVolume, 10000),
+    volume_50000: Math.min(totalVolume, 50000),
+    volume_100000: Math.min(totalVolume, 100000),
+    workouts_10: Math.min(workoutCount, 10),
+    workouts_50: Math.min(workoutCount, 50),
+    pr_first: Math.min(prCount, 1),
+    pr_10: Math.min(prCount, 10),
+    steps_marathon: Math.min(stepsToday, 42195),
+    steps_1m: Math.min(totalSteps, 1000000),
+    level_5: Math.min(level, 5),
+    level_10: Math.min(level, 10),
+    level_25: Math.min(level, 25),
+    level_50: Math.min(level, 50),
+  };
+  return map[id] ?? 0;
+}
+
 // Calorie functions re-exported from dedicated module
-export { calculateBMR, calculateTargetCalories } from '@/lib/calories';
+export { calculateBMR, calculateTargetCalories, calculateFullCalories } from '@/lib/calories';
+
+// Streak milestones
+export const STREAK_MILESTONES = [7, 14, 30, 60, 90, 365];
+
+export function getStreakFlameSize(streak: number): 'sm' | 'md' | 'lg' | 'xl' {
+  if (streak >= 30) return 'xl';
+  if (streak >= 14) return 'lg';
+  if (streak >= 7) return 'md';
+  return 'sm';
+}
