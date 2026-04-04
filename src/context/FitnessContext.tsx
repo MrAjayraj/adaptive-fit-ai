@@ -114,7 +114,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         const logs = await fetchWeightLogs();
         if (dbProfile) {
           const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
-          const row = dbProfile as Record<string, unknown>;
+          const row = dbProfile as unknown as Record<string, unknown>;
           const profile: UserProfile = {
             name: dbProfile.name,
             age: dbProfile.age,
