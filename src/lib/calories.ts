@@ -21,6 +21,9 @@ export function calculateBMR(
   if (gender === 'female') {
     return 10 * weight + 6.25 * height - 5 * age - 161;
   }
+  if (gender === 'other') {
+    return 10 * weight + 6.25 * height - 5 * age - 78;
+  }
   return 10 * weight + 6.25 * height - 5 * age + 5;
 }
 

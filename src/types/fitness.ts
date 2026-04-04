@@ -86,7 +86,7 @@ export interface DailyMission {
   title: string;
   description: string;
   xpReward: number;
-  type: 'workout' | 'steps' | 'weight_log' | 'streak';
+  type: 'workout' | 'steps' | 'weight_log' | 'streak' | 'stretch' | 'hydration';
   target: number;
   progress: number;
   completed: boolean;
