@@ -90,7 +90,7 @@ export default function Challenges() {
     await supabase.from('challenges').insert([{
       name: newCh.name, type: 'personal', target_value: parseInt(newCh.target) || 10,
       target_unit: newCh.type, duration_days: newCh.duration, icon: '🎯', created_by: getLocalId(),
-    } as Record<string, unknown>]);
+    }]);
     setShowCreate(false);
     setNewCh({ name: '', type: 'workouts', target: '10', duration: 30 });
     fetchAll();
