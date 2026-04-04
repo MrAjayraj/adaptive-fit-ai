@@ -14,6 +14,33 @@ export type Database = {
   }
   public: {
     Tables: {
+      body_stats_log: {
+        Row: {
+          body_fat_percentage: number | null
+          id: string
+          local_id: string | null
+          logged_at: string
+          user_id: string | null
+          weight_kg: number
+        }
+        Insert: {
+          body_fat_percentage?: number | null
+          id?: string
+          local_id?: string | null
+          logged_at?: string
+          user_id?: string | null
+          weight_kg: number
+        }
+        Update: {
+          body_fat_percentage?: number | null
+          id?: string
+          local_id?: string | null
+          logged_at?: string
+          user_id?: string | null
+          weight_kg?: number
+        }
+        Relationships: []
+      }
       challenge_participants: {
         Row: {
           challenge_id: string
@@ -55,6 +82,7 @@ export type Database = {
       challenges: {
         Row: {
           created_at: string
+          created_by: string | null
           description: string | null
           duration_days: number
           icon: string | null
@@ -67,6 +95,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
           description?: string | null
           duration_days?: number
           icon?: string | null
@@ -79,6 +108,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          created_by?: string | null
           description?: string | null
           duration_days?: number
           icon?: string | null
@@ -88,6 +118,45 @@ export type Database = {
           target_unit?: string
           target_value?: number
           type?: string
+        }
+        Relationships: []
+      }
+      daily_missions: {
+        Row: {
+          completed_at: string | null
+          id: string
+          is_completed: boolean
+          local_id: string | null
+          mission_date: string
+          mission_description: string | null
+          mission_title: string
+          mission_type: string
+          user_id: string | null
+          xp_reward: number
+        }
+        Insert: {
+          completed_at?: string | null
+          id?: string
+          is_completed?: boolean
+          local_id?: string | null
+          mission_date: string
+          mission_description?: string | null
+          mission_title: string
+          mission_type: string
+          user_id?: string | null
+          xp_reward?: number
+        }
+        Update: {
+          completed_at?: string | null
+          id?: string
+          is_completed?: boolean
+          local_id?: string | null
+          mission_date?: string
+          mission_description?: string | null
+          mission_title?: string
+          mission_type?: string
+          user_id?: string | null
+          xp_reward?: number
         }
         Relationships: []
       }
@@ -166,56 +235,131 @@ export type Database = {
         }
         Relationships: []
       }
+      user_achievements: {
+        Row: {
+          achievement_id: string
+          id: string
+          local_id: string | null
+          progress: number
+          target: number
+          unlocked_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          achievement_id: string
+          id?: string
+          local_id?: string | null
+          progress?: number
+          target?: number
+          unlocked_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          achievement_id?: string
+          id?: string
+          local_id?: string | null
+          progress?: number
+          target?: number
+          unlocked_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       user_profiles: {
         Row: {
+          activity_level: string
           age: number
+          avatar_url: string | null
           body_fat: number | null
           created_at: string
           days_per_week: number
           experience: string
           gender: string
           goal: string
+          goal_weight_kg: number | null
           height: number
           id: string
           local_id: string | null
           name: string
           onboarding_complete: boolean
           preferred_split: string
+          unit_preference: string
           updated_at: string
           user_id: string | null
         }
         Insert: {
+          activity_level?: string
           age?: number
+          avatar_url?: string | null
           body_fat?: number | null
           created_at?: string
           days_per_week?: number
           experience?: string
           gender?: string
           goal?: string
+          goal_weight_kg?: number | null
           height?: number
           id?: string
           local_id?: string | null
           name?: string
           onboarding_complete?: boolean
           preferred_split?: string
+          unit_preference?: string
           updated_at?: string
           user_id?: string | null
         }
         Update: {
+          activity_level?: string
           age?: number
+          avatar_url?: string | null
           body_fat?: number | null
           created_at?: string
           days_per_week?: number
           experience?: string
           gender?: string
           goal?: string
+          goal_weight_kg?: number | null
           height?: number
           id?: string
           local_id?: string | null
           name?: string
           onboarding_complete?: boolean
           preferred_split?: string
+          unit_preference?: string
           updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      user_streaks: {
+        Row: {
+          current_streak: number
+          id: string
+          last_workout_date: string | null
+          local_id: string | null
+          longest_streak: number
+          streak_freeze_used_this_week: boolean
+          streak_freezes_remaining: number
+          user_id: string | null
+        }
+        Insert: {
+          current_streak?: number
+          id?: string
+          last_workout_date?: string | null
+          local_id?: string | null
+          longest_streak?: number
+          streak_freeze_used_this_week?: boolean
+          streak_freezes_remaining?: number
+          user_id?: string | null
+        }
+        Update: {
+          current_streak?: number
+          id?: string
+          last_workout_date?: string | null
+          local_id?: string | null
+          longest_streak?: number
+          streak_freeze_used_this_week?: boolean
+          streak_freezes_remaining?: number
           user_id?: string | null
         }
         Relationships: []
