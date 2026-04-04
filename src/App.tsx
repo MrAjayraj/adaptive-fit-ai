@@ -11,6 +11,7 @@ import Profile from "./pages/Profile.tsx";
 import WorkoutBuilder from "./pages/WorkoutBuilder.tsx";
 import ExerciseLibrary from "./pages/ExerciseLibrary.tsx";
 import Challenges from "./pages/Challenges.tsx";
+import Achievements from "./pages/Achievements.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -30,6 +31,7 @@ const App = () => (
             <Route path="/exercises" element={<ExerciseLibrary />} />
             <Route path="/challenges" element={<Challenges />} />
             <Route path="/profile" element={<Profile />} />
+            <Route path="/achievements" element={<Achievements />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>

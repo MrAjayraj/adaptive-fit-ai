@@ -4,25 +4,25 @@ import { useNavigate } from 'react-router-dom';
 import { detectFatigue } from '@/lib/workout-generator';
 import { calculateBMR, calculateFullCalories } from '@/lib/calories';
 import { xpForNextLevel, xpForLevel, getLevelTier, getStreakFlameSize } from '@/lib/gamification';
-import { Play, Flame, Dumbbell, TrendingUp, AlertTriangle, ChevronRight, Zap, Target, Minus, Plus, Scale, Check, User } from 'lucide-react';
+import { Play, Flame, Dumbbell, TrendingUp, AlertTriangle, ChevronRight, Target, Minus, Plus, Scale, Check, User, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import BottomNav from '@/components/layout/BottomNav';
 import DailyMissions from '@/components/dashboard/DailyMissions';
-import LevelBadge from '@/components/dashboard/LevelBadge';
 import { toast } from 'sonner';
 
 export default function Dashboard() {
   const {
     profile, currentPlan, workouts, gamification,
     getTodaysWorkout, getWeeklyStats, generatePlan, startWorkout,
-    setStepsToday, updateWeight,
+    setStepsToday, updateWeight, refreshProfile,
   } = useFitness();
   const navigate = useNavigate();
 
   const [weightInput, setWeightInput] = useState('');
   const [showWeightInput, setShowWeightInput] = useState(false);
   const [savingWeight, setSavingWeight] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const todaysWorkout = getTodaysWorkout();
   const stats = getWeeklyStats();
@@ -37,15 +37,15 @@ export default function Dashboard() {
 
   const tier = getLevelTier(level);
   const flameSize = getStreakFlameSize(streak);
-  const flameSizeClass = { sm: 'w-3.5 h-3.5', md: 'w-4 h-4', lg: 'w-5 h-5', xl: 'w-6 h-6' }[flameSize];
+  const flameSizeClass = { sm: 'w-3.5 h-3.5', md: 'w-4.5 h-4.5', lg: 'w-5.5 h-5.5', xl: 'w-6 h-6' }[flameSize];
 
-  // Calorie calculation using profile activity level
   const bmr = profile ? calculateBMR(profile.weight, profile.height, profile.age, profile.gender, profile.bodyFat) : 0;
   const calories = profile ? calculateFullCalories(bmr, profile.goal, profile.activityLevel) : null;
 
   const today = new Date().toISOString().split('T')[0];
   const steps = stepDate === today ? stepsToday : 0;
   const estCalBurned = Math.round(steps * 0.04 + (stats.totalDuration * 6));
+  const calorieProgress = calories ? Math.min((estCalBurned / calories.target) * 100, 100) : 0;
 
   const unlockedAchievements = achievements.filter(a => a.unlockedAt);
 
@@ -56,9 +56,7 @@ export default function Dashboard() {
     }
   };
 
-  const adjustSteps = (delta: number) => {
-    setStepsToday(Math.max(0, steps + delta));
-  };
+  const adjustSteps = (delta: number) => setStepsToday(Math.max(0, steps + delta));
 
   const handleWeightSave = async () => {
     const w = parseFloat(weightInput);
@@ -71,26 +69,36 @@ export default function Dashboard() {
     toast.success(`Weight updated to ${w} kg`);
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshProfile();
+    setRefreshing(false);
+    toast.success('Data refreshed');
+  };
+
+  const anim = (i: number) => ({ animationDelay: `${i * 0.06}s`, animationFillMode: 'backwards' as const });
+
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* Header */}
-      <div className="px-5 pt-6 pb-2">
+      {/* 1. Welcome Header */}
+      <div className="px-5 pt-6 pb-2 animate-fade-in">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div>
-              <p className="text-muted-foreground text-sm">Welcome back</p>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-display font-bold text-foreground">{profile?.name || 'Athlete'}</h1>
-                {streak > 0 && (
-                  <div className="flex items-center gap-0.5">
-                    <Flame className={`${flameSizeClass} text-destructive`} />
-                    <span className="text-sm font-bold text-destructive">{streak}</span>
-                  </div>
-                )}
-              </div>
+          <div>
+            <p className="text-muted-foreground text-sm">Welcome back</p>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-display font-bold text-foreground">{profile?.name || 'Athlete'}</h1>
+              {streak > 0 && (
+                <div className="flex items-center gap-0.5">
+                  <Flame className={`${flameSizeClass} text-destructive ${streak >= 7 ? 'animate-pulse' : ''}`} />
+                  <span className="text-sm font-bold text-destructive">{streak}</span>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={handleRefresh} className="w-8 h-8 rounded-full bg-card flex items-center justify-center">
+              <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
             <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10">
               <span className="text-xs">{tier.icon}</span>
               <span className="text-xs font-bold text-primary">Lv.{level}</span>
@@ -102,9 +110,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* XP Bar */}
-      <div className="px-5 mb-4">
-        <div className="glass-card p-3">
+      {/* 2. XP Bar */}
+      <div className="px-5 mb-4 animate-slide-up" style={anim(1)}>
+        <div className="glass-card p-3 animate-pulse-glow">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs text-muted-foreground">Level {level} · <span className={tier.color}>{tier.tier}</span></span>
             <span className="text-xs text-primary font-medium">{xp} / {nextLevelXP} XP</span>
@@ -113,8 +121,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Quick Weight Update */}
-      <div className="px-5 mb-4">
+      {/* 3. Weight */}
+      <div className="px-5 mb-4 animate-slide-up" style={anim(2)}>
         {showWeightInput ? (
           <div className="glass-card p-4 animate-scale-in">
             <div className="flex items-center gap-2 mb-2">
@@ -122,12 +130,9 @@ export default function Dashboard() {
               <span className="text-sm font-medium text-foreground">Update Weight</span>
             </div>
             <div className="flex gap-2">
-              <input
-                type="number" step="0.1"
-                placeholder={`${profile?.weight ?? ''} kg`}
+              <input type="number" step="0.1" placeholder={`${profile?.weight ?? ''} kg`}
                 className="flex-1 bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                value={weightInput} onChange={e => setWeightInput(e.target.value)} autoFocus
-              />
+                value={weightInput} onChange={e => setWeightInput(e.target.value)} autoFocus />
               <Button size="sm" onClick={handleWeightSave} disabled={savingWeight}><Check className="w-4 h-4" /></Button>
               <Button size="sm" variant="outline" onClick={() => setShowWeightInput(false)}>✕</Button>
             </div>
@@ -151,43 +156,50 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Today's Workout Card */}
-      {todaysWorkout ? (
-        <div className="mx-5 mb-5 glass-card p-5 glow-border animate-slide-up">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-xs text-primary font-medium uppercase tracking-wider">Today's Workout</p>
-              <h2 className="text-xl font-display font-bold text-foreground mt-1">{todaysWorkout.name}</h2>
+      {/* 4. Workout Card */}
+      <div className="animate-slide-up" style={anim(3)}>
+        {todaysWorkout ? (
+          <div className="mx-5 mb-5 glass-card p-5 glow-border">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-xs text-primary font-medium uppercase tracking-wider">Today's Workout</p>
+                <h2 className="text-xl font-display font-bold text-foreground mt-1">{todaysWorkout.name}</h2>
+              </div>
+              <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center">
+                <Dumbbell className="w-6 h-6 text-primary-foreground" />
+              </div>
             </div>
-            <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center">
-              <Dumbbell className="w-6 h-6 text-primary-foreground" />
+            <div className="flex gap-4 mb-3 text-sm text-muted-foreground">
+              <span>{todaysWorkout.exercises.length} exercises</span>
+              <span>+100 XP</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              {[...new Set(todaysWorkout.exercises.map(e => e.muscleGroup))].map(mg => (
+                <span key={mg} className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary capitalize">{mg}</span>
+              ))}
+            </div>
+            <Button onClick={handleStartWorkout} className="w-full bg-gradient-primary hover:opacity-90">
+              <Play className="w-4 h-4" /> Start Workout
+            </Button>
+          </div>
+        ) : (
+          <div className="mx-5 mb-5 glass-card p-5 text-center">
+            <p className="text-muted-foreground mb-3">No workout planned</p>
+            <div className="flex gap-2">
+              <Button onClick={generatePlan} className="flex-1 bg-gradient-primary hover:opacity-90">Generate Plan</Button>
+              <Button onClick={() => navigate('/builder')} variant="outline" className="flex-1">Custom Workout</Button>
             </div>
           </div>
-          <div className="flex gap-4 mb-3 text-sm text-muted-foreground">
-            <span>{todaysWorkout.exercises.length} exercises</span>
-            <span>+100 XP</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5 mb-4">
-            {[...new Set(todaysWorkout.exercises.map(e => e.muscleGroup))].map(mg => (
-              <span key={mg} className="text-xs px-2.5 py-1 rounded-full bg-primary/10 text-primary capitalize">{mg}</span>
-            ))}
-          </div>
-          <Button onClick={handleStartWorkout} className="w-full bg-gradient-primary hover:opacity-90">
-            <Play className="w-4 h-4" /> Start Workout
-          </Button>
-        </div>
-      ) : (
-        <div className="mx-5 mb-5 glass-card p-5 text-center">
-          <p className="text-muted-foreground mb-3">No workout planned</p>
-          <div className="flex gap-2">
-            <Button onClick={generatePlan} className="flex-1 bg-gradient-primary hover:opacity-90">Generate Plan</Button>
-            <Button onClick={() => navigate('/builder')} variant="outline" className="flex-1">Custom Workout</Button>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Daily Stats */}
-      <div className="px-5 mb-5">
+      {/* 5. Daily Missions */}
+      <div className="px-5 mb-5 animate-slide-up" style={anim(4)}>
+        <DailyMissions />
+      </div>
+
+      {/* 6. Steps + Calories */}
+      <div className="px-5 mb-5 animate-slide-up" style={anim(5)}>
         <div className="grid grid-cols-2 gap-3">
           <div className="glass-card p-3">
             <div className="flex items-center gap-2 mb-2">
@@ -206,22 +218,37 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {calories && (
-            <div className="glass-card p-3">
-              <div className="flex items-center gap-2 mb-2">
-                <Target className="w-4 h-4 text-primary" />
-                <span className="text-xs text-muted-foreground">Calories</span>
-              </div>
-              <p className="text-xl font-display font-bold text-foreground">{calories.target}</p>
-              <p className="text-[10px] text-muted-foreground">{calories.label.split('(')[0].trim()}</p>
-              <p className="text-[10px] text-accent mt-0.5">~{estCalBurned} burned today</p>
+          <div className="glass-card p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Target className="w-4 h-4 text-primary" />
+              <span className="text-xs text-muted-foreground">Calories</span>
             </div>
-          )}
+            {calories ? (
+              <div className="flex items-center gap-2">
+                <div className="relative w-14 h-14 shrink-0">
+                  <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90">
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="hsl(var(--muted))" strokeWidth="2.5" />
+                    <circle cx="18" cy="18" r="15.9" fill="none" stroke="hsl(var(--primary))" strokeWidth="2.5"
+                      strokeDasharray={`${calorieProgress} ${100 - calorieProgress}`} strokeLinecap="round" />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-foreground">{calories.target}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[10px] text-primary font-medium">{calories.label.split('(')[0].trim()}</p>
+                  <p className="text-[10px] text-accent mt-0.5">~{estCalBurned} burned</p>
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => navigate('/profile')} className="text-xs text-primary underline">Set up profile →</button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Weekly Stats */}
-      <div className="px-5 mb-5">
+      {/* 7. This Week */}
+      <div className="px-5 mb-5 animate-slide-up" style={anim(6)}>
         <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">This Week</h3>
         <div className="grid grid-cols-3 gap-3">
           {[
@@ -238,14 +265,9 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Daily Missions */}
-      <div className="px-5 mb-5">
-        <DailyMissions />
-      </div>
-
-      {/* Recent PRs */}
+      {/* 8. PRs */}
       {prs.length > 0 && (
-        <div className="px-5 mb-5">
+        <div className="px-5 mb-5 animate-slide-up" style={anim(7)}>
           <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Personal Records</h3>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {prs.slice(-6).reverse().map((pr, i) => (
@@ -261,12 +283,18 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Achievements */}
+      {/* 9. Achievements */}
       {unlockedAchievements.length > 0 && (
-        <div className="px-5 mb-5">
-          <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Achievements</h3>
+        <div className="px-5 mb-5 animate-slide-up" style={anim(8)}>
+          <button onClick={() => navigate('/achievements')} className="flex items-center justify-between w-full mb-3">
+            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Achievements</h3>
+            <div className="flex items-center gap-1 text-xs text-primary">
+              <span>See All</span>
+              <ChevronRight className="w-3 h-3" />
+            </div>
+          </button>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-            {unlockedAchievements.map(a => (
+            {unlockedAchievements.slice(0, 6).map(a => (
               <div key={a.id} className="shrink-0 glass-card p-3 min-w-[100px] text-center">
                 <span className="text-2xl">{a.icon}</span>
                 <p className="text-[10px] font-medium text-foreground mt-1">{a.name}</p>
@@ -276,31 +304,25 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Upcoming Workouts */}
-      <div className="px-5">
+      {/* 10. Upcoming */}
+      <div className="px-5 animate-slide-up" style={anim(9)}>
         <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wider">Upcoming</h3>
         <div className="flex flex-col gap-2">
-          {currentPlan
-            .filter(w => !w.completed)
-            .slice(0, 4)
-            .map(workout => (
-              <button
-                key={workout.id}
-                onClick={() => { startWorkout(workout.id); navigate('/workout'); }}
-                className="glass-card-hover flex items-center justify-between p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                    <Dumbbell className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-medium text-foreground">{workout.name}</p>
-                    <p className="text-xs text-muted-foreground">{workout.exercises.length} exercises · +100 XP</p>
-                  </div>
+          {currentPlan.filter(w => !w.completed).slice(0, 4).map(workout => (
+            <button key={workout.id} onClick={() => { startWorkout(workout.id); navigate('/workout'); }}
+              className="glass-card-hover flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                  <Dumbbell className="w-5 h-5 text-muted-foreground" />
                 </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground" />
-              </button>
-            ))}
+                <div className="text-left">
+                  <p className="text-sm font-medium text-foreground">{workout.name}</p>
+                  <p className="text-xs text-muted-foreground">{workout.exercises.length} exercises · +100 XP</p>
+                </div>
+              </div>
+              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+            </button>
+          ))}
         </div>
       </div>
 

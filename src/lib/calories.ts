@@ -21,6 +21,9 @@ export function calculateBMR(
   if (gender === 'female') {
     return 10 * weight + 6.25 * height - 5 * age - 161;
   }
+  if (gender === 'other') {
+    return 10 * weight + 6.25 * height - 5 * age - 78;
+  }
   return 10 * weight + 6.25 * height - 5 * age + 5;
 }
 
@@ -39,7 +42,7 @@ export interface MacroSplit {
 }
 
 export const GOAL_MACRO_SPLITS: Record<string, MacroSplit> = {
-  aggressive_cut: { proteinPct: 0.40, carbsPct: 0.30, fatPct: 0.30 },
+  aggressive_cut: { proteinPct: 0.45, carbsPct: 0.25, fatPct: 0.30 },
   lose_fat:       { proteinPct: 0.40, carbsPct: 0.30, fatPct: 0.30 },
   maintenance:    { proteinPct: 0.30, carbsPct: 0.40, fatPct: 0.30 },
   general:        { proteinPct: 0.30, carbsPct: 0.40, fatPct: 0.30 },

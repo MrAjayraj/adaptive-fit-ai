@@ -1,12 +1,11 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, Dumbbell, BarChart3, BookOpen, Trophy, User } from 'lucide-react';
+import { Home, Dumbbell, BookOpen, Trophy } from 'lucide-react';
 
 const NAV_ITEMS = [
   { path: '/', icon: Home, label: 'Home' },
   { path: '/exercises', icon: BookOpen, label: 'Library' },
   { path: '/workout', icon: Dumbbell, label: 'Workout' },
   { path: '/challenges', icon: Trophy, label: 'Compete' },
-  { path: '/profile', icon: User, label: 'Profile' },
 ];
 
 export default function BottomNav() {
@@ -22,10 +21,8 @@ export default function BottomNav() {
             <button
               key={path}
               onClick={() => navigate(path)}
-              className={`flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-lg transition-all ${
-                isActive
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+              className={`flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg transition-all ${
+                isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               <Icon className={`w-5 h-5 ${isActive ? 'drop-shadow-[0_0_6px_hsl(145_80%_42%_/_0.5)]' : ''}`} />
