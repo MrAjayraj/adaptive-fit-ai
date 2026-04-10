@@ -1,59 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
-
 @layer base {
   :root {
-    --background: 220 20% 7%;
-    --foreground: 0 0% 95%;
+    /* Volt Athletic — Bold Yellow Theme */
+    --background: 240 5% 7%;          /* #111113 near-black charcoal */
+    --foreground: 0 0% 99%;           /* #FCFCFC near-white */
 
-    --card: 220 18% 10%;
-    --card-foreground: 0 0% 95%;
+    --card: 240 4% 11%;               /* #1A1A1E dark card */
+    --card-foreground: 0 0% 99%;
 
-    --popover: 220 18% 10%;
-    --popover-foreground: 0 0% 95%;
+    --popover: 240 4% 11%;
+    --popover-foreground: 0 0% 99%;
 
-    --primary: 145 80% 42%;
-    --primary-foreground: 220 20% 7%;
+    --primary: 44 95% 52%;            /* #F5C518 Electric Yellow */
+    --primary-foreground: 240 5% 8%; /* Dark text on yellow */
 
-    --secondary: 220 15% 15%;
+    --secondary: 240 4% 16%;          /* #262629 */
     --secondary-foreground: 0 0% 85%;
 
-    --muted: 220 15% 13%;
-    --muted-foreground: 220 10% 50%;
+    --muted: 240 4% 13%;
+    --muted-foreground: 240 4% 52%;   /* #818188 subdued grey */
 
-    --accent: 200 85% 55%;
-    --accent-foreground: 220 20% 7%;
+    --accent: 44 95% 52%;
+    --accent-foreground: 240 5% 8%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 4 86% 58%;         /* red */
     --destructive-foreground: 0 0% 98%;
 
-    --border: 220 15% 18%;
-    --input: 220 15% 15%;
-    --ring: 145 80% 42%;
+    --border: 240 4% 18%;             /* subtle dark border */
+    --input: 240 4% 14%;
+    --ring: 44 95% 52%;               /* yellow focus ring */
 
-    --radius: 0.75rem;
+    --radius: 1rem;
 
-    --sidebar-background: 220 18% 10%;
-    --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 145 80% 42%;
-    --sidebar-primary-foreground: 220 20% 7%;
-    --sidebar-accent: 220 15% 15%;
-    --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 220 15% 18%;
-    --sidebar-ring: 145 80% 42%;
+    --sidebar-background: 240 5% 7%;
+    --sidebar-foreground: 0 0% 99%;
+    --sidebar-primary: 44 95% 52%;
+    --sidebar-primary-foreground: 240 5% 8%;
+    --sidebar-accent: 240 4% 16%;
+    --sidebar-accent-foreground: 0 0% 99%;
+    --sidebar-border: 240 4% 18%;
+    --sidebar-ring: 44 95% 52%;
 
-    /* Custom tokens */
-    --glow: 145 80% 42%;
-    --glow-accent: 200 85% 55%;
-    --surface-glass: 220 18% 12%;
-    --gradient-primary: linear-gradient(135deg, hsl(145 80% 42%), hsl(170 75% 40%));
-    --gradient-accent: linear-gradient(135deg, hsl(200 85% 55%), hsl(260 70% 60%));
-    --gradient-warm: linear-gradient(135deg, hsl(25 95% 55%), hsl(350 80% 55%));
-    --shadow-glow: 0 0 20px hsl(145 80% 42% / 0.15);
-    --shadow-glow-strong: 0 0 30px hsl(145 80% 42% / 0.25);
+    /* Custom tokens for Volt Athletic */
+    --glow: 44 95% 52%;
+    --glow-accent: 44 90% 45%;
+    --surface-glass: 240 4% 13%;
+    --gradient-primary: linear-gradient(135deg, #F5C518, #E8B000);
+    --gradient-accent: linear-gradient(135deg, #FFD740, #F5C518);
+    --gradient-warm: linear-gradient(135deg, hsl(25 95% 55%), hsl(44 95% 52%));
+    --shadow-glow: 0 0 24px hsl(44 95% 52% / 0.18);
+    --shadow-glow-strong: 0 0 40px hsl(44 95% 52% / 0.30);
   }
 }
 
@@ -68,16 +69,56 @@
 }
 
 @layer utilities {
+  /* ===== VOLT ATHLETIC SURFACE SYSTEM ===== */
+  .volt-surface {
+    background-color: #1C1C1E;
+  }
+  .volt-surface-high {
+    background-color: #252529;
+  }
+  .volt-surface-highest {
+    background-color: #2C2C30;
+  }
+  .volt-accent {
+    color: #F5C518;
+  }
+  .volt-accent-bg {
+    background-color: #F5C518;
+    color: #111113;
+  }
+  .volt-accent-bg-dim {
+    background-color: rgba(245, 197, 24, 0.12);
+    color: #F5C518;
+  }
+
+  /* ===== GLASS SYSTEM ===== */
   .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl;
+    background: rgba(28, 28, 30, 0.92);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 20px;
   }
 
   .glass-card-hover {
-    @apply glass-card hover:border-primary/30 transition-all duration-300;
+    @apply glass-card;
+    transition: border-color 0.3s, background 0.3s;
+  }
+  .glass-card-hover:hover {
+    border-color: rgba(245, 197, 24, 0.25);
+    background: rgba(36, 36, 40, 0.95);
+  }
+
+  .volt-pill {
+    @apply volt-accent-bg font-bold rounded-full;
+    padding: 14px 28px;
+    font-size: 15px;
+    letter-spacing: 0.01em;
   }
 
   .glow-border {
-    @apply border border-primary/30 shadow-[0_0_15px_hsl(145_80%_42%_/_0.1)];
+    border: 1px solid rgba(245, 197, 24, 0.3);
+    box-shadow: 0 0 16px rgba(245, 197, 24, 0.08);
   }
 
   .text-gradient-primary {
@@ -102,20 +143,32 @@
     background-image: var(--gradient-warm);
   }
 
+  /* Floating Bottom Nav glass */
+  .nav-glass {
+    background: rgba(22, 22, 26, 0.88);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* ===== ANIMATIONS ===== */
   .animate-fade-in {
     animation: fadeIn 0.4s ease-out;
   }
 
   .animate-slide-up {
-    animation: slideUp 0.4s ease-out;
+    animation: slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .animate-scale-in {
-    animation: scaleIn 0.3s ease-out;
+    animation: scaleIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
   }
 }
 
@@ -125,20 +178,52 @@
 }
 
 @keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(24px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.95); }
+  from { opacity: 0; transform: scale(0.94); }
   to { opacity: 1; transform: scale(1); }
 }
 
 @keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 15px hsl(145 80% 42% / 0.15); }
-  50% { box-shadow: 0 0 25px hsl(145 80% 42% / 0.3); }
+  0%, 100% { box-shadow: 0 0 16px rgba(245, 197, 24, 0.15); }
+  50% { box-shadow: 0 0 32px rgba(245, 197, 24, 0.35); }
 }
 
 .animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
+  animation: pulse-glow 2.2s ease-in-out infinite;
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.animate-spin-slow {
+  animation: spin-slow 8s linear infinite;
+}
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 rgba(245,197,24,0.35); }
+  70%  { box-shadow: 0 0 0 14px rgba(245,197,24,0); }
+  100% { box-shadow: 0 0 0 0 rgba(245,197,24,0); }
+}
+.animate-pulse-ring {
+  animation: pulse-ring 1.8s ease-out infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.animate-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.09) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+
+/* Notch-safe top padding */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
 }

@@ -2,9 +2,8 @@ import { useState, useEffect } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { supabase } from '@/integrations/supabase/client';
 import { getLocalId } from '@/services/api';
-import { Progress } from '@/components/ui/progress';
-import { Button } from '@/components/ui/button';
-import { Trophy, Users, Target, Crown, Medal, Zap, Clock, Plus, X } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Trophy, Users, Target, Crown, Medal, Zap, Clock, Plus, X, ChevronRight, Flame, Shield } from 'lucide-react';
 import BottomNav from '@/components/layout/BottomNav';
 import { toast } from 'sonner';
 
@@ -19,7 +18,6 @@ interface LeaderboardEntry {
 }
 
 type Tab = 'challenges' | 'leaderboard';
-type TimeRange = 'week' | 'month' | 'all';
 type LBCategory = 'xp' | 'volume' | 'workouts' | 'streak';
 
 const DUMMY_LB: LeaderboardEntry[] = [
@@ -36,7 +34,7 @@ const DUMMY_LB: LeaderboardEntry[] = [
 ];
 
 export default function Challenges() {
-  const { gamification, workouts, profile, getTotalVolume } = useFitness();
+  const { gamification, workouts, profile, getTotalVolume, awardRP } = useFitness();
   const [tab, setTab] = useState<Tab>('challenges');
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [participantCounts, setParticipantCounts] = useState<Record<string, number>>({});
@@ -45,7 +43,6 @@ export default function Challenges() {
   });
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [lbCat, setLbCat] = useState<LBCategory>('xp');
   const [showCreate, setShowCreate] = useState(false);
   const [newCh, setNewCh] = useState({ name: '', type: 'workouts', target: '10', duration: 30 });
@@ -70,7 +67,8 @@ export default function Challenges() {
   const joinChallenge = async (id: string) => {
     setJoinedIds(prev => { const n = new Set(prev); n.add(id); return n; });
     await supabase.from('challenge_participants').insert([{ challenge_id: id, local_user_name: profile?.name || getLocalId() }]);
-    toast.success('Challenge joined!');
+    awardRP(5, 'Joined a challenge');
+    toast.success('Challenge joined! +5 RP');
   };
 
   const leaveChallenge = (id: string) => { setJoinedIds(prev => { const n = new Set(prev); n.delete(id); return n; }); };
@@ -110,7 +108,7 @@ export default function Challenges() {
     switch (lbCat) {
       case 'volume': return `${((e.total_volume || 0) / 1000).toFixed(0)}k kg`;
       case 'workouts': return `${e.total_workouts}`;
-      case 'streak': return `${e.streak} 🔥`;
+      case 'streak': return `${e.streak}🔥`;
       default: return `${e.xp.toLocaleString()} XP`;
     }
   };
@@ -120,260 +118,354 @@ export default function Challenges() {
   const myName = profile?.name || 'You';
   const myRank = sorted.findIndex(e => e.username === myName) + 1;
 
+  const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.06 } } };
+  const itemVariants = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0 } };
+
   return (
-    <div className="min-h-screen bg-background pb-20">
-      <div className="px-5 pt-6 pb-2">
-        <h1 className="text-2xl font-display font-bold text-foreground">Compete</h1>
-        <p className="text-sm text-muted-foreground">Challenges & Leaderboard</p>
-      </div>
-
-      <div className="flex gap-1 px-5 mb-5">
-        {(['challenges', 'leaderboard'] as Tab[]).map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all capitalize ${
-              tab === t ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'
-            }`}>
-            {t === 'challenges' ? '⚔️ Challenges' : '🏆 Leaderboard'}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'challenges' && (
-        <div className="px-5 space-y-3">
-          {/* Stats */}
-          <div className="glass-card p-4 glow-border mb-2">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-primary flex items-center justify-center">
-                <Zap className="w-6 h-6 text-primary-foreground" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">Level {gamification.level} · {gamification.xp} XP</p>
-                <p className="text-xs text-muted-foreground">{workouts.length} workouts · {gamification.streak} day streak</p>
-              </div>
-            </div>
+    <div className="min-h-screen bg-canvas pb-[100px] font-sans">
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8 px-4 pt-14 md:pt-10 space-y-5"
+      >
+        {/* ── Header ─────────────────────────────────────────────── */}
+        <motion.div variants={itemVariants} className="flex items-center justify-between">
+          <div>
+            <h1 className="text-[22px] font-extrabold text-text-1">Compete</h1>
+            <p className="text-[13px] text-text-3">Challenges &amp; Leaderboard</p>
           </div>
+          <div className="flex items-center gap-2 bg-surface-1 border border-border-subtle rounded-full px-3 py-1.5">
+            <Zap className="w-3.5 h-3.5 text-primary-accent" />
+            <span className="text-[12px] font-bold text-text-1">Lv.{gamification.level}</span>
+            <span className="text-[11px] text-text-3">· {gamification.xp.toLocaleString()} XP</span>
+          </div>
+        </motion.div>
 
-          {/* Active */}
-          {challenges.filter(c => joinedIds.has(c.id)).length > 0 && (
-            <>
-              <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Active Challenges</h3>
-              {challenges.filter(c => joinedIds.has(c.id)).map(c => {
-                const progress = getProgress(c);
-                const pct = Math.min(100, (progress / Number(c.target_value)) * 100);
-                const completed = pct >= 100;
-                const daysLeft = c.duration_days;
-                const dailyNeeded = (Number(c.target_value) - progress) / Math.max(daysLeft, 1);
-                const onTrack = pct >= (100 / c.duration_days) * (c.duration_days - daysLeft + 1);
-                return (
-                  <div key={c.id} className={`glass-card p-4 ${completed ? 'glow-border' : ''}`}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-2xl">{c.icon}</span>
-                        <div>
-                          <p className="text-sm font-medium text-foreground">{c.name}</p>
-                          <p className="text-xs text-muted-foreground">{c.description}</p>
+        {/* ── Tab Switcher ───────────────────────────────────────── */}
+        <motion.div variants={itemVariants} className="flex gap-1.5 bg-surface-1 p-1.5 rounded-2xl border border-border-subtle">
+          {(['challenges', 'leaderboard'] as Tab[]).map(t => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`flex-1 py-2.5 rounded-xl text-[13px] font-bold capitalize transition-all ${
+                tab === t ? 'bg-primary-accent text-canvas shadow-volt' : 'text-text-3 hover:text-text-2'
+              }`}
+            >
+              {t === 'challenges' ? '⚔️ Challenges' : '🏆 Leaderboard'}
+            </button>
+          ))}
+        </motion.div>
+
+        {/* ── CHALLENGES TAB ─────────────────────────────────────── */}
+        {tab === 'challenges' && (
+          <>
+            {/* My stats pill */}
+            <motion.div variants={itemVariants} className="relative bg-surface-1 rounded-[20px] border border-border-subtle p-4 flex items-center gap-3 overflow-hidden">
+              <div className="absolute -top-4 -right-4 w-28 h-28 bg-primary-accent/10 blur-[30px] rounded-full pointer-events-none" />
+              <div className="w-12 h-12 rounded-2xl bg-primary-accent/15 flex items-center justify-center">
+                <Shield className="w-6 h-6 text-primary-accent" />
+              </div>
+              <div className="flex-1 relative z-10">
+                <p className="text-[14px] font-bold text-text-1">Level {gamification.level} · {gamification.xp.toLocaleString()} XP</p>
+                <p className="text-[12px] text-text-3">{workouts.length} workouts · {gamification.streak} day streak</p>
+              </div>
+              <div className="relative z-10 text-right">
+                <p className="text-[10px] text-text-3 uppercase tracking-widest font-semibold">Active</p>
+                <p className="text-[18px] font-extrabold text-primary-accent">{joinedIds.size}</p>
+              </div>
+            </motion.div>
+
+            {/* Active Challenges */}
+            {challenges.filter(c => joinedIds.has(c.id)).length > 0 && (
+              <motion.div variants={itemVariants}>
+                <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-2 px-1">Active Challenges</p>
+                <div className="space-y-2">
+                  {challenges.filter(c => joinedIds.has(c.id)).map(c => {
+                    const progress = getProgress(c);
+                    const pct = Math.min(100, (progress / Number(c.target_value)) * 100);
+                    const completed = pct >= 100;
+                    const participants = participantCounts[c.id] || 0;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`bg-surface-1 rounded-[20px] border p-4 ${completed ? 'border-primary-accent/30' : 'border-border-subtle'}`}
+                        style={completed ? { boxShadow: '0 0 20px rgba(245,197,24,0.08)' } : {}}
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-[24px]">{c.icon}</span>
+                            <div>
+                              <p className="text-[14px] font-bold text-text-1">{c.name}</p>
+                              <p className="text-[11px] text-text-3">{c.description}</p>
+                            </div>
+                          </div>
+                          {completed
+                            ? <Medal className="w-5 h-5 text-primary-accent" />
+                            : <button onClick={() => leaveChallenge(c.id)} className="text-[10px] text-red-400 font-semibold">Leave</button>
+                          }
+                        </div>
+                        {/* Progress bar */}
+                        <div className="mb-2">
+                          <div className="flex justify-between text-[11px] mb-1.5">
+                            <span className="text-text-3">{Math.round(progress).toLocaleString()} / {Number(c.target_value).toLocaleString()} {c.target_unit}</span>
+                            <span className="font-bold text-primary-accent">{Math.round(pct)}%</span>
+                          </div>
+                          <div className="h-2 bg-surface-3 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-primary-accent to-accent-alt rounded-full transition-all"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-text-3">
+                          <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{c.duration_days} days</span>
+                          {completed && <span className="text-emerald-400 font-semibold">✅ Complete</span>}
+                          {participants > 0 && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{participants}</span>}
                         </div>
                       </div>
-                      {completed && <Medal className="w-5 h-5 text-primary" />}
+                    );
+                  })}
+                </div>
+              </motion.div>
+            )}
+
+            {/* Available Challenges */}
+            <motion.div variants={itemVariants}>
+              <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-2 px-1">
+                {joinedIds.size > 0 ? 'Available Challenges' : 'All Challenges'}
+              </p>
+              <div className="space-y-2">
+                {loading
+                  ? [1, 2, 3].map(i => (
+                    <div key={i} className="bg-surface-1 rounded-[20px] border border-border-subtle p-4 animate-pulse">
+                      <div className="h-4 bg-surface-3 rounded w-2/3 mb-2" />
+                      <div className="h-3 bg-surface-3 rounded w-1/2" />
                     </div>
-                    <div className="mb-1.5">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-muted-foreground">{Math.round(progress).toLocaleString()} / {Number(c.target_value).toLocaleString()} {c.target_unit}</span>
-                        <span className="text-primary font-medium">{Math.round(pct)}%</span>
+                  ))
+                  : challenges.filter(c => !joinedIds.has(c.id)).map(c => (
+                    <div key={c.id} className="bg-surface-1 rounded-[20px] border border-border-subtle p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <span className="text-[22px]">{c.icon}</span>
+                          <div>
+                            <p className="text-[14px] font-semibold text-text-1">{c.name}</p>
+                            <p className="text-[11px] text-text-3">{c.description}</p>
+                          </div>
+                        </div>
                       </div>
-                      <Progress value={pct} className="h-2 bg-muted" />
-                    </div>
-                    <div className="flex items-center justify-between mt-2 text-[10px] text-muted-foreground">
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{daysLeft} days left</span>
-                        <span>{completed ? '✅ Complete' : onTrack ? '✅ On track' : '⚠️ Behind'}</span>
-                        {participantCounts[c.id] && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{participantCounts[c.id]}</span>}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-[10px] text-text-3">
+                          <span className="flex items-center gap-1">
+                            {c.type === 'community' ? <><Users className="w-3 h-3" /> Community</> : <><Target className="w-3 h-3" /> Personal</>}
+                          </span>
+                          <span>· {c.duration_days}d</span>
+                          <span>· {Number(c.target_value).toLocaleString()} {c.target_unit}</span>
+                          {participantCounts[c.id] && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{participantCounts[c.id]}</span>}
+                        </div>
+                        <button
+                          onClick={() => joinChallenge(c.id)}
+                          className="px-4 py-1.5 rounded-full bg-primary-accent text-canvas text-[12px] font-bold"
+                        >
+                          Join
+                        </button>
                       </div>
-                      <button onClick={() => leaveChallenge(c.id)} className="text-destructive">Leave</button>
                     </div>
+                  ))
+                }
+              </div>
+            </motion.div>
+          </>
+        )}
+
+        {/* ── LEADERBOARD TAB ────────────────────────────────────── */}
+        {tab === 'leaderboard' && (
+          <motion.div variants={containerVariants} initial="hidden" animate="visible" className="space-y-3">
+            {/* Category pills */}
+            <motion.div variants={itemVariants} className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1">
+              {([['xp', '⚡ XP'], ['volume', '🏋️ Volume'], ['workouts', '💪 Workouts'], ['streak', '🔥 Streak']] as [LBCategory, string][]).map(([k, l]) => (
+                <button
+                  key={k}
+                  onClick={() => setLbCat(k)}
+                  className={`shrink-0 px-3.5 py-2 rounded-full text-[12px] font-bold whitespace-nowrap transition-all ${
+                    lbCat === k
+                      ? 'bg-primary-accent text-canvas shadow-volt'
+                      : 'bg-surface-1 border border-border-subtle text-text-2'
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </motion.div>
+
+            {/* My Position */}
+            <motion.div variants={itemVariants}>
+              <div className="bg-surface-1 rounded-[20px] border border-primary-accent/25 p-4 flex items-center gap-3" style={{ boxShadow: '0 0 20px rgba(245,197,24,0.06)' }}>
+                <div className="w-11 h-11 rounded-full bg-primary-accent flex items-center justify-center text-[13px] font-extrabold text-canvas">
+                  {myRank > 0 ? `#${myRank}` : '?'}
+                </div>
+                <div className="flex-1">
+                  <p className="text-[14px] font-bold text-text-1">{myName} <span className="text-[10px] text-primary-accent font-bold ml-1">YOU</span></p>
+                  <p className="text-[11px] text-text-3">Lv.{gamification.level} · {gamification.xp.toLocaleString()} XP</p>
+                </div>
+              </div>
+            </motion.div>
+
+            {/* Podium */}
+            {top3.length >= 3 && (
+              <motion.div variants={itemVariants} className="flex items-end justify-center gap-2 pt-2">
+                {/* #2 */}
+                <div className="w-[30%] text-center">
+                  <div className="bg-surface-1 border border-border-subtle rounded-[16px] p-2 mb-1">
+                    <p className="text-[12px] font-bold text-text-1 truncate">{top3[1].username}</p>
+                    <p className="text-[10px] text-text-3">{getScore(top3[1])}</p>
+                  </div>
+                  <div className="text-[20px]">🥈</div>
+                  <div className="h-10 bg-surface-2 rounded-b-xl mt-1" />
+                </div>
+                {/* #1 */}
+                <div className="w-[36%] text-center">
+                  <Crown className="w-5 h-5 text-primary-accent mx-auto mb-1" />
+                  <div className="bg-surface-1 border border-primary-accent/30 rounded-[16px] p-2 mb-1" style={{ boxShadow: '0 0 16px rgba(245,197,24,0.12)' }}>
+                    <p className="text-[13px] font-extrabold text-primary-accent truncate">{top3[0].username}</p>
+                    <p className="text-[10px] text-primary-accent/70 font-semibold">{getScore(top3[0])}</p>
+                  </div>
+                  <div className="text-[24px]">👑</div>
+                  <div className="h-16 bg-primary-accent/10 rounded-b-xl mt-1" />
+                </div>
+                {/* #3 */}
+                <div className="w-[30%] text-center">
+                  <div className="bg-surface-1 border border-border-subtle rounded-[16px] p-2 mb-1">
+                    <p className="text-[12px] font-bold text-text-1 truncate">{top3[2].username}</p>
+                    <p className="text-[10px] text-text-3">{getScore(top3[2])}</p>
+                  </div>
+                  <div className="text-[20px]">🥉</div>
+                  <div className="h-6 bg-surface-2 rounded-b-xl mt-1" />
+                </div>
+              </motion.div>
+            )}
+
+            {/* Rest of leaderboard */}
+            <motion.div variants={itemVariants} className="space-y-1.5">
+              {rest.map((entry, i) => {
+                const isMe = entry.username === myName;
+                return (
+                  <div
+                    key={entry.id}
+                    className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition-all ${
+                      isMe ? 'bg-primary-accent/8 border-primary-accent/25' : 'bg-surface-1 border-border-subtle'
+                    }`}
+                  >
+                    <span className="w-7 text-[13px] font-extrabold text-text-3 text-center">#{i + 4}</span>
+                    <div className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center text-[13px] font-bold text-text-2">
+                      {entry.username.charAt(0)}
+                    </div>
+                    <div className="flex-1">
+                      <p className={`text-[13px] font-semibold ${isMe ? 'text-primary-accent' : 'text-text-1'}`}>
+                        {entry.username}
+                        {isMe && <span className="text-[10px] text-primary-accent/70 ml-1 font-bold">YOU</span>}
+                      </p>
+                      <p className="text-[10px] text-text-3">Lv.{entry.level} · {entry.total_workouts} wkts · {entry.streak}🔥</p>
+                    </div>
+                    <p className="text-[13px] font-extrabold text-text-1">{getScore(entry)}</p>
                   </div>
                 );
               })}
-            </>
-          )}
+            </motion.div>
+          </motion.div>
+        )}
+      </motion.div>
 
-          {/* Available */}
-          <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            {joinedIds.size > 0 ? 'Available Challenges' : 'All Challenges'}
-          </h3>
-          {challenges.filter(c => !joinedIds.has(c.id)).map(c => (
-            <div key={c.id} className="glass-card p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl">{c.icon}</span>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">{c.description}</p>
+      {/* ── Create Challenge FAB ──────────────────────────────────── */}
+      {tab === 'challenges' && (
+        <button
+          onClick={() => setShowCreate(true)}
+          className="fixed bottom-24 right-5 w-14 h-14 rounded-full bg-primary-accent flex items-center justify-center shadow-volt z-40"
+        >
+          <Plus className="w-6 h-6 text-canvas" />
+        </button>
+      )}
+
+      {/* ── Create Challenge Modal ────────────────────────────────── */}
+      <AnimatePresence>
+        {showCreate && (
+          <motion.div
+            className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowCreate(false)}
+          >
+            <motion.div
+              className="w-full max-w-lg bg-surface-1 border border-border-subtle p-5 rounded-t-[28px]"
+              initial={{ y: 100 }}
+              animate={{ y: 0 }}
+              exit={{ y: 100 }}
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-4" />
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-[18px] font-extrabold text-text-1">Create Challenge</h3>
+                <button onClick={() => setShowCreate(false)} className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center">
+                  <X className="w-4 h-4 text-text-2" />
+                </button>
+              </div>
+              <div className="flex flex-col gap-3 mb-4">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-text-3 font-semibold">Challenge Name</span>
+                  <input
+                    className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
+                    value={newCh.name}
+                    onChange={e => setNewCh(p => ({ ...p, name: e.target.value }))}
+                    placeholder="e.g. 100 Pushups Challenge"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-text-3 font-semibold">Type</span>
+                  <select
+                    className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none"
+                    value={newCh.type}
+                    onChange={e => setNewCh(p => ({ ...p, type: e.target.value }))}
+                  >
+                    <option value="workouts">Workouts</option>
+                    <option value="volume">Volume (kg)</option>
+                    <option value="steps">Steps</option>
+                    <option value="streak">Streak (days)</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] text-text-3 font-semibold">Target</span>
+                  <input
+                    type="number"
+                    className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none"
+                    value={newCh.target}
+                    onChange={e => setNewCh(p => ({ ...p, target: e.target.value }))}
+                  />
+                </label>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[11px] text-text-3 font-semibold">Duration</span>
+                  <div className="flex gap-2">
+                    {[7, 14, 30, 60, 90].map(d => (
+                      <button
+                        key={d}
+                        onClick={() => setNewCh(p => ({ ...p, duration: d }))}
+                        className={`flex-1 py-2 rounded-xl text-[12px] font-bold transition-all ${
+                          newCh.duration === d ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'
+                        }`}
+                      >
+                        {d}d
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    {c.type === 'community' ? <><Users className="w-3 h-3" /> Community</> : <><Target className="w-3 h-3" /> Personal</>}
-                  </span>
-                  <span>· {c.duration_days} days</span>
-                  <span>· {Number(c.target_value).toLocaleString()} {c.target_unit}</span>
-                  {participantCounts[c.id] && <span className="flex items-center gap-1"><Users className="w-3 h-3" />{participantCounts[c.id]}</span>}
-                </div>
-                <Button size="sm" onClick={() => joinChallenge(c.id)} className="bg-gradient-primary hover:opacity-90 h-7 text-xs px-3">Join</Button>
-              </div>
-            </div>
-          ))}
-
-          {loading && [1, 2, 3].map(i => (
-            <div key={i} className="glass-card p-4 animate-pulse">
-              <div className="h-4 bg-muted rounded w-2/3 mb-2" />
-              <div className="h-3 bg-muted rounded w-1/2" />
-            </div>
-          ))}
-
-          {/* Create FAB */}
-          <button onClick={() => setShowCreate(true)}
-            className="fixed bottom-24 right-5 w-14 h-14 rounded-full bg-gradient-primary flex items-center justify-center shadow-lg z-40">
-            <Plus className="w-6 h-6 text-primary-foreground" />
-          </button>
-        </div>
-      )}
-
-      {tab === 'leaderboard' && (
-        <div className="px-5 space-y-3">
-          {/* Time toggle */}
-          <div className="flex gap-1">
-            {(['week', 'month', 'all'] as TimeRange[]).map(t => (
-              <button key={t} onClick={() => setTimeRange(t)}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium capitalize ${timeRange === t ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                {t === 'week' ? 'This Week' : t === 'month' ? 'This Month' : 'All Time'}
+              <button onClick={handleCreate} className="w-full py-3.5 rounded-full bg-primary-accent text-canvas font-extrabold text-[15px]">
+                Create Challenge
               </button>
-            ))}
-          </div>
-
-          {/* Category tabs */}
-          <div className="flex gap-1 overflow-x-auto no-scrollbar">
-            {([['xp', 'XP'], ['volume', 'Volume'], ['workouts', 'Workouts'], ['streak', 'Streak']] as [LBCategory, string][]).map(([k, l]) => (
-              <button key={k} onClick={() => setLbCat(k)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap ${lbCat === k ? 'bg-primary/20 text-primary border border-primary/30' : 'bg-muted text-muted-foreground'}`}>
-                {l}
-              </button>
-            ))}
-          </div>
-
-          {/* My position */}
-          <div className="glass-card p-4 glow-border">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-primary flex items-center justify-center text-sm font-bold text-primary-foreground">
-                {myRank > 0 ? `#${myRank}` : '—'}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-foreground">{myName} <span className="text-xs text-primary ml-1">YOU</span></p>
-                <p className="text-xs text-muted-foreground">Lv.{gamification.level} · {gamification.xp} XP</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Podium */}
-          {top3.length >= 3 && (
-            <div className="flex items-end justify-center gap-2 pt-4">
-              {/* #2 */}
-              <div className="w-1/3 text-center">
-                <div className="glass-card p-2 border border-gray-300/20">
-                  <p className="text-lg">🥈</p>
-                  <p className="text-xs font-medium text-foreground truncate">{top3[1].username}</p>
-                  <p className="text-[10px] text-muted-foreground">{getScore(top3[1])}</p>
-                </div>
-                <div className="h-12 bg-muted/20 rounded-b-lg" />
-              </div>
-              {/* #1 */}
-              <div className="w-1/3 text-center">
-                <div className="glass-card p-2 glow-border">
-                  <p className="text-lg">👑</p>
-                  <p className="text-xs font-medium text-foreground truncate">{top3[0].username}</p>
-                  <p className="text-[10px] text-primary font-bold">{getScore(top3[0])}</p>
-                </div>
-                <div className="h-20 bg-primary/10 rounded-b-lg" />
-              </div>
-              {/* #3 */}
-              <div className="w-1/3 text-center">
-                <div className="glass-card p-2 border border-amber-600/20">
-                  <p className="text-lg">🥉</p>
-                  <p className="text-xs font-medium text-foreground truncate">{top3[2].username}</p>
-                  <p className="text-[10px] text-muted-foreground">{getScore(top3[2])}</p>
-                </div>
-                <div className="h-8 bg-muted/20 rounded-b-lg" />
-              </div>
-            </div>
-          )}
-
-          {/* Rest */}
-          <div className="flex flex-col gap-1.5">
-            {rest.map((entry, i) => {
-              const isMe = entry.username === myName;
-              return (
-                <div key={entry.id} className={`glass-card flex items-center gap-3 p-3 ${isMe ? 'glow-border' : ''}`}>
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-muted text-muted-foreground">
-                    #{i + 4}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {entry.username} {isMe && <span className="text-xs text-primary ml-1">YOU</span>}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">Lv.{entry.level} · {entry.total_workouts} workouts · {entry.streak}🔥</p>
-                  </div>
-                  <p className="text-sm font-display font-bold text-foreground">{getScore(entry)}</p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Create Challenge Modal */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-end justify-center" onClick={() => setShowCreate(false)}>
-          <div className="w-full max-w-lg glass-card p-5 rounded-t-2xl animate-slide-up" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-display font-bold text-foreground">Create Challenge</h3>
-              <button onClick={() => setShowCreate(false)}><X className="w-5 h-5 text-muted-foreground" /></button>
-            </div>
-            <div className="flex flex-col gap-3 mb-4">
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Challenge Name</span>
-                <input className="bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground" value={newCh.name} onChange={e => setNewCh(p => ({ ...p, name: e.target.value }))} placeholder="e.g. 100 Pushups Challenge" />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Type</span>
-                <select className="bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground" value={newCh.type} onChange={e => setNewCh(p => ({ ...p, type: e.target.value }))}>
-                  <option value="workouts">Workouts</option>
-                  <option value="volume">Volume (kg)</option>
-                  <option value="steps">Steps</option>
-                  <option value="streak">Streak (days)</option>
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Target</span>
-                <input type="number" className="bg-input border border-border rounded-lg px-3 py-2 text-sm text-foreground" value={newCh.target} onChange={e => setNewCh(p => ({ ...p, target: e.target.value }))} />
-              </label>
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">Duration</span>
-                <div className="flex gap-2">
-                  {[7, 14, 30, 60, 90].map(d => (
-                    <button key={d} onClick={() => setNewCh(p => ({ ...p, duration: d }))}
-                      className={`flex-1 py-2 rounded-lg text-xs font-medium ${newCh.duration === d ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
-                      {d}d
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <Button className="w-full bg-gradient-primary" onClick={handleCreate}>Create Challenge</Button>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <BottomNav />
     </div>

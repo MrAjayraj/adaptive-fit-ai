@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Search, Dumbbell, Filter, Star, Plus, ChevronLeft, X } from 'lucide-react';
+import { Search, Dumbbell, Filter, Star, Plus, ChevronLeft, X, LayoutGrid } from 'lucide-react';
 import BottomNav from '@/components/layout/BottomNav';
+import { motion } from 'framer-motion';
 
 interface ExerciseRow {
   id: string;
@@ -20,9 +21,17 @@ const MUSCLE_GROUPS = ['all', 'chest', 'back', 'shoulders', 'arms', 'legs', 'cor
 const EQUIPMENT = ['all', 'barbell', 'dumbbells', 'cable', 'machine', 'bodyweight'];
 const DIFFICULTY = ['all', 'beginner', 'intermediate', 'advanced'];
 
-const MUSCLE_ICONS: Record<string, string> = {
-  chest: '🫁', back: '🔙', shoulders: '💪', arms: '💪',
-  legs: '🦵', core: '🎯', glutes: '🍑',
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { 
+    opacity: 1,
+    transition: { staggerChildren: 0.05 }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 15 },
+  visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 300, damping: 25 } },
 };
 
 export default function ExerciseLibrary() {
@@ -100,7 +109,6 @@ export default function ExerciseLibrary() {
     return true;
   });
 
-  // Group by muscle
   const grouped = filtered.reduce<Record<string, ExerciseRow[]>>((acc, ex) => {
     const key = ex.muscle_group;
     if (!acc[key]) acc[key] = [];
@@ -108,243 +116,230 @@ export default function ExerciseLibrary() {
     return acc;
   }, {});
 
-  // Exercise detail view
   if (selectedExercise) {
     return (
-      <div className="min-h-screen bg-background pb-20">
+      <div className="min-h-screen bg-canvas pb-24 font-sans text-text-1">
         <div className="flex items-center gap-3 px-5 pt-6 pb-4">
-          <button onClick={() => setSelectedExercise(null)} className="text-muted-foreground hover:text-foreground">
+          <button onClick={() => setSelectedExercise(null)} className="text-text-3 hover:text-text-1 transition-colors">
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-lg font-display font-bold text-foreground">{selectedExercise.name}</h1>
+          <h1 className="text-[18px] font-semibold text-text-1 tracking-tight">{selectedExercise.name}</h1>
         </div>
 
-        <div className="px-5 space-y-4">
-          <div className="glass-card p-5">
+        <motion.div initial={{opacity:0, scale:0.95}} animate={{opacity:1, scale:1}} className="px-5 space-y-4">
+          <div className="bg-surface-1 rounded-[20px] p-5 border border-border-subtle shadow-xl">
             <div className="flex items-center justify-between mb-4">
-              <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center text-2xl">
-                {MUSCLE_ICONS[selectedExercise.muscle_group] || '💪'}
+              <div className="w-14 h-14 rounded-full bg-surface-3 flex items-center justify-center text-text-2 border border-border-subtle">
+                 <Dumbbell className="w-6 h-6" />
               </div>
               <button onClick={() => toggleFavorite(selectedExercise.id)}>
-                <Star className={`w-6 h-6 transition-all ${favorites.has(selectedExercise.id) ? 'text-primary fill-primary' : 'text-muted-foreground'}`} />
+                <Star className={`w-6 h-6 transition-all ${favorites.has(selectedExercise.id) ? 'text-primary-accent fill-primary-accent' : 'text-text-3'}`} />
               </button>
             </div>
-            <h2 className="text-xl font-display font-bold text-foreground mb-1">{selectedExercise.name}</h2>
-            <p className="text-sm text-muted-foreground capitalize mb-4">
+            <h2 className="text-[22px] font-bold text-text-1 mb-1">{selectedExercise.name}</h2>
+            <p className="text-[13px] text-text-2 capitalize mb-5">
               {selectedExercise.muscle_group} · {selectedExercise.equipment} · {selectedExercise.difficulty}
             </p>
 
-            <div className="space-y-3">
+            <div className="space-y-4">
               <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Primary Muscle</p>
-                <span className="text-sm px-3 py-1 rounded-full bg-primary/10 text-primary capitalize">{selectedExercise.muscle_group}</span>
+                <p className="text-[10px] text-text-3 uppercase tracking-widest font-semibold mb-2">Primary Muscle</p>
+                <span className="text-[12px] px-3 py-1.5 rounded-md bg-primary-accent/10 text-primary-accent capitalize border border-primary-accent/20">
+                  {selectedExercise.muscle_group}
+                </span>
               </div>
               {selectedExercise.secondary_muscles?.length > 0 && (
                 <div>
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Secondary Muscles</p>
-                  <div className="flex flex-wrap gap-1.5">
+                  <p className="text-[10px] text-text-3 uppercase tracking-widest font-semibold mb-2">Secondary Muscles</p>
+                  <div className="flex flex-wrap gap-2">
                     {selectedExercise.secondary_muscles.map(m => (
-                      <span key={m} className="text-xs px-2.5 py-1 rounded-full bg-accent/10 text-accent capitalize">{m}</span>
+                      <span key={m} className="text-[12px] px-3 py-1.5 rounded-md bg-surface-3 text-text-2 capitalize border border-border-subtle">{m}</span>
                     ))}
                   </div>
                 </div>
               )}
               <div>
-                <p className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Type</p>
-                <span className="text-sm text-foreground">{selectedExercise.is_compound ? 'Compound' : 'Isolation'}</span>
+                <p className="text-[10px] text-text-3 uppercase tracking-widest font-semibold mb-2">Type</p>
+                <span className="text-[14px] text-text-1 font-medium">{selectedExercise.is_compound ? 'Compound' : 'Isolation'}</span>
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
         <BottomNav />
       </div>
     );
   }
 
-  // Custom exercise form
   if (showCustomForm) {
     return (
-      <div className="min-h-screen bg-background pb-20">
+      <div className="min-h-screen bg-canvas pb-24 font-sans text-text-1">
         <div className="flex items-center gap-3 px-5 pt-6 pb-4">
-          <button onClick={() => setShowCustomForm(false)} className="text-muted-foreground hover:text-foreground">
+          <button onClick={() => setShowCustomForm(false)} className="text-text-1">
             <ChevronLeft className="w-6 h-6" />
           </button>
-          <h1 className="text-lg font-display font-bold text-foreground">Create Custom Exercise</h1>
+          <h1 className="text-[18px] font-semibold tracking-tight">Create Exercise</h1>
         </div>
-        <div className="px-5 space-y-4">
+        <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} className="px-5 space-y-6">
           <div>
-            <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Name</label>
-            <Input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="Exercise name" className="bg-card border-border" autoFocus />
+            <label className="text-[10px] text-text-2 uppercase tracking-widest font-semibold mb-2 block">EXERCISE NAME</label>
+            <Input value={customName} onChange={e => setCustomName(e.target.value)} placeholder="e.g. Incline Bench Press" 
+              className="bg-surface-3 border-border-subtle h-12 rounded-[14px] text-[14px] text-text-1 placeholder:text-text-3 focus:border-primary-accent focus:ring-0" autoFocus />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Muscle Group</label>
-            <div className="flex flex-wrap gap-1.5">
+            <label className="text-[10px] text-text-2 uppercase tracking-widest font-semibold mb-2 block">PRIMARY MUSCLE</label>
+            <div className="flex flex-wrap gap-2">
               {MUSCLE_GROUPS.filter(m => m !== 'all').map(m => (
                 <button key={m} onClick={() => setCustomMuscle(m)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${customMuscle === m ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                  className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors capitalize ${
+                    customMuscle === m ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'
+                  }`}>
                   {m}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Equipment</label>
-            <div className="flex flex-wrap gap-1.5">
+            <label className="text-[10px] text-text-2 uppercase tracking-widest font-semibold mb-2 block">EQUIPMENT REQUIRED</label>
+            <div className="flex flex-wrap gap-2">
               {EQUIPMENT.filter(e => e !== 'all').map(e => (
                 <button key={e} onClick={() => setCustomEquipment(e)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${customEquipment === e ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                  className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors capitalize ${
+                    customEquipment === e ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'
+                  }`}>
                   {e}
                 </button>
               ))}
             </div>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Difficulty</label>
-            <div className="flex flex-wrap gap-1.5">
+            <label className="text-[10px] text-text-2 uppercase tracking-widest font-semibold mb-2 block">DIFFICULTY</label>
+            <div className="flex flex-wrap gap-2">
               {DIFFICULTY.filter(d => d !== 'all').map(d => (
                 <button key={d} onClick={() => setCustomDifficulty(d)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${customDifficulty === d ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}>
+                  className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors capitalize ${
+                    customDifficulty === d ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'
+                  }`}>
                   {d}
                 </button>
               ))}
             </div>
           </div>
-          <Button onClick={addCustomExercise} disabled={!customName.trim()} className="w-full bg-gradient-primary hover:opacity-90">
-            Save Exercise
-          </Button>
-        </div>
+          <div className="fixed bottom-24 left-5 right-5">
+            <button onClick={addCustomExercise} disabled={!customName.trim()} 
+              className="w-full h-12 bg-primary-accent text-canvas font-semibold rounded-[14px] disabled:opacity-50 transition-opacity flex items-center justify-center">
+              Save Exercise
+            </button>
+          </div>
+        </motion.div>
         <BottomNav />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background pb-20">
-      <div className="px-5 pt-6 pb-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-display font-bold text-foreground">Exercise Library</h1>
-            <p className="text-sm text-muted-foreground">{exercises.length} exercises</p>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => setShowCustomForm(true)}>
-            <Plus className="w-4 h-4" />
-            Custom
-          </Button>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="px-5 mb-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search exercises..." className="pl-10 pr-10 bg-card border-border" />
-          {search && (
-            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              <X className="w-4 h-4" />
+    <div className="min-h-screen bg-canvas pb-[100px] font-sans selection:bg-primary-accent/20">
+      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8">
+        <motion.div variants={itemVariants} className="px-5 pt-14 pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-[22px] font-bold text-text-1 tracking-tight">Library</h1>
+              <p className="text-[13px] text-text-2 mt-0.5">{exercises.length} exercises</p>
+            </div>
+            <button className="text-[14px] font-semibold text-primary-accent flex items-center gap-1" onClick={() => setShowCustomForm(true)}>
+              <Plus className="w-4 h-4" /> Add
             </button>
-          )}
-        </div>
-      </div>
-
-      {/* Muscle group pills */}
-      <div className="flex gap-1.5 px-5 mb-3 overflow-x-auto no-scrollbar">
-        {MUSCLE_GROUPS.map(m => (
-          <button key={m} onClick={() => setMuscleFilter(m)}
-            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all capitalize ${
-              muscleFilter === m ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
-            }`}>
-            {m === 'all' ? '🔥 All' : `${MUSCLE_ICONS[m] || ''} ${m}`}
-          </button>
-        ))}
-      </div>
-
-      {/* Filter toggle */}
-      <div className="px-5 mb-3">
-        <button onClick={() => setShowFilters(!showFilters)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground">
-          <Filter className="w-3.5 h-3.5" />
-          {showFilters ? 'Hide filters' : 'More filters'}
-        </button>
-        {showFilters && (
-          <div className="mt-2 space-y-2 animate-fade-in">
-            <div>
-              <p className="text-[10px] text-muted-foreground mb-1">Equipment</p>
-              <div className="flex flex-wrap gap-1">
-                {EQUIPMENT.map(e => (
-                  <button key={e} onClick={() => setEquipmentFilter(e)}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all capitalize ${
-                      equipmentFilter === e ? 'bg-accent text-accent-foreground' : 'bg-muted text-muted-foreground'
-                    }`}>{e}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] text-muted-foreground mb-1">Difficulty</p>
-              <div className="flex flex-wrap gap-1">
-                {DIFFICULTY.map(d => (
-                  <button key={d} onClick={() => setDifficultyFilter(d)}
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-medium transition-all capitalize ${
-                      difficultyFilter === d ? 'bg-accent text-accent-foreground' : 'bg-muted text-muted-foreground'
-                    }`}>{d}</button>
-                ))}
-              </div>
-            </div>
           </div>
-        )}
-      </div>
+        </motion.div>
 
-      {/* Exercise list */}
-      {loading ? (
-        <div className="px-5 space-y-2">
-          {[1,2,3,4,5].map(i => (
-            <div key={i} className="glass-card p-4 animate-pulse">
-              <div className="h-4 bg-muted rounded w-1/2 mb-2" />
-              <div className="h-3 bg-muted rounded w-1/3" />
-            </div>
+        {/* Search */}
+        <motion.div variants={itemVariants} className="px-5 mb-4">
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-text-3" />
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search exercises..." 
+              className="pl-11 pr-10 bg-surface-3 border-transparent h-11 rounded-[14px] text-[14px] text-text-1 placeholder:text-text-3 focus:border-border-subtle" />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-text-3 hover:text-text-1">
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Filters */}
+        <motion.div variants={itemVariants} className="flex gap-2 px-5 mb-6 overflow-x-auto no-scrollbar relative -mx-4 px-5">
+          {MUSCLE_GROUPS.map(m => (
+            <button key={m} onClick={() => setMuscleFilter(m)}
+              className={`shrink-0 px-4 py-2 rounded-full text-[13px] font-semibold transition-all capitalize ${
+                muscleFilter === m ? 'bg-primary-accent text-canvas shadow-volt' : 'bg-surface-1 text-text-2 border border-border-subtle hover:border-primary-accent/30'
+              }`}>
+              {m === 'all' ? 'All' : m}
+            </button>
           ))}
-        </div>
-      ) : (
-        <div className="px-5 space-y-5">
-          {Object.entries(grouped).map(([muscle, exs]) => (
-            <div key={muscle}>
-              <h3 className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wider flex items-center gap-1.5">
-                <span>{MUSCLE_ICONS[muscle] || '💪'}</span> {muscle}
-                <span className="text-[10px] text-muted-foreground/50">({exs.length})</span>
-              </h3>
-              <div className="flex flex-col gap-1.5">
-                {exs.map(ex => (
-                  <button key={ex.id} onClick={() => setSelectedExercise(ex)}
-                    className="glass-card-hover flex items-center justify-between p-3 text-left">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                        <Dumbbell className="w-4 h-4 text-primary" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{ex.name}</p>
-                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                          <span className="capitalize">{ex.equipment}</span>
-                          <span>·</span>
-                          <span className="capitalize">{ex.difficulty}</span>
-                          {ex.is_compound && <><span>·</span><span className="text-primary">Compound</span></>}
+          <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-canvas to-transparent pointer-events-none" />
+        </motion.div>
+
+        {/* Exercise list */}
+        {loading ? (
+          <div className="px-5 space-y-3">
+            {[1,2,3,4,5].map(i => (
+              <div key={i} className="bg-surface-1 rounded-[16px] p-4 h-[60px] border border-border-subtle flex items-center gap-3">
+                 <div className="w-9 h-9 rounded-full bg-surface-3 animate-pulse" />
+                 <div className="flex-1 space-y-2">
+                   <div className="h-3 bg-surface-3 rounded animate-pulse w-1/3" />
+                   <div className="h-2 bg-surface-3 rounded animate-pulse w-1/4" />
+                 </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-5 space-y-6">
+            {Object.entries(grouped).map(([muscle, exs]) => (
+              <motion.div variants={itemVariants} key={muscle}>
+                <h3 className="text-[11px] font-semibold text-text-2 mb-3 uppercase tracking-widest flex items-center gap-2">
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  {muscle} <span className="opacity-50">({exs.length})</span>
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {exs.map(ex => (
+                    <button key={ex.id} onClick={() => setSelectedExercise(ex)}
+                      className="group flex items-center justify-between p-3 rounded-[16px] bg-transparent hover:bg-surface-2 transition-colors text-left border border-transparent hover:border-border-subtle h-[64px]">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-[36px] h-[36px] rounded-full bg-surface-2 group-hover:bg-surface-3 flex items-center justify-center shrink-0 border border-border-subtle">
+                          <Dumbbell className="w-4 h-4 text-text-2 group-hover:text-text-1 transition-colors" />
+                        </div>
+                        <div className="min-w-0 pr-2">
+                          <p className="text-[14px] font-medium text-text-1 truncate">{ex.name}</p>
+                          <div className="flex items-center gap-1.5 text-[11px] text-text-3 mt-0.5">
+                            <span className="capitalize">{ex.equipment}</span>
+                            <span>·</span>
+                            <span className="capitalize">{ex.difficulty}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <button onClick={e => { e.stopPropagation(); toggleFavorite(ex.id); }} className="p-1.5">
-                      <Star className={`w-4 h-4 transition-all ${favorites.has(ex.id) ? 'text-primary fill-primary' : 'text-muted-foreground/30'}`} />
+                      <div className="flex items-center gap-3 shrink-0">
+                        {ex.is_compound && (
+                          <span className="text-[9px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-primary-accent/10 text-primary-accent">
+                            Compound
+                          </span>
+                        )}
+                        <button onClick={e => { e.stopPropagation(); toggleFavorite(ex.id); }} className="p-1">
+                          <Star className={`w-4 h-4 transition-all ${favorites.has(ex.id) ? 'text-primary-accent fill-primary-accent drop-shadow-[0_0_8px_rgba(245,197,24,0.6)]' : 'text-text-3'}`} />
+                        </button>
+                      </div>
                     </button>
-                  </button>
-                ))}
+                  ))}
+                </div>
+              </motion.div>
+            ))}
+            {filtered.length === 0 && (
+              <div className="text-center py-16">
+                <Dumbbell className="w-12 h-12 text-text-3 mx-auto mb-4" />
+                <p className="text-text-2 text-[14px]">No exercises found</p>
               </div>
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className="text-center py-12">
-              <Dumbbell className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
-              <p className="text-muted-foreground text-sm">No exercises found</p>
-            </div>
-          )}
-        </div>
-      )}
-
+            )}
+          </div>
+        )}
+      </motion.div>
       <BottomNav />
     </div>
   );

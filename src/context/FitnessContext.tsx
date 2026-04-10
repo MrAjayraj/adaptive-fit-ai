@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { toast } from 'sonner';
 import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup, WorkoutExercise, DailyMission } from '@/types/fitness';
 import { WorkoutTemplate } from '@/types/workout-templates';
 import { generateWeeklyPlan } from '@/lib/workout-generator';
@@ -8,9 +9,19 @@ import {
   calculateLevel, detectNewPRs, updateStreak, checkAchievements,
   generateDailyMissions, getSelectedMissions,
 } from '@/lib/gamification';
+import {
+  UserRank, RankHistoryEntry, getActiveSeason, getTierFromRP,
+  getDivisionFromRP, RP,
+} from '@/lib/seasonal-rank';
 import { v4 } from '@/lib/id';
 import { fetchProfile, upsertProfile, addWeightLog, fetchWeightLogs, type WeightLogRow } from '@/services/api';
 import { supabase } from '@/integrations/supabase/client';
+
+// ── Seasonal Rank State ──────────────────────────────────────
+interface SeasonalRankState {
+  userRank: UserRank;
+  history: RankHistoryEntry[];
+}
 
 interface FitnessState {
   profile: UserProfile | null;
@@ -23,6 +34,7 @@ interface FitnessState {
   recentPRs: PR[];
   weightLogs: WeightLogRow[];
   isLoading: boolean;
+  seasonalRank: SeasonalRankState;
 }
 
 interface FitnessContextType extends FitnessState {
@@ -45,11 +57,13 @@ interface FitnessContextType extends FitnessState {
   getDailyMissions: () => DailyMission[];
   completeMission: (id: string) => void;
   signOut: () => Promise<void>;
+  awardRP: (amount: number, reason: string) => void;
 }
 
 const FitnessContext = createContext<FitnessContextType | null>(null);
 
 const STORAGE_KEY = 'fitai-state';
+const RANK_STORAGE_KEY = 'fitai-rank-state';
 
 const defaultGamification: GamificationState = {
   xp: 0,
@@ -68,6 +82,46 @@ const defaultGamification: GamificationState = {
   completedMissionIds: [],
 };
 
+function getDefaultSeasonalRank(): SeasonalRankState {
+  const season = getActiveSeason();
+  return {
+    userRank: {
+      seasonId: season.id,
+      rp: 0,
+      tier: 'iron',
+      division: 4,
+    },
+    history: [],
+  };
+}
+
+function loadSeasonalRank(): SeasonalRankState {
+  try {
+    const stored = localStorage.getItem(RANK_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as SeasonalRankState;
+      // Validate that the stored season is still current
+      const currentSeason = getActiveSeason();
+      if (parsed.userRank.seasonId !== currentSeason.id) {
+        // Season changed — soft reset: drop 1 tier, keep division 4
+        const oldRp = parsed.userRank.rp;
+        const softResetRp = Math.max(0, Math.round(oldRp * 0.3)); // keep 30%
+        return {
+          userRank: {
+            seasonId: currentSeason.id,
+            rp: softResetRp,
+            tier: getTierFromRP(softResetRp),
+            division: getDivisionFromRP(softResetRp, getTierFromRP(softResetRp)),
+          },
+          history: [],
+        };
+      }
+      return parsed;
+    }
+  } catch { /* ignore */ }
+  return getDefaultSeasonalRank();
+}
+
 function loadState(): FitnessState {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -80,6 +134,7 @@ function loadState(): FitnessState {
         recentPRs: [],
         weightLogs: [],
         isLoading: true,
+        seasonalRank: loadSeasonalRank(),
       };
     }
   } catch { /* ignore */ }
@@ -94,17 +149,19 @@ function loadState(): FitnessState {
     recentPRs: [],
     weightLogs: [],
     isLoading: true,
+    seasonalRank: loadSeasonalRank(),
   };
 }
 
 export function FitnessProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<FitnessState>(loadState);
 
-  // Persist to localStorage
+  // Persist core state to localStorage
   useEffect(() => {
-    const { recentPRs, weightLogs, isLoading, ...toSave } = state;
+    const { recentPRs, weightLogs, isLoading, seasonalRank, ...toSave } = state;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-  }, [state]);
+    localStorage.setItem(RANK_STORAGE_KEY, JSON.stringify(seasonalRank));
+  }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load profile from Supabase on mount
   useEffect(() => {
@@ -113,8 +170,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         const dbProfile = await fetchProfile();
         const logs = await fetchWeightLogs();
         if (dbProfile) {
-          const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
           const row = dbProfile as unknown as Record<string, unknown>;
+          const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
           const profile: UserProfile = {
             name: dbProfile.name,
             age: dbProfile.age,
@@ -144,8 +201,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     const dbProfile = await fetchProfile();
     const logs = await fetchWeightLogs();
     if (dbProfile) {
-      const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
       const row = dbProfile as unknown as Record<string, unknown>;
+      const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
       const profile: UserProfile = {
         name: dbProfile.name,
         age: dbProfile.age,
@@ -165,22 +222,66 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const setProfile = useCallback((profile: UserProfile) => {
-    setState(prev => ({ ...prev, profile }));
-    upsertProfile({
-      name: profile.name,
-      age: profile.age,
-      gender: profile.gender,
-      height: profile.height,
-      body_fat: profile.bodyFat ?? null,
-      goal: profile.goal,
-      experience: profile.experience,
-      days_per_week: profile.daysPerWeek,
-      preferred_split: profile.preferredSplit,
-      onboarding_complete: profile.onboardingComplete,
+  // ── RP Awarding ────────────────────────────────────────────
+  const awardRP = useCallback((amount: number, reason: string) => {
+    setState(prev => {
+      const season = getActiveSeason();
+      const newRP = prev.seasonalRank.userRank.rp + amount;
+      const newTier = getTierFromRP(newRP);
+      const newDivision = getDivisionFromRP(newRP, newTier);
+      const entry: RankHistoryEntry = {
+        id: v4(),
+        seasonId: season.id,
+        rpGained: amount,
+        reason,
+        createdAt: new Date().toISOString(),
+      };
+      return {
+        ...prev,
+        seasonalRank: {
+          userRank: {
+            ...prev.seasonalRank.userRank,
+            seasonId: season.id,
+            rp: newRP,
+            tier: newTier,
+            division: newDivision,
+          },
+          history: [entry, ...prev.seasonalRank.history].slice(0, 100),
+        },
+      };
     });
+  }, []);
+
+  const setProfile = useCallback((profile: UserProfile) => {
+    setState(prev => {
+      const prevProfile = prev.profile;
+      
+      // Async operation
+      upsertProfile({
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+        height: profile.height,
+        body_fat: profile.bodyFat ?? null,
+        goal: profile.goal,
+        experience: profile.experience,
+        days_per_week: profile.daysPerWeek,
+        preferred_split: profile.preferredSplit,
+        onboarding_complete: profile.onboardingComplete,
+      }).catch(err => {
+        console.error("Failed to commit profile updates:", err);
+        toast.error("Failed to sync profile", { description: err.message || "An error occurred while saving." });
+        setState(rollback => ({ ...rollback, profile: prevProfile }));
+      });
+      
+      return { ...prev, profile };
+    });
+    
     if (profile.weight > 0) {
-      addWeightLog(profile.weight);
+      addWeightLog(profile.weight).catch(err => {
+        console.error("Failed to add weight log:", err);
+        toast.error("Failed to sync weight", { description: err.message });
+      });
     }
   }, []);
 
@@ -197,7 +298,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         level: calculateLevel(prev.gamification.xp + XP_LOG_STATS),
       },
     }));
-  }, []);
+    awardRP(RP.LOG_STATS, 'Logged body stats');
+  }, [awardRP]);
 
   const generatePlan = useCallback(() => {
     if (!state.profile) return;
@@ -280,6 +382,24 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
 
       const today = new Date().toISOString().split('T')[0];
 
+      // ── RP Awards for workout ──
+      let rpGained = RP.WORKOUT_COMPLETE;
+      rpGained += newPRs.length * RP.NEW_PR;
+      if (streakResult.streak >= 30) rpGained += RP.STREAK_BONUS_30;
+      else if (streakResult.streak >= 7) rpGained += RP.STREAK_BONUS_7;
+
+      const season = getActiveSeason();
+      const newRP = prev.seasonalRank.userRank.rp + rpGained;
+      const newTier = getTierFromRP(newRP);
+      const newDivision = getDivisionFromRP(newRP, newTier);
+      const rpEntry: RankHistoryEntry = {
+        id: v4(),
+        seasonId: season.id,
+        rpGained,
+        reason: `Completed "${workout.name}"${newPRs.length > 0 ? ` (+${newPRs.length} PRs)` : ''}`,
+        createdAt: new Date().toISOString(),
+      };
+
       return {
         ...prev,
         currentPlan: prev.currentPlan.map(w => (w.id === id ? completed : w)),
@@ -296,6 +416,16 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
           prs: updatedPRs,
           achievements: mergedAchievements,
           streakFreezeUsed: streakResult.usedFreeze ? true : prev.gamification.streakFreezeUsed,
+        },
+        seasonalRank: {
+          userRank: {
+            ...prev.seasonalRank.userRank,
+            seasonId: season.id,
+            rp: newRP,
+            tier: newTier,
+            division: newDivision,
+          },
+          history: [rpEntry, ...prev.seasonalRank.history].slice(0, 100),
         },
       };
     });
@@ -434,11 +564,19 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         },
       };
     });
+    awardRP(RP.MISSION_COMPLETE, 'Completed a daily mission');
+  }, [awardRP]);
+
+  const setAvatarUrl = useCallback((url: string | null) => {
+    setState(prev => ({ ...prev, avatarUrl: url }));
+    if (url) localStorage.setItem('fitai-avatar-url', url);
+    else localStorage.removeItem('fitai-avatar-url');
   }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(RANK_STORAGE_KEY);
     localStorage.removeItem('fitai-local-id');
     window.location.href = '/';
   }, []);
@@ -466,6 +604,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         getDailyMissions,
         completeMission,
         signOut,
+        awardRP,
       }}
     >
       {children}

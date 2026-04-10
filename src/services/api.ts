@@ -12,6 +12,14 @@ export function getLocalId(): string {
   return id;
 }
 
+// ─── Identity Helper ───
+export async function getIdentity() {
+  const { data: { session } } = await supabase.auth.getSession();
+  const userId = session?.user?.id || null;
+  const localId = getLocalId(); // Always get localId so we can link guest accounts
+  return { userId, localId };
+}
+
 // ─── Profile ───
 export interface ProfileRow {
   id: string;
@@ -27,40 +35,102 @@ export interface ProfileRow {
   days_per_week: number;
   preferred_split: string;
   onboarding_complete: boolean;
+  avatar_url: string | null;
 }
 
 export async function fetchProfile(): Promise<ProfileRow | null> {
-  const localId = getLocalId();
-  const { data, error } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('local_id', localId)
-    .maybeSingle();
-  if (error) console.error('fetchProfile error:', error);
-  return data as ProfileRow | null;
+  const { userId, localId } = await getIdentity();
+  
+  // Try to find the authenticated profile first
+  if (userId) {
+    const { data: authProfile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+      
+    if (authProfile) return authProfile as ProfileRow;
+  }
+  
+  // Hand off to localId if no authenticated profile was found (e.g., they just signed in and haven't linked)
+  if (localId) {
+    const { data: guestProfile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('local_id', localId)
+      // Make sure we aren't fetching a guest profile that already belongs to someone else
+      .is('user_id', null)
+      .maybeSingle();
+      
+    if (guestProfile) return guestProfile as ProfileRow;
+  }
+
+  return null;
 }
 
 export async function upsertProfile(profile: Partial<ProfileRow>): Promise<ProfileRow | null> {
-  const localId = getLocalId();
+  const { userId, localId } = await getIdentity();
   const existing = await fetchProfile();
+
+  // If we have an authenticated user on this device, link any orphaned local data.
+  // This ensures that any data logged previously as a guest on this device is tied to the auth account.
+  if (userId && localId) {
+    const tablesToLink = ['weight_logs', 'body_stats_log', 'user_streaks', 'daily_missions', 'user_achievements'];
+    for (const table of tablesToLink) {
+      await supabase
+        .from(table)
+        .update({ user_id: userId } as Record<string, unknown>)
+        .eq('local_id', localId)
+        .is('user_id', null);
+    }
+  }
 
   if (existing) {
     const { data, error } = await supabase
       .from('user_profiles')
-      .update({ ...profile, updated_at: new Date().toISOString() } as Record<string, unknown>)
+      .update({ 
+        ...profile, 
+        user_id: userId || existing.user_id, // Link to the new user_id if we authenticated
+        updated_at: new Date().toISOString() 
+      } as Record<string, unknown>)
       .eq('id', existing.id)
       .select()
       .single();
-    if (error) console.error('updateProfile error:', error);
+      
+    if (error) {
+      console.error('updateProfile error:', error);
+      throw error;
+    }
+    
     return data as ProfileRow | null;
+  }
+
+  // If no existing profile, perform a clean upsert
+  // We avoid passing local_id for authenticated users to prevent UNIQUE(local_id) violations
+  // if this device was previously used by another account.
+  const payload: Record<string, unknown> = { ...profile };
+  delete payload.id;
+  
+  if (userId) {
+    payload.user_id = userId;
+  } else {
+    // Only guest accounts strictly require local_id on profile creation
+    payload.local_id = localId;
   }
 
   const { data, error } = await supabase
     .from('user_profiles')
-    .insert([{ ...profile, local_id: localId } as Record<string, unknown>])
+    .upsert(
+      payload,
+      { onConflict: userId ? 'user_id' : 'local_id' }
+    )
     .select()
     .single();
-  if (error) console.error('insertProfile error:', error);
+    
+  if (error) {
+    console.error('upsertProfile error:', error);
+    throw error;
+  }
   return data as ProfileRow | null;
 }
 
@@ -75,27 +145,31 @@ export interface WeightLogRow {
 }
 
 export async function fetchWeightLogs(): Promise<WeightLogRow[]> {
-  const localId = getLocalId();
-  const { data, error } = await supabase
-    .from('weight_logs')
-    .select('*')
-    .eq('local_id', localId)
-    .order('logged_at', { ascending: false });
+  const { userId, localId } = await getIdentity();
+  let query = supabase.from('weight_logs').select('*').order('logged_at', { ascending: false });
+  
+  if (userId) {
+    query = query.eq('user_id', userId);
+  } else if (localId) {
+    query = query.eq('local_id', localId);
+  } else {
+    return [];
+  }
+
+  const { data, error } = await query;
   if (error) console.error('fetchWeightLogs error:', error);
   return (data as WeightLogRow[] | null) ?? [];
 }
 
 export async function addWeightLog(weight: number): Promise<WeightLogRow | null> {
-  const localId = getLocalId();
+  const { userId, localId } = await getIdentity();
   const today = new Date().toISOString().split('T')[0];
 
-  // Check if there's already a log for today — update it
-  const { data: existing } = await supabase
-    .from('weight_logs')
-    .select('id')
-    .eq('local_id', localId)
-    .eq('logged_at', today)
-    .maybeSingle();
+  let query = supabase.from('weight_logs').select('id').eq('logged_at', today);
+  if (userId) query = query.eq('user_id', userId);
+  else if (localId) query = query.eq('local_id', localId);
+
+  const { data: existing } = await query.maybeSingle();
 
   if (existing) {
     const { data, error } = await supabase
@@ -110,22 +184,74 @@ export async function addWeightLog(weight: number): Promise<WeightLogRow | null>
 
   const { data, error } = await supabase
     .from('weight_logs')
-    .insert([{ weight, local_id: localId, logged_at: today }])
+    .insert([{ weight, user_id: userId, local_id: localId, logged_at: today }])
     .select()
     .single();
   if (error) console.error('addWeightLog error:', error);
   return data as WeightLogRow | null;
 }
 
+// ─── Avatar Upload ───
+const AVATAR_LS_KEY = 'fitai-avatar-url';
+
+export function getCachedAvatarUrl(): string | null {
+  return localStorage.getItem(AVATAR_LS_KEY);
+}
+
+export async function uploadAvatar(file: File): Promise<string | null> {
+  const { userId, localId } = await getIdentity();
+  const pathId = userId || localId;
+
+  // Try Supabase Storage first
+  if (pathId) {
+    try {
+      const ext = file.name.split('.').pop() || 'jpg';
+      const path = `avatars/${pathId}.${ext}`;
+      const { error } = await supabase.storage
+        .from('user-avatars')
+        .upload(path, file, { upsert: true, contentType: file.type });
+
+      if (!error) {
+        const { data: urlData } = supabase.storage.from('user-avatars').getPublicUrl(path);
+        const url = urlData?.publicUrl ?? null;
+        if (url) {
+          localStorage.setItem(AVATAR_LS_KEY, url);
+          // Persist to profile row
+          const existing = await fetchProfile();
+          if (existing) {
+            await supabase
+              .from('user_profiles')
+              .update({ avatar_url: url } as Record<string, unknown>)
+              .eq('id', existing.id);
+          }
+          return url;
+        }
+      }
+    } catch { /* fall through to base64 */ }
+  }
+
+  // Fallback: store as base64 data URL in localStorage
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      localStorage.setItem(AVATAR_LS_KEY, dataUrl);
+      resolve(dataUrl);
+    };
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
 export async function getLatestWeight(): Promise<number | null> {
-  const localId = getLocalId();
-  const { data, error } = await supabase
-    .from('weight_logs')
-    .select('weight')
-    .eq('local_id', localId)
-    .order('logged_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { userId, localId } = await getIdentity();
+  let query = supabase.from('weight_logs').select('weight').order('logged_at', { ascending: false }).limit(1);
+  
+  if (userId) query = query.eq('user_id', userId);
+  else if (localId) query = query.eq('local_id', localId);
+  else return null;
+
+  const { data, error } = await query.maybeSingle();
   if (error || !data) return null;
   return (data as { weight: number }).weight;
 }
