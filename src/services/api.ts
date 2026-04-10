@@ -34,6 +34,9 @@ export interface ProfileRow {
   experience: string;
   days_per_week: number;
   preferred_split: string;
+  activity_level: string;
+  goal_weight_kg: number | null;
+  unit_preference: string;
   onboarding_complete: boolean;
   avatar_url: string | null;
 }
@@ -72,18 +75,15 @@ export async function upsertProfile(profile: Partial<ProfileRow>): Promise<Profi
   const { userId, localId } = await getIdentity();
   const existing = await fetchProfile();
 
-  // If we have an authenticated user on this device, link any orphaned local data.
-  // This ensures that any data logged previously as a guest on this device is tied to the auth account.
-  if (userId && localId) {
-    const tablesToLink = ['weight_logs', 'body_stats_log', 'user_streaks', 'daily_missions', 'user_achievements'];
-    for (const table of tablesToLink) {
-      await supabase
-        .from(table)
-        .update({ user_id: userId } as Record<string, unknown>)
-        .eq('local_id', localId)
-        .is('user_id', null);
+    // If we have an authenticated user on this device, link any orphaned local data.
+    // This ensures that any data logged previously as a guest on this device is tied to the auth account.
+    if (userId && localId) {
+      await supabase.from('weight_logs').update({ user_id: userId } as any).eq('local_id', localId).is('user_id', null);
+      await supabase.from('body_stats_log').update({ user_id: userId } as any).eq('local_id', localId).is('user_id', null);
+      await supabase.from('user_streaks').update({ user_id: userId } as any).eq('local_id', localId).is('user_id', null);
+      await supabase.from('daily_missions').update({ user_id: userId } as any).eq('local_id', localId).is('user_id', null);
+      await supabase.from('user_achievements').update({ user_id: userId } as any).eq('local_id', localId).is('user_id', null);
     }
-  }
 
   if (existing) {
     const { data, error } = await supabase

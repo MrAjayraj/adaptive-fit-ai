@@ -32,7 +32,7 @@ export default function OnboardingFlow() {
   const [direction, setDirection] = useState(1); // 1 = right, -1 = left
   const [isSaving, setIsSaving] = useState(false);
 
-  const [form, setForm] = useState<Partial<UserProfileRow>>({
+  const [form, setForm] = useState<Partial<UserProfileRow> & { weight?: number, activity_level?: string }>({
     age: 25,
     gender: 'Male',
     height: 175,
@@ -43,7 +43,7 @@ export default function OnboardingFlow() {
     goal_weight_kg: null,
   });
 
-  const updateForm = (updates: Partial<UserProfileRow>) => {
+  const updateForm = (updates: Partial<UserProfileRow> & { weight?: number, activity_level?: string }) => {
     setForm(prev => ({ ...prev, ...updates }));
   };
 
@@ -89,29 +89,32 @@ export default function OnboardingFlow() {
         // 2. Initialize Season Rank (Iron III)
         const now = new Date();
         const seasonId = `season-${now.getFullYear()}-${now.getMonth() + 1}`;
-        await supabase.from('user_ranks').insert({
+        const { error: rankErr } = await (supabase as any).from('user_ranks').insert({
           user_id: session.user.id,
           season_id: seasonId,
           rp: 0,
           tier: 'iron',
           division: 3
-        }).catch(console.warn); // ignore if fails
+        });
+        if (rankErr) console.warn(rankErr);
 
         // 3. Initialize Streaks
-        await supabase.from('user_streaks').insert({
+        const { error: streakErr } = await supabase.from('user_streaks').insert({
           user_id: session.user.id,
           current_streak: 0,
           longest_streak: 0,
           streak_freezes_remaining: 2,
           streak_freeze_used_this_week: false
-        }).catch(console.warn);
+        });
+        if (streakErr) console.warn(streakErr);
 
         // 4. Record initial body stats weight
-        await supabase.from('body_stats_log').insert({
+        const { error: weightErr } = await supabase.from('body_stats_log').insert({
           user_id: session.user.id,
-          weight_kg: form.weight,
+          weight_kg: form.weight || 0,
           logged_at: new Date().toISOString()
-        }).catch(console.warn);
+        });
+        if (weightErr) console.warn(weightErr);
       }
 
       toast.success(`Welcome to Fit Pulse, ${name.split(' ')[0]}! 💪`);
