@@ -11,6 +11,7 @@ interface AuthContextType {
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   continueAsGuest: () => void;
+  exitGuestMode: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -147,6 +148,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsGuest(true);
   };
 
+  const exitGuestMode = () => {
+    setIsGuest(false);
+    const keysToRemove = [
+      'guest_mode',
+      'fitai-state',
+      'fitai-rank-state',
+      'fitai-local-id',
+      'fitai-avatar-url',
+      'fitai-joined-challenges',
+    ];
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    sessionStorage.clear();
+    window.location.href = '/';
+  };
+
   // Show a clear error screen instead of a blank page when env vars are missing
   if (!SUPABASE_CONFIGURED) {
     return (
@@ -181,7 +197,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ session, user, isGuest, isLoading, signInWithGoogle, signOut, continueAsGuest }}
+      value={{ session, user, isGuest, isLoading, signInWithGoogle, signOut, continueAsGuest, exitGuestMode }}
     >
       {children}
     </AuthContext.Provider>

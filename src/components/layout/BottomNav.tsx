@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, AlarmClock, Star, BarChart2, User } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useAuth } from '@/context/AuthContext';
 
 const NAV_ITEMS = [
   { path: '/',           icon: Home,       label: 'Home'     },
@@ -13,6 +14,7 @@ const NAV_ITEMS = [
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { isGuest } = useAuth();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 md:top-0 md:bottom-0 md:right-auto md:w-[72px] z-50 flex justify-center md:justify-start pb-4 md:pb-0 safe-bottom pointer-events-none md:pointer-events-auto">
@@ -42,12 +44,17 @@ export default function BottomNav() {
                 />
               )}
 
-              <Icon
-                strokeWidth={isActive ? 2.5 : 1.8}
-                className={`w-[22px] h-[22px] relative z-10 transition-colors duration-300 ${
-                  isActive ? 'text-[#111113]' : 'text-[#555560] group-hover:text-text-2'
-                }`}
-              />
+              <div className="relative flex flex-col items-center justify-center">
+                <Icon
+                  strokeWidth={isActive ? 2.5 : 1.8}
+                  className={`w-[22px] h-[22px] relative z-10 transition-colors duration-300 ${
+                    isActive ? 'text-[#111113]' : 'text-[#555560] group-hover:text-text-2'
+                  }`}
+                />
+                {label === 'Profile' && isGuest && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-primary-accent rounded-full border border-surface-1 md:border-surface-2 z-20" />
+                )}
+              </div>
               <span className={`text-[9px] font-bold relative z-10 mt-0.5 tracking-wide uppercase transition-all duration-300 ${isActive ? 'text-[#111113] opacity-100 h-auto' : 'opacity-0 h-0 overflow-hidden md:group-hover:opacity-100 md:group-hover:text-text-2 md:h-0'}`}>
                 {label}
               </span>

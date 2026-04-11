@@ -49,9 +49,23 @@ export default function AuthCallback() {
           navigate('/');
           return;
         }
+        
+        // Check local guest state
+        let localOnboardingComplete = false;
+        try {
+          const localStateStr = localStorage.getItem('fitai-state');
+          if (localStateStr) {
+            const localState = JSON.parse(localStateStr);
+            if (localState?.profile?.onboardingComplete) {
+              localOnboardingComplete = true;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to parse local state:', e);
+        }
 
         // Redirect based on profile status
-        if (profile?.onboarding_complete) {
+        if (profile?.onboarding_complete || localOnboardingComplete) {
           toast.success(`Welcome back!`);
           navigate('/home');
         } else {

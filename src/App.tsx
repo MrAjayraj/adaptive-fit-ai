@@ -8,6 +8,7 @@ import { FitnessProvider } from "@/context/FitnessContext";
 import { AuthProvider } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import OfflineIndicator from "@/components/layout/OfflineIndicator";
+import GuestBanner from "@/components/layout/GuestBanner";
 import { initErrorLogger } from "@/lib/errorLogger";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
@@ -111,6 +112,7 @@ const App = () => (
             <BrowserRouter>
               <AppInit />
               <OfflineIndicator />
+              <GuestBanner />
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   {/* Public Routes */}
