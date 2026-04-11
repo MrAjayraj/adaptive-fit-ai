@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, SUPABASE_CONFIGURED } from '@/integrations/supabase/client';
 import { Session, User } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 
@@ -146,6 +146,38 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('guest_mode', 'true');
     setIsGuest(true);
   };
+
+  // Show a clear error screen instead of a blank page when env vars are missing
+  if (!SUPABASE_CONFIGURED) {
+    return (
+      <div style={{
+        background: '#111113', color: '#FAFAFA', fontFamily: 'sans-serif',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', minHeight: '100vh', padding: '2rem', textAlign: 'center'
+      }}>
+        <div style={{ fontSize: '2.5rem', marginBottom: '1rem' }}>⚙️</div>
+        <h1 style={{ color: '#F5C518', fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.5rem' }}>
+          Configuration Required
+        </h1>
+        <p style={{ color: '#9191A0', maxWidth: '420px', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+          Supabase environment variables are missing.
+          Set <code style={{ color: '#F5C518' }}>VITE_SUPABASE_URL</code> and{' '}
+          <code style={{ color: '#F5C518' }}>VITE_SUPABASE_ANON_KEY</code> in your deployment environment.
+        </p>
+        <a
+          href="https://supabase.com/dashboard"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            background: '#F5C518', color: '#111113', fontWeight: 700,
+            padding: '0.75rem 2rem', borderRadius: '9999px', textDecoration: 'none'
+          }}
+        >
+          Open Supabase Dashboard
+        </a>
+      </div>
+    );
+  }
 
   return (
     <AuthContext.Provider
