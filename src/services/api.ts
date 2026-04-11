@@ -43,28 +43,30 @@ export interface ProfileRow {
 
 export async function fetchProfile(): Promise<ProfileRow | null> {
   const { userId, localId } = await getIdentity();
-  
+
   // Try to find the authenticated profile first
   if (userId) {
-    const { data: authProfile } = await supabase
+    const { data: authProfile, error } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('user_id', userId)
       .maybeSingle();
-      
+
+    if (error) throw error;
     if (authProfile) return authProfile as ProfileRow;
   }
-  
+
   // Hand off to localId if no authenticated profile was found (e.g., they just signed in and haven't linked)
   if (localId) {
-    const { data: guestProfile } = await supabase
+    const { data: guestProfile, error } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('local_id', localId)
       // Make sure we aren't fetching a guest profile that already belongs to someone else
       .is('user_id', null)
       .maybeSingle();
-      
+
+    if (error) throw error;
     if (guestProfile) return guestProfile as ProfileRow;
   }
 
@@ -157,7 +159,7 @@ export async function fetchWeightLogs(): Promise<WeightLogRow[]> {
   }
 
   const { data, error } = await query;
-  if (error) console.error('fetchWeightLogs error:', error);
+  if (error) throw error;
   return (data as WeightLogRow[] | null) ?? [];
 }
 
@@ -178,7 +180,7 @@ export async function addWeightLog(weight: number): Promise<WeightLogRow | null>
       .eq('id', (existing as { id: string }).id)
       .select()
       .single();
-    if (error) console.error('updateWeightLog error:', error);
+    if (error) throw error;
     return data as WeightLogRow | null;
   }
 
@@ -187,7 +189,7 @@ export async function addWeightLog(weight: number): Promise<WeightLogRow | null>
     .insert([{ weight, user_id: userId, local_id: localId, logged_at: today }])
     .select()
     .single();
-  if (error) console.error('addWeightLog error:', error);
+  if (error) throw error;
   return data as WeightLogRow | null;
 }
 
@@ -235,7 +237,12 @@ export async function uploadAvatar(file: File): Promise<string | null> {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      localStorage.setItem(AVATAR_LS_KEY, dataUrl);
+      try {
+        localStorage.setItem(AVATAR_LS_KEY, dataUrl);
+      } catch {
+        // localStorage quota exceeded — skip caching, return the data URL anyway
+        console.warn('localStorage quota exceeded, avatar not cached locally.');
+      }
       resolve(dataUrl);
     };
     reader.onerror = () => resolve(null);

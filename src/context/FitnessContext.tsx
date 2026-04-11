@@ -207,7 +207,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         name: dbProfile.name,
         age: dbProfile.age,
         gender: dbProfile.gender as UserProfile['gender'],
-        weight: latestWeight ?? Number(dbProfile.height),
+        weight: latestWeight ?? 70,
         height: Number(dbProfile.height),
         bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
         goalWeight: row.goal_weight_kg ? Number(row.goal_weight_kg) : undefined,
@@ -550,8 +550,9 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       if (prev.gamification.completedMissionIds.includes(missionId)) return prev;
       const today = new Date().toISOString().split('T')[0];
       const selected = getSelectedMissions(today);
-      const idx = parseInt(missionId.split('-').pop() || '0');
-      const xpGain = selected[idx]?.xpReward || 0;
+      const idxStr = missionId.split('-').pop() || '';
+      const idx = /^\d+$/.test(idxStr) ? parseInt(idxStr, 10) : -1;
+      const xpGain = (idx >= 0 && selected[idx]) ? selected[idx].xpReward : 0;
       const newIds = [...prev.gamification.completedMissionIds, missionId];
       const newXP = prev.gamification.xp + xpGain;
       return {
@@ -567,17 +568,13 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     awardRP(RP.MISSION_COMPLETE, 'Completed a daily mission');
   }, [awardRP]);
 
-  const setAvatarUrl = useCallback((url: string | null) => {
-    setState(prev => ({ ...prev, avatarUrl: url }));
-    if (url) localStorage.setItem('fitai-avatar-url', url);
-    else localStorage.removeItem('fitai-avatar-url');
-  }, []);
-
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(RANK_STORAGE_KEY);
     localStorage.removeItem('fitai-local-id');
+    localStorage.removeItem('fitai-avatar-url');
+    localStorage.removeItem('guest_mode');
     window.location.href = '/';
   }, []);
 

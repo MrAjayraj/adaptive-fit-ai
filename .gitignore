@@ -18,9 +18,18 @@ dist-ssr
 .env
 .env.local
 .env.*.local
+.env.production
+.env.staging
+
+# Vercel
+.vercel
 
 # Local-only files
 *.local
+
+# Debug / temp files
+lint_output.txt
+*.mjs.map
 
 # Editor directories and files
 .vscode/*

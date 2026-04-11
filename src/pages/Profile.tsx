@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -10,6 +10,7 @@ import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'rec
 import BottomNav from '@/components/layout/BottomNav';
 import CalorieMacroCard from '@/components/profile/CalorieMacroCard';
 import XPBreakdownCard from '@/components/profile/XPBreakdownCard';
+import { uploadAvatar, getCachedAvatarUrl } from '@/services/api';
 
 const GOAL_CARDS = [
   { value: 'aggressive_cut', label: 'Aggressive Cut', icon: '🔥', cal: '-750' },
@@ -33,7 +34,7 @@ const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, trans
 const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1 } };
 
 export default function Profile() {
-  const { profile, gamification, weightLogs, signOut, updateWeight, setProfile } = useFitness();
+  const { profile, gamification, weightLogs, signOut, updateWeight, setProfile, isLoading } = useFitness();
   const navigate = useNavigate();
   const { xp, level, streak } = gamification;
   const [editing, setEditing] = useState(false);
@@ -41,6 +42,21 @@ export default function Profile() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [logWeight, setLogWeight] = useState('');
   const [logBodyFat, setLogBodyFat] = useState('');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(getCachedAvatarUrl);
+  const [unitPref, setUnitPref] = useState<'metric' | 'imperial'>('metric');
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-canvas flex items-center justify-center">
+        <div className="relative flex items-center justify-center w-12 h-12">
+          <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-primary w-full h-full animate-spin" />
+          <div className="absolute inset-0 rounded-full blur-[8px] bg-primary/20 w-full h-full animate-pulse" />
+        </div>
+      </div>
+    );
+  }
 
   if (!profile) return null;
 
@@ -62,6 +78,26 @@ export default function Profile() {
   const cancelEdit = () => { setForm(null); setEditing(false); };
   const saveEdit = () => { if (form) { setProfile(form); setEditing(false); setForm(null); toast.success('Profile updated'); } };
   const update = (fields: Partial<UserProfile>) => setForm(prev => prev ? { ...prev, ...fields } : prev);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAvatar(true);
+    try {
+      const url = await uploadAvatar(file);
+      if (url) {
+        setAvatarUrl(url);
+        toast.success('Avatar updated');
+      } else {
+        toast.error('Failed to upload avatar');
+      }
+    } catch {
+      toast.error('Failed to upload avatar');
+    } finally {
+      setIsUploadingAvatar(false);
+      e.target.value = '';
+    }
+  };
 
   const handleLogMeasurement = async () => {
     const w = parseFloat(logWeight);
@@ -116,9 +152,23 @@ export default function Profile() {
           <div className="relative mb-4">
             <div className="absolute inset-[-6px] rounded-full border-2 border-primary-accent/40" />
             <div className="w-24 h-24 rounded-full bg-surface-2 flex items-center justify-center overflow-hidden border-2 border-surface-3">
-              <User className="w-12 h-12 text-text-3" />
+              {avatarUrl
+                ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                : <User className="w-12 h-12 text-text-3" />
+              }
             </div>
-            <button className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-primary-accent flex items-center justify-center border-2 border-canvas">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+            <button
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={isUploadingAvatar}
+              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-primary-accent flex items-center justify-center border-2 border-canvas disabled:opacity-60"
+            >
               <Camera className="w-3.5 h-3.5 text-canvas" />
             </button>
             <div className="absolute -top-1 -left-1 w-8 h-8 rounded-full bg-primary-accent flex items-center justify-center">
@@ -274,8 +324,14 @@ export default function Profile() {
                 <div className="flex items-center justify-between p-4 border-b border-border-subtle">
                   <span className="text-[14px] font-medium text-text-1">Unit</span>
                   <div className="flex rounded-full overflow-hidden border border-border-subtle">
-                    <button className="px-3.5 py-1.5 text-[12px] font-bold bg-primary-accent text-canvas">Metric</button>
-                    <button className="px-3.5 py-1.5 text-[12px] font-medium bg-surface-2 text-text-2">Imperial</button>
+                    <button
+                      onClick={() => setUnitPref('metric')}
+                      className={`px-3.5 py-1.5 text-[12px] font-bold transition-colors ${unitPref === 'metric' ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'}`}
+                    >Metric</button>
+                    <button
+                      onClick={() => setUnitPref('imperial')}
+                      className={`px-3.5 py-1.5 text-[12px] font-medium transition-colors ${unitPref === 'imperial' ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'}`}
+                    >Imperial</button>
                   </div>
                 </div>
                 <button onClick={signOut} className="flex items-center gap-2.5 p-4 w-full text-red-500 hover:bg-surface-2 transition-colors">

@@ -427,7 +427,14 @@ export default function Dashboard() {
         <motion.div variants={itemVariants}>
           <div className="flex items-center justify-between mb-3 px-1">
             <h3 className="text-[14px] font-bold text-text-1">Daily Missions</h3>
-            <span className="text-[11px] text-text-3">14h left</span>
+            <span className="text-[11px] text-text-3">
+              {(() => {
+                const now = new Date();
+                const hoursLeft = 23 - now.getHours();
+                const minsLeft = 59 - now.getMinutes();
+                return hoursLeft > 0 ? `${hoursLeft}h left` : `${minsLeft}m left`;
+              })()}
+            </span>
           </div>
           <DailyMissions />
         </motion.div>

@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Session, User } from '@supabase/supabase-js';
+import { toast } from 'sonner';
 
 interface AuthContextType {
   session: Session | null;
@@ -14,30 +15,33 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Minimum ms between auth attempts (throttle) */
+const AUTH_THROTTLE_MS = 5_000;
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession]   = useState<Session | null>(null);
+  const [user, setUser]         = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isGuest, setIsGuest] = useState<boolean>(
+  const [isGuest, setIsGuest]   = useState<boolean>(
     localStorage.getItem('guest_mode') === 'true'
   );
+  const lastAuthAttempt = useRef<number>(0);
 
   useEffect(() => {
+    // ── 1. Fetch current session on mount ────────────────────────
     const initAuth = async () => {
       try {
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) throw error;
-        
+
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
-          // If we have a user, clear guest mode just in case
           setIsGuest(false);
           localStorage.removeItem('guest_mode');
         }
       } catch (err) {
-        console.error("Auth session error, clearing stale state:", err);
-        // Force a sign out to clear broken session state
+        console.error('Auth session error, clearing stale state:', err);
         await supabase.auth.signOut().catch(() => {});
         setSession(null);
         setUser(null);
@@ -45,31 +49,63 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     };
+
     initAuth();
 
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        setIsGuest(false);
-        localStorage.removeItem('guest_mode');
+    // ── 2. Listen for all auth state changes ─────────────────────
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, newSession) => {
+        switch (event) {
+          case 'SIGNED_IN':
+            setSession(newSession);
+            setUser(newSession?.user ?? null);
+            setIsGuest(false);
+            localStorage.removeItem('guest_mode');
+            setIsLoading(false);
+            break;
+
+          case 'SIGNED_OUT':
+            setSession(null);
+            setUser(null);
+            setIsLoading(false);
+            break;
+
+          case 'TOKEN_REFRESHED':
+            // Silently update session — no state disruption
+            setSession(newSession);
+            break;
+
+          case 'USER_UPDATED':
+            setSession(newSession);
+            setUser(newSession?.user ?? null);
+            break;
+
+          default:
+            setSession(newSession);
+            setUser(newSession?.user ?? null);
+            setIsLoading(false);
+        }
       }
-      setIsLoading(false);
-    });
+    );
 
     return () => subscription.unsubscribe();
   }, []);
 
+  // ── Sign in with Google (throttled) ──────────────────────────────
   const signInWithGoogle = async () => {
+    const now = Date.now();
+    if (now - lastAuthAttempt.current < AUTH_THROTTLE_MS) {
+      toast.error('Please wait a moment before trying again.');
+      return;
+    }
+    lastAuthAttempt.current = now;
+
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`
-        }
+          redirectTo: `${window.location.origin}/auth/callback`,
+        },
       });
       if (error) throw error;
     } catch (error) {
@@ -78,14 +114,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // ── Sign out — clear ALL local state ─────────────────────────────
   const signOut = async () => {
     try {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+
+      // Clear session state
       setSession(null);
       setUser(null);
       setIsGuest(false);
-      localStorage.removeItem('guest_mode');
+
+      // Clear all app-specific localStorage keys
+      const keysToRemove = [
+        'guest_mode',
+        'fitai-state',
+        'fitai-rank-state',
+        'fitai-local-id',
+        'fitai-avatar-url',
+        'fitai-joined-challenges',
+      ];
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+      sessionStorage.clear();
     } catch (error) {
       console.error('Error signing out:', error);
       throw error;
@@ -99,15 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{
-        session,
-        user,
-        isGuest,
-        isLoading,
-        signInWithGoogle,
-        signOut,
-        continueAsGuest,
-      }}
+      value={{ session, user, isGuest, isLoading, signInWithGoogle, signOut, continueAsGuest }}
     >
       {children}
     </AuthContext.Provider>

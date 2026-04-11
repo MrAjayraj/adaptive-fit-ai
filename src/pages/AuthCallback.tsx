@@ -1,15 +1,30 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
-import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const AUTH_TIMEOUT_MS = 10_000;
 
 export default function AuthCallback() {
   const navigate = useNavigate();
   const { session, isLoading } = useAuth();
+  const timedOut = useRef(false);
+
+  // Failsafe: if auth never resolves, redirect after 10 seconds
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (isLoading) {
+        timedOut.current = true;
+        toast.error('Authentication timed out. Please try again.');
+        navigate('/');
+      }
+    }, AUTH_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (timedOut.current) return;
     // If still loading auth state, wait
     if (isLoading) return;
 
@@ -40,12 +55,12 @@ export default function AuthCallback() {
           toast.success(`Welcome back!`);
           navigate('/home');
         } else {
-           // New user or incomplete onboarding
+          // New user or incomplete onboarding
           navigate('/onboarding');
         }
       } catch (err) {
-         console.error('AuthCallback exception:', err);
-         navigate('/');
+        console.error('AuthCallback exception:', err);
+        navigate('/');
       }
     };
 

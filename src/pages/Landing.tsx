@@ -20,6 +20,9 @@ export default function Landing() {
     try {
       setIsSigningIn(true);
       await signInWithGoogle();
+      // signInWithGoogle triggers an OAuth redirect, so this line only
+      // runs if the redirect did NOT happen (e.g. popup blocked).
+      setIsSigningIn(false);
     } catch (error) {
       console.error(error);
       setIsSigningIn(false);
@@ -28,7 +31,9 @@ export default function Landing() {
 
   const handleGuestSignIn = () => {
     continueAsGuest();
-    navigate('/home');
+    // Navigate in the next tick so React can flush the isGuest state
+    // update from continueAsGuest() before ProtectedRoute checks it.
+    setTimeout(() => navigate('/home'), 0);
   };
 
   // Staggered pill items
@@ -177,8 +182,8 @@ export default function Landing() {
         <div className="mt-8 flex flex-col items-center gap-3 w-full">
           <p className="text-[10px] text-text-3 text-center px-4">
             By continuing, you agree to our{' '}
-            <a href="#" className="underline hover:text-text-2 transition-colors">Terms</a> and{' '}
-            <a href="#" className="underline hover:text-text-2 transition-colors">Privacy Policy</a>
+            <span className="underline text-text-3">Terms</span> and{' '}
+            <span className="underline text-text-3">Privacy Policy</span>
           </p>
 
           <p className="flex items-center gap-1.5 text-[9px] text-text-3 tracking-wider uppercase mt-4">
