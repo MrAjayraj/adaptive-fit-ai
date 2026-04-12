@@ -240,16 +240,44 @@ export function detectNewPRs(workout: Workout, existingPRs: PR[]): PR[] {
 
 // ── Streak ──
 
-export function updateStreak(lastWorkoutDate: string | null, currentStreak: number, streakFreezeAvailable: boolean = false): { streak: number; usedFreeze: boolean } {
-  const today = new Date().toISOString().split('T')[0];
+export function updateStreak(
+  lastWorkoutDate: string | null, 
+  currentStreak: number, 
+  workoutDays: number[] = [1, 2, 4, 5],
+  streakFreezeAvailable: boolean = false
+): { streak: number; usedFreeze: boolean } {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
   if (!lastWorkoutDate) return { streak: 1, usedFreeze: false };
 
   const last = new Date(lastWorkoutDate);
-  const now = new Date(today);
-  const diffDays = Math.floor((now.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+  last.setHours(0, 0, 0, 0);
 
-  if (diffDays <= 1) return { streak: currentStreak + 1, usedFreeze: false };
-  if (diffDays === 2 && streakFreezeAvailable) return { streak: currentStreak + 1, usedFreeze: true };
+  if (last.getTime() === today.getTime()) {
+    return { streak: currentStreak, usedFreeze: false }; // Already logged today
+  }
+
+  let missedScheduledDays = 0;
+  const d = new Date(last);
+  d.setDate(d.getDate() + 1);
+
+  while (d.getTime() < today.getTime()) {
+    if (workoutDays.includes(d.getDay())) {
+      missedScheduledDays++;
+    }
+    d.setDate(d.getDate() + 1);
+  }
+
+  const isScheduledToday = workoutDays.includes(today.getDay());
+  const increment = isScheduledToday ? 1 : 0;
+
+  if (missedScheduledDays === 0) {
+    return { streak: Math.max(1, currentStreak + increment), usedFreeze: false };
+  } else if (missedScheduledDays === 1 && streakFreezeAvailable) {
+    return { streak: Math.max(1, currentStreak + increment), usedFreeze: true };
+  }
+  
   return { streak: 1, usedFreeze: false };
 }
 

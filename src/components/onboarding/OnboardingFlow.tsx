@@ -7,7 +7,7 @@ import { UserProfileRow } from '@/types/index';
 import { Flame, TrendingUp, Dumbbell, Scale, Zap, Check, ChevronLeft, Activity } from 'lucide-react';
 import { toast } from 'sonner';
 
-const STEPS = 6;
+const STEPS = 7;
 
 const GOAL_OPTIONS = [
   { id: 'lose_fat', label: 'Lose Fat', icon: <Flame />, desc: 'Burn fat while preserving muscle', target: '-500 cal deficit', color: '#EF4444' },
@@ -25,6 +25,8 @@ const ACTIVITY_OPTIONS = [
   { id: 'extremely_active', label: 'Extremely Active', desc: 'Athlete or labor-intensive job' },
 ];
 
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 export default function OnboardingFlow() {
   const { session, isGuest } = useAuth();
   const navigate = useNavigate();
@@ -32,7 +34,7 @@ export default function OnboardingFlow() {
   const [direction, setDirection] = useState(1); // 1 = right, -1 = left
   const [isSaving, setIsSaving] = useState(false);
 
-  const [form, setForm] = useState<Partial<UserProfileRow> & { weight?: number, activity_level?: string }>({
+  const [form, setForm] = useState<Partial<UserProfileRow> & { weight?: number, activity_level?: string, workout_days?: number[] }>({
     age: 25,
     gender: 'Male',
     height: 175,
@@ -41,9 +43,10 @@ export default function OnboardingFlow() {
     goal: '',
     activity_level: 'moderately_active',
     goal_weight_kg: null,
+    workout_days: [1, 2, 4, 5],
   });
 
-  const updateForm = (updates: Partial<UserProfileRow> & { weight?: number, activity_level?: string }) => {
+  const updateForm = (updates: Partial<UserProfileRow> & { weight?: number, activity_level?: string, workout_days?: number[] }) => {
     setForm(prev => ({ ...prev, ...updates }));
   };
 
@@ -78,6 +81,7 @@ export default function OnboardingFlow() {
         experience: 'intermediate', // Defaulting for now
         days_per_week: 4,
         preferred_split: 'push_pull_legs',
+        workout_days: form.workout_days || [1, 2, 4, 5],
         activity_level: form.activity_level,
         goal_weight_kg: form.goal_weight_kg,
         unit_preference: form.unit_preference,
@@ -417,8 +421,59 @@ export default function OnboardingFlow() {
               </div>
             )}
 
-            {/* STEP 6: READY! */}
+            {/* STEP 6: WORKOUT DAYS */}
             {step === 6 && (
+              <div className="flex flex-col flex-1 h-full pb-20">
+                <div className="mb-6">
+                  <h2 className="text-2xl font-bold">Training Days</h2>
+                  <p className="text-[13px] text-text-2 mt-1">Which days do you plan to work out?</p>
+                </div>
+
+                <div className="flex flex-col gap-3 overflow-y-auto pb-10 hide-scrollbar">
+                  {DAYS_OF_WEEK.map((day, idx) => {
+                    const isSelected = form.workout_days?.includes(idx);
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          const current = form.workout_days || [];
+                          if (current.includes(idx)) {
+                            updateForm({ workout_days: current.filter(d => d !== idx).sort() });
+                          } else {
+                            updateForm({ workout_days: [...current, idx].sort() });
+                          }
+                        }}
+                        className={`flex items-center justify-between p-4 rounded-[20px] text-left transition-colors border ${
+                          isSelected ? 'bg-primary/5 border-primary/40' : 'bg-surface-1 border-border'
+                        }`}
+                      >
+                        <p className={`font-semibold text-[15px] ${isSelected ? 'text-text-1' : 'text-text-2'}`}>
+                          {day}
+                        </p>
+                        <div className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ml-3 transition-colors ${
+                          isSelected ? 'bg-primary' : 'bg-surface-3'
+                        }`}>
+                          {isSelected && <Check className="w-4 h-4 text-canvas" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="absolute bottom-4 left-0 right-0 pt-4 flex gap-3">
+                   <button 
+                     onClick={nextStep} 
+                     disabled={!form.workout_days || form.workout_days.length === 0}
+                     className="flex-1 h-[52px] bg-primary text-[#06090D] font-bold text-[15px] rounded-[14px] disabled:opacity-50"
+                   >
+                     Continue
+                   </button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 7: READY! */}
+            {step === 7 && (
               <div className="flex flex-col items-center justify-center flex-1 h-full pb-20">
                 <motion.div 
                    initial={{ scale: 0.5, opacity: 0 }}

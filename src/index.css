@@ -143,6 +143,17 @@
     background-image: var(--gradient-warm);
   }
 
+  /* Hide native calendar icon for date inputs with custom icon */
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    cursor: pointer;
+  }
+
   /* Floating Bottom Nav glass */
   .nav-glass {
     background: rgba(22, 22, 26, 0.88);

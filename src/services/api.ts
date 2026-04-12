@@ -37,6 +37,7 @@ export interface ProfileRow {
   activity_level: string;
   goal_weight_kg: number | null;
   unit_preference: string;
+  workout_days: number[];
   onboarding_complete: boolean;
   avatar_url: string | null;
 }
@@ -163,11 +164,11 @@ export async function fetchWeightLogs(): Promise<WeightLogRow[]> {
   return (data as WeightLogRow[] | null) ?? [];
 }
 
-export async function addWeightLog(weight: number): Promise<WeightLogRow | null> {
+export async function addWeightLog(weight: number, date?: string): Promise<WeightLogRow | null> {
   const { userId, localId } = await getIdentity();
-  const today = new Date().toISOString().split('T')[0];
+  const logDate = date || new Date().toISOString().split('T')[0];
 
-  let query = supabase.from('weight_logs').select('id').eq('logged_at', today);
+  let query = supabase.from('weight_logs').select('id').eq('logged_at', logDate);
   if (userId) query = query.eq('user_id', userId);
   else if (localId) query = query.eq('local_id', localId);
 
@@ -186,11 +187,16 @@ export async function addWeightLog(weight: number): Promise<WeightLogRow | null>
 
   const { data, error } = await supabase
     .from('weight_logs')
-    .insert([{ weight, user_id: userId, local_id: localId, logged_at: today }])
+    .insert([{ weight, user_id: userId, local_id: localId, logged_at: logDate }])
     .select()
     .single();
   if (error) throw error;
   return data as WeightLogRow | null;
+}
+
+export async function deleteWeightLog(id: string): Promise<void> {
+  const { error } = await supabase.from('weight_logs').delete().eq('id', id);
+  if (error) throw error;
 }
 
 // ─── Avatar Upload ───

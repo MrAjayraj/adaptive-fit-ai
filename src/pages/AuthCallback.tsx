@@ -49,27 +49,18 @@ export default function AuthCallback() {
           navigate('/');
           return;
         }
-        
-        // Check local guest state
-        let localOnboardingComplete = false;
-        try {
-          const localStateStr = localStorage.getItem('fitai-state');
-          if (localStateStr) {
-            const localState = JSON.parse(localStateStr);
-            if (localState?.profile?.onboardingComplete) {
-              localOnboardingComplete = true;
-            }
-          }
-        } catch (e) {
-          console.error('Failed to parse local state:', e);
-        }
 
-        // Redirect based on profile status
-        if (profile?.onboarding_complete || localOnboardingComplete) {
+        // Redirect based on DB profile only — never trust localStorage for this decision.
+        // Old guest localStorage data (fitai-state) must not bypass onboarding for a new auth user.
+        if (profile?.onboarding_complete) {
+          // Clear any stale guest state so the authenticated profile loads fresh
+          localStorage.removeItem('fitai-state');
           toast.success(`Welcome back!`);
           navigate('/home');
         } else {
-          // New user or incomplete onboarding
+          // New user or incomplete onboarding — always go through the flow
+          // Also clear stale guest state so FitnessContext starts clean
+          localStorage.removeItem('fitai-state');
           navigate('/onboarding');
         }
       } catch (err) {

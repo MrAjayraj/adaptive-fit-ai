@@ -52,7 +52,8 @@ interface FitnessContextType extends FitnessState {
   setStepsToday: (steps: number) => void;
   clearRecentPRs: () => void;
   getTotalVolume: () => number;
-  updateWeight: (weight: number) => Promise<void>;
+  updateWeight: (weight: number, date?: string) => Promise<void>;
+  deleteWeightLog: (id: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   getDailyMissions: () => DailyMission[];
   completeMission: (id: string) => void;
@@ -184,12 +185,15 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
             goal: dbProfile.goal as UserProfile['goal'],
             experience: dbProfile.experience as UserProfile['experience'],
             daysPerWeek: dbProfile.days_per_week,
+            workoutDays: dbProfile.workout_days ?? [1, 2, 4, 5],
             preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
             onboardingComplete: dbProfile.onboarding_complete,
           };
           setState(prev => ({ ...prev, profile, weightLogs: logs, isLoading: false }));
         } else {
-          setState(prev => ({ ...prev, weightLogs: logs, isLoading: false }));
+          // No DB profile — clear any stale profile that may have been loaded from localStorage
+          // (e.g. a previous guest session's profile should not appear for a new auth user)
+          setState(prev => ({ ...prev, profile: null, weightLogs: logs, isLoading: false }));
         }
       } catch {
         setState(prev => ({ ...prev, isLoading: false }));
@@ -215,6 +219,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         goal: dbProfile.goal as UserProfile['goal'],
         experience: dbProfile.experience as UserProfile['experience'],
         daysPerWeek: dbProfile.days_per_week,
+        workoutDays: dbProfile.workout_days ?? [1, 2, 4, 5],
         preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
         onboardingComplete: dbProfile.onboarding_complete,
       };
@@ -266,6 +271,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         goal: profile.goal,
         experience: profile.experience,
         days_per_week: profile.daysPerWeek,
+        workout_days: profile.workoutDays,
         preferred_split: profile.preferredSplit,
         onboarding_complete: profile.onboardingComplete,
       }).catch(err => {
@@ -285,8 +291,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const updateWeight = useCallback(async (weight: number) => {
-    await addWeightLog(weight);
+  const updateWeight = useCallback(async (weight: number, date?: string) => {
+    await addWeightLog(weight, date);
     const logs = await fetchWeightLogs();
     setState(prev => ({
       ...prev,
@@ -300,6 +306,19 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     }));
     awardRP(RP.LOG_STATS, 'Logged body stats');
   }, [awardRP]);
+
+  const deleteWeightLog = useCallback(async (id: string) => {
+    // Note: To avoid circular dependencies, use api.ts deleteWeightLog here directly.
+    const { deleteWeightLog: apiDeleteWeightLog } = await import('@/services/api');
+    await apiDeleteWeightLog(id);
+    const logs = await fetchWeightLogs();
+    setState(prev => ({
+      ...prev,
+      weightLogs: logs,
+      // If we delete the latest, we could potentially update profile weight to the new latest,
+      // but for simplicity we rely on the next logged weight or manual refresh.
+    }));
+  }, []);
 
   const generatePlan = useCallback(() => {
     if (!state.profile) return;
@@ -349,7 +368,12 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       }
 
       const canFreeze = !prev.gamification.streakFreezeUsed;
-      const streakResult = updateStreak(prev.gamification.lastWorkoutDate, prev.gamification.streak, canFreeze);
+      const streakResult = updateStreak(
+        prev.gamification.lastWorkoutDate, 
+        prev.gamification.streak, 
+        prev.profile?.workoutDays,
+        canFreeze
+      );
 
       let xpGain = XP_WORKOUT_COMPLETE;
       xpGain += newPRs.length * XP_NEW_PR;
@@ -597,6 +621,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         clearRecentPRs,
         getTotalVolume,
         updateWeight,
+        deleteWeightLog,
         refreshProfile,
         getDailyMissions,
         completeMission,

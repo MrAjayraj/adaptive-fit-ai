@@ -160,6 +160,27 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_steps: {
+        Row: {
+          step_count: number
+          step_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          step_count?: number
+          step_date: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          step_count?: number
+          step_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       exercises: {
         Row: {
           created_at: string
@@ -286,6 +307,7 @@ export type Database = {
           unit_preference: string
           updated_at: string
           user_id: string | null
+          workout_days: number[]
         }
         Insert: {
           activity_level?: string
@@ -307,6 +329,7 @@ export type Database = {
           unit_preference?: string
           updated_at?: string
           user_id?: string | null
+          workout_days?: number[]
         }
         Update: {
           activity_level?: string
@@ -328,6 +351,7 @@ export type Database = {
           unit_preference?: string
           updated_at?: string
           user_id?: string | null
+          workout_days?: number[]
         }
         Relationships: []
       }

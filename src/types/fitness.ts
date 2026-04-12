@@ -17,6 +17,7 @@ export interface UserProfile {
   goal: FitnessGoal;
   experience: ExperienceLevel;
   daysPerWeek: number;
+  workoutDays: number[]; // 0 = Sunday, 1 = Monday, etc.
   preferredSplit: WorkoutSplit;
   onboardingComplete: boolean;
 }

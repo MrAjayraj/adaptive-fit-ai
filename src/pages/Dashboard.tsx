@@ -208,41 +208,49 @@ function StepCounter({ steps, onChange }: { steps: number; onChange: (n: number)
   const pct = Math.min((steps / STEP_GOAL) * 100, 100);
 
   return (
-    <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between">
-      <div className="flex items-center justify-between mb-1">
-        <Footprints className="w-5 h-5 text-text-2" />
-        <span className="text-[10px] text-text-3 font-semibold tracking-widest uppercase">Steps</span>
+    <div className="w-full bg-surface-1 rounded-[20px] p-5 border border-border-subtle flex flex-col">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center">
+            <Footprints className="w-4 h-4 text-primary-accent" />
+          </div>
+          <span className="text-[13px] text-text-2 font-bold tracking-widest uppercase">Daily Steps</span>
+        </div>
+        <p className="text-[28px] font-extrabold text-text-1 tabular-nums leading-none">
+          {steps.toLocaleString()}
+        </p>
       </div>
-      <p className="text-[26px] font-extrabold text-text-1 tabular-nums leading-none">
-        {steps.toLocaleString()}
-      </p>
-      <div className="h-1 w-full bg-surface-3 rounded-full mt-2 mb-3 overflow-hidden">
-        <div className="h-full bg-primary-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+
+      <div className="h-1.5 w-full bg-surface-3 rounded-full mb-4 overflow-hidden">
+        <div className="h-full bg-primary-accent rounded-full transition-all duration-500 ease-out" style={{ width: `${pct}%` }} />
       </div>
-      <div className="flex items-center gap-1.5">
+
+      <div className="flex items-center gap-2">
         <button
-          onClick={() => onChange(Math.max(0, steps - 500))}
-          className="w-8 h-8 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center active:scale-95 transition-transform"
+          onClick={() => onChange(Math.max(0, steps - 1000))}
+          className="w-10 h-10 shrink-0 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center active:scale-95 transition-transform"
         >
-          <Minus className="w-3.5 h-3.5 text-text-2" />
+          <Minus className="w-4 h-4 text-text-2" />
         </button>
-        <button
-          onClick={() => onChange(steps + 500)}
-          className="flex-1 h-8 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center text-[11px] font-bold text-text-1 active:scale-95 transition-transform"
-        >
-          +500
-        </button>
+        <div className="flex-1 flex gap-2">
+          <button
+            onClick={() => onChange(steps + 500)}
+            className="flex-1 h-10 rounded-xl bg-surface-2 border border-border-subtle flex items-center justify-center text-[13px] font-bold text-text-1 active:scale-95 transition-transform"
+          >
+            +500
+          </button>
+          <button
+            onClick={() => onChange(steps + 1000)}
+            className="flex-1 h-10 rounded-xl bg-primary-accent/15 border border-primary-accent/30 flex items-center justify-center text-[13px] font-bold text-primary-accent active:scale-95 transition-transform"
+          >
+            +1k
+          </button>
+        </div>
         <button
           onClick={() => onChange(steps + 1000)}
-          className="flex-1 h-8 rounded-full bg-primary-accent/15 border border-primary-accent/30 flex items-center justify-center text-[11px] font-bold text-primary-accent active:scale-95 transition-transform"
+          className="w-10 h-10 shrink-0 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center active:scale-95 transition-transform"
         >
-          +1k
-        </button>
-        <button
-          onClick={() => onChange(steps + 100)}
-          className="w-8 h-8 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center active:scale-95 transition-transform"
-        >
-          <Plus className="w-3.5 h-3.5 text-text-2" />
+          <Plus className="w-4 h-4 text-text-2" />
         </button>
       </div>
     </div>
@@ -374,24 +382,34 @@ export default function Dashboard() {
         <WeeklyRecapBanner />
 
         {/* ── 6. QUICK STATS ROW ───────────────────────────────── */}
-        <motion.div variants={itemVariants} className="flex gap-3">
-          {/* Streak */}
-          <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col items-center justify-center relative overflow-hidden">
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-20 h-20 bg-orange-500/10 blur-[28px] rounded-full" />
-            <Flame className="w-6 h-6 text-orange-400 fill-orange-400/25 mb-1 relative z-10" />
-            <span className="text-[32px] font-extrabold text-text-1 tabular-nums leading-none relative z-10">{streak}</span>
-            <span className="text-[10px] text-text-2 mt-1 relative z-10">day streak</span>
-          </div>
-
+        <motion.div variants={itemVariants} className="flex flex-col gap-3">
           {/* Steps — interactive */}
           <StepCounter steps={steps} onChange={handleStepChange} />
 
-          {/* Calories */}
-          <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between">
-            <Flame className="w-5 h-5 text-primary-accent mb-1" />
-            <div>
-              <p className="text-[26px] font-extrabold text-text-1 tabular-nums leading-none">{calories?.target ?? '—'}</p>
-              <span className="text-[10px] text-text-3 uppercase tracking-widest">kcal</span>
+          <div className="flex gap-3">
+            {/* Streak */}
+            <div className="flex-1 bg-surface-1 rounded-[20px] p-5 border border-border-subtle flex flex-col items-center justify-center relative overflow-hidden">
+              <div className="absolute -top-4 left-1/2 -translate-x-1/2 w-24 h-24 bg-orange-500/10 blur-[32px] rounded-full" />
+              <Flame className="w-8 h-8 text-orange-400 fill-orange-400/25 mb-1.5 relative z-10" />
+              <div className="text-center relative z-10 block">
+                <span className="text-[32px] font-extrabold text-text-1 tabular-nums leading-none block">{streak}</span>
+                <span className="text-[12px] font-medium text-text-2 mt-1 block">day streak</span>
+              </div>
+            </div>
+
+            {/* Calories */}
+            <div className="flex-1 bg-surface-1 rounded-[20px] p-5 border border-border-subtle flex flex-col justify-between items-center relative overflow-hidden">
+              <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-primary-accent/15 blur-[28px] rounded-full pointer-events-none" />
+              <div className="w-full flex items-start justify-between mb-2">
+                <div className="w-8 h-8 rounded-full bg-surface-2 flex items-center justify-center">
+                  <Flame className="w-4 h-4 text-primary-accent" />
+                </div>
+                <span className="text-[10px] font-bold text-primary-accent uppercase tracking-widest bg-primary-accent/10 px-2 py-1 rounded-full">Target</span>
+              </div>
+              <div className="w-full text-left mt-1 relative z-10">
+                <p className="text-[32px] font-extrabold text-text-1 tabular-nums leading-none tracking-tight">{calories?.target ?? '—'}</p>
+                <span className="text-[14px] text-text-3 font-semibold mt-1 block">kcal / day</span>
+              </div>
             </div>
           </div>
         </motion.div>

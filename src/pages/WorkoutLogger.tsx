@@ -622,6 +622,7 @@ export default function WorkoutLogger() {
         difficulty: 'intermediate' as const,
         estimatedDuration: 45,
         isAIGenerated: true,
+        createdAt: new Date().toISOString(),
       };
       startCustomWorkout(template);
     };
@@ -834,7 +835,7 @@ export default function WorkoutLogger() {
       <AnimatePresence>
         {showCancelConfirm && (
           <div
-            className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
+            className="fixed inset-0 z-[60] bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
             onClick={() => setShowCancelConfirm(false)}
           >
             <motion.div
@@ -842,7 +843,7 @@ export default function WorkoutLogger() {
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 60, opacity: 0 }}
               transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="w-full max-w-lg bg-surface-1 border border-border-subtle rounded-t-[28px] p-5 pb-8"
+              className="w-full max-w-lg bg-surface-1 border border-border-subtle rounded-t-[28px] p-5 pb-24"
               onClick={e => e.stopPropagation()}
             >
               <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-5" />

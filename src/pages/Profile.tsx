@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Camera, User, Flame, Zap, Trophy,
-  ChevronRight, LogOut, Check,
+  ChevronRight, LogOut, Check, Trash, Edit2, Calendar
 } from 'lucide-react';
 import { xpForLevel, xpForNextLevel, getLevelTier } from '@/lib/gamification';
 import {
@@ -13,7 +13,7 @@ import {
   GOAL_LABELS, SPLIT_LABELS, ACTIVITY_LABELS,
 } from '@/types/fitness';
 import { toast } from 'sonner';
-import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceLine } from 'recharts';
 import BottomNav from '@/components/layout/BottomNav';
 import CalorieMacroCard from '@/components/profile/CalorieMacroCard';
 import XPBreakdownCard from '@/components/profile/XPBreakdownCard';
@@ -22,12 +22,12 @@ import { uploadAvatar, getCachedAvatarUrl, updateProfileField } from '@/services
 // ── Types for the edit modal ─────────────────────────────────
 type FieldKey =
   | 'goalWeight' | 'bodyFat' | 'activityLevel'
-  | 'goal' | 'preferredSplit' | 'daysPerWeek';
+  | 'goal' | 'preferredSplit' | 'workoutDays';
 
 interface FieldDef {
   key: FieldKey;
   label: string;
-  type: 'number' | 'select';
+  type: 'number' | 'select' | 'multiselect-days';
   options?: { value: string; label: string; description?: string }[];
   min?: number;
   max?: number;
@@ -96,14 +96,10 @@ const FIELD_DEFS: FieldDef[] = [
     ],
   },
   {
-    key: 'daysPerWeek',
-    label: 'Days / Week',
-    type: 'number',
-    min: 1,
-    max: 7,
-    step: 1,
-    unit: 'days',
-    dbKey: 'days_per_week',
+    key: 'workoutDays',
+    label: 'Workout Days',
+    type: 'multiselect-days',
+    dbKey: 'workout_days',
   },
 ];
 
@@ -116,13 +112,15 @@ const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 
 // ── Inline field-edit bottom sheet ──────────────────────────
 interface EditModalProps {
   field: FieldDef | null;
-  currentValue: string | number | undefined;
+  currentValue: string | number | number[] | undefined;
   onClose: () => void;
-  onSave: (key: FieldKey, value: string | number) => void;
+  onSave: (key: FieldKey, value: string | number | number[]) => void;
 }
 
+const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
 function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
-  const [val, setVal] = useState<string | number>(currentValue ?? '');
+  const [val, setVal] = useState<string | number | number[]>(currentValue ?? '');
 
   if (!field) return null;
 
@@ -134,15 +132,31 @@ function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
         return;
       }
       onSave(field.key, n);
+    } else if (field.type === 'multiselect-days') {
+      if (Array.isArray(val) && val.length === 0) {
+        toast.error('Select at least one workout day');
+        return;
+      }
+      onSave(field.key, val);
     } else {
       onSave(field.key, String(val));
     }
     onClose();
   };
 
+  const toggleDay = (dayIndex: number) => {
+    setVal(prev => {
+      const currentDays = Array.isArray(prev) ? prev : [];
+      if (currentDays.includes(dayIndex)) {
+        return currentDays.filter(d => d !== dayIndex).sort();
+      }
+      return [...currentDays, dayIndex].sort();
+    });
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
+      className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-end justify-center"
       onClick={onClose}
     >
       <motion.div
@@ -150,7 +164,7 @@ function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
         animate={{ y: 0, opacity: 1 }}
         exit={{ y: 80, opacity: 0 }}
         transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-        className="w-full max-w-lg bg-surface-1 border border-border-subtle rounded-t-[28px] p-5 pb-8"
+        className="w-full max-w-lg bg-surface-1 border-t border-border-subtle rounded-t-[28px] p-5 pb-24"
         onClick={e => e.stopPropagation()}
       >
         <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-5" />
@@ -174,13 +188,37 @@ function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
             </div>
             <input
               type="number"
-              value={val}
+              value={String(val)}
               min={field.min}
               max={field.max}
               step={field.step}
               onChange={e => setVal(e.target.value)}
               className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50 text-center"
             />
+          </div>
+        ) : field.type === 'multiselect-days' ? (
+          <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
+            {DAYS_OF_WEEK.map((day, idx) => {
+              const isSelected = Array.isArray(val) && val.includes(idx);
+              return (
+                <button
+                  key={idx}
+                  onClick={() => toggleDay(idx)}
+                  className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all text-left ${
+                    isSelected
+                      ? 'border-primary-accent/50 bg-primary-accent/8'
+                      : 'border-border-subtle bg-surface-2'
+                  }`}
+                >
+                  <p className="text-[14px] font-semibold text-text-1">{day}</p>
+                  <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ml-3 transition-colors ${
+                    isSelected ? 'bg-primary-accent' : 'bg-surface-3'
+                  }`}>
+                    {isSelected && <Check className="w-3 h-3 text-canvas" />}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
@@ -231,7 +269,7 @@ function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
 
 // ── Main Profile Page ───────────────────────────────────────
 export default function Profile() {
-  const { profile, gamification, weightLogs, signOut, updateWeight, setProfile, isLoading } = useFitness();
+  const { profile, gamification, weightLogs, signOut, updateWeight, deleteWeightLog, setProfile, isLoading } = useFitness();
   const { isGuest, signInWithGoogle, exitGuestMode } = useAuth();
   const navigate = useNavigate();
   const { xp, level, streak } = gamification;
@@ -240,6 +278,8 @@ export default function Profile() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [logWeight, setLogWeight] = useState('');
   const [logBodyFat, setLogBodyFat] = useState('');
+  const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [logIdToEdit, setLogIdToEdit] = useState<string | null>(null);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(getCachedAvatarUrl);
   const [unitPref, setUnitPref] = useState<'metric' | 'imperial'>('metric');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
@@ -318,7 +358,32 @@ export default function Profile() {
     );
   }
 
-  if (!profile) return null;
+  if (!profile) {
+    return (
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-6 px-6">
+        <div className="w-16 h-16 rounded-full bg-surface-2 flex items-center justify-center">
+          <User className="w-8 h-8 text-text-3" />
+        </div>
+        <div className="text-center">
+          <h2 className="text-[18px] font-bold text-text-1 mb-1">Profile not found</h2>
+          <p className="text-[13px] text-text-2">Your profile data couldn't be loaded.</p>
+        </div>
+        <button
+          onClick={() => navigate('/onboarding')}
+          className="w-full max-w-xs h-[52px] bg-primary text-canvas font-bold text-[15px] rounded-[14px]"
+        >
+          Set Up Profile
+        </button>
+        <button
+          onClick={signOut}
+          className="text-[13px] font-semibold text-red-500 hover:text-red-400 transition-colors flex items-center gap-2"
+        >
+          <LogOut className="w-4 h-4" /> Sign Out
+        </button>
+        <BottomNav />
+      </div>
+    );
+  }
 
   const tier = getLevelTier(level);
   const nextLevelXP = xpForNextLevel(level);
@@ -350,8 +415,11 @@ export default function Profile() {
 
   const handleLogMeasurement = async () => {
     const w = parseFloat(logWeight);
-    if (!w || w <= 0) return;
-    await updateWeight(w);
+    if (!w || w <= 0) {
+      if (logWeight) toast.error('Please enter a valid weight.');
+      return;
+    }
+    await updateWeight(w, logDate);
     if (logBodyFat) {
       const bf = parseFloat(logBodyFat);
       if (bf > 0) saveField('bodyFat', bf);
@@ -359,6 +427,8 @@ export default function Profile() {
     setShowLogModal(false);
     setLogWeight('');
     setLogBodyFat('');
+    setLogDate(new Date().toISOString().split('T')[0]);
+    if (logIdToEdit) setLogIdToEdit(null);
     toast.success('Measurement logged');
   };
 
@@ -401,9 +471,11 @@ export default function Profile() {
       fieldKey: 'preferredSplit',
     },
     {
-      label: 'Days / Week',
-      value: `${profile.daysPerWeek} days`,
-      fieldKey: 'daysPerWeek',
+      label: 'Workout Days',
+      value: profile.workoutDays?.length 
+        ? `${profile.workoutDays.length} days (${profile.workoutDays.map(d => DAYS_OF_WEEK[d].substring(0, 3)).join(', ')})` 
+        : 'Not set',
+      fieldKey: 'workoutDays',
     },
   ];
 
@@ -552,29 +624,78 @@ export default function Profile() {
           </div>
 
           <div className="space-y-6">
-            {/* BODY STATS — weight chart only, NO BMI */}
+            {/* BODY STATS */}
             <motion.div variants={itemVariants}>
               <div className="flex items-center justify-between mb-3 px-1">
                 <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest">Weight History</p>
                 <button
-                  onClick={() => setShowLogModal(true)}
+                  onClick={() => {
+                    setLogIdToEdit(null);
+                    setLogWeight(String(profile.weight));
+                    setLogBodyFat(profile.bodyFat ? String(profile.bodyFat) : '');
+                    setLogDate(new Date().toISOString().split('T')[0]);
+                    setShowLogModal(true);
+                  }}
                   className="px-3 py-1.5 rounded-full bg-primary-accent text-canvas text-[11px] font-bold"
                 >
                   Log New
                 </button>
               </div>
               <div className="bg-surface-1 rounded-[20px] border border-border-subtle p-4">
-                {chartData.length > 1 ? (
+                {chartData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={160}>
                     <LineChart data={chartData}>
                       <XAxis dataKey="date" tick={{ fill: '#565660', fontSize: 10 }} axisLine={false} tickLine={false} tickMargin={8} />
                       <YAxis domain={['auto', 'auto']} tick={{ fill: '#565660', fontSize: 10 }} axisLine={false} tickLine={false} tickMargin={8} width={32} />
                       <Tooltip contentStyle={{ background: '#252529', border: 'none', borderRadius: 12, color: '#FAFAFA', fontSize: 12 }} itemStyle={{ color: '#F5C518' }} />
                       <Line type="monotone" dataKey="weight" stroke="#F5C518" strokeWidth={2.5} dot={{ fill: '#F5C518', stroke: '#111113', strokeWidth: 2, r: 4 }} />
+                      {profile.goalWeight && <ReferenceLine y={profile.goalWeight} stroke="#4ADE80" strokeDasharray="3 3" />}
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
                   <p className="text-[13px] text-text-3 text-center py-8">Log measurements to see your weight trend</p>
+                )}
+
+                {/* Recent Entries */}
+                {weightLogs.length > 0 && (
+                  <div className="mt-6">
+                    <p className="text-[11px] uppercase font-bold text-text-3 tracking-widest mb-3">Recent Entries</p>
+                    <div className="space-y-2 max-h-[200px] overflow-y-auto no-scrollbar">
+                      {weightLogs.slice(0, 5).map(log => (
+                        <div key={log.id} className="flex items-center justify-between p-3 rounded-xl bg-surface-2 border border-border-subtle">
+                          <div>
+                            <p className="text-[14px] font-bold text-text-1">{log.weight} kg</p>
+                            <p className="text-[11px] text-text-3">{new Date(log.logged_at).toLocaleDateString()}</p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => {
+                                setLogIdToEdit(log.id);
+                                setLogWeight(String(log.weight));
+                                setLogDate(log.logged_at);
+                                setShowLogModal(true);
+                              }}
+                              className="w-8 h-8 rounded-full bg-surface-3 flex items-center justify-center hover:bg-surface-3/80 transition-colors"
+                            >
+                              <Edit2 className="w-3.5 h-3.5 text-text-2" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (window.confirm('Delete this entry?')) {
+                                  deleteWeightLog(log.id)
+                                    .then(() => toast.success('Entry deleted'))
+                                    .catch(() => toast.error('Failed to delete entry'));
+                                }
+                              }}
+                              className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center hover:bg-red-500/20 transition-colors"
+                            >
+                              <Trash className="w-3.5 h-3.5 text-red-500" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
               </div>
             </motion.div>
@@ -625,48 +746,67 @@ export default function Profile() {
       </motion.div>
 
       {/* LOG MODAL */}
-      {showLogModal && (
-        <div className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center" onClick={() => setShowLogModal(false)}>
-          <motion.div
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            className="w-full max-w-lg bg-surface-1 border border-border-subtle p-5 rounded-t-[28px]"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-4" />
-            <h3 className="text-[18px] font-bold text-text-1 mb-4">Log Measurement</h3>
-            <div className="flex flex-col gap-3 mb-4">
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] text-text-3">Weight (kg)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
-                  value={logWeight}
-                  onChange={e => setLogWeight(e.target.value)}
-                  placeholder={`${profile.weight}`}
-                  autoFocus
-                />
-              </label>
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] text-text-3">Body Fat % (optional)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="Optional"
-                  className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
-                  value={logBodyFat}
-                  onChange={e => setLogBodyFat(e.target.value)}
-                />
-              </label>
-            </div>
-            <div className="flex gap-3">
-              <button onClick={() => setShowLogModal(false)} className="flex-1 py-3.5 rounded-full bg-surface-2 border border-border-subtle text-[14px] font-semibold text-text-1">Cancel</button>
-              <button onClick={handleLogMeasurement} className="flex-1 py-3.5 rounded-full bg-primary-accent text-canvas text-[14px] font-bold">Save</button>
-            </div>
-          </motion.div>
-        </div>
-      )}
+      <AnimatePresence>
+        {showLogModal && (
+          <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-end justify-center" onClick={() => setShowLogModal(false)}>
+            <motion.div
+              initial={{ y: 80, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 80, opacity: 0 }}
+              className="w-full max-w-lg bg-surface-1 border-t border-border-subtle p-5 rounded-t-[28px] pb-24"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-4" />
+              <h3 className="text-[18px] font-bold text-text-1 mb-4">{logIdToEdit ? 'Edit Measurement' : 'Log Measurement'}</h3>
+              <div className="flex flex-col gap-4 mb-6">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[12px] font-semibold text-text-3 uppercase tracking-wider ml-1">Weight (kg)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3.5 text-[15px] font-medium text-text-1 outline-none focus:border-primary-accent/50"
+                    value={logWeight}
+                    onChange={e => setLogWeight(e.target.value)}
+                    placeholder={`${profile.weight}`}
+                    autoFocus
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[12px] font-semibold text-text-3 uppercase tracking-wider ml-1">Body Fat % (Optional)</span>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="Optional"
+                    className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3.5 text-[15px] font-medium text-text-1 outline-none focus:border-primary-accent/50"
+                    value={logBodyFat}
+                    onChange={e => setLogBodyFat(e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[12px] font-semibold text-text-3 uppercase tracking-wider ml-1">Date</span>
+                  <div className="relative">
+                    <Calendar className="w-4 h-4 text-text-3 absolute left-4 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="date"
+                      className="w-full bg-surface-2 border border-border-subtle rounded-xl pl-10 pr-4 py-3.5 text-[15px] font-medium text-text-1 outline-none focus:border-primary-accent/50 filter-calendar-icon-light"
+                      value={logDate}
+                      onChange={e => setLogDate(e.target.value)}
+                    />
+                  </div>
+                </label>
+              </div>
+              <div className="flex flex-col gap-3">
+                <button onClick={handleLogMeasurement} className="w-full py-4 rounded-full bg-primary-accent text-canvas text-[15px] font-bold">
+                  Save
+                </button>
+                <button onClick={() => setShowLogModal(false)} className="w-full py-3.5 rounded-full bg-transparent text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors text-[14px] font-bold">
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* FIELD EDIT MODAL */}
       <AnimatePresence>
