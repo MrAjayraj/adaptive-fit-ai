@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { useNavigate } from 'react-router-dom';
-import { WorkoutSet } from '@/types/fitness';
+import { WorkoutSet, EXERCISE_DATABASE, WorkoutSplit } from '@/types/fitness';
 import {
   Check, ChevronLeft, Minus, Plus, Timer, Trophy, Zap, X,
   TrendingUp, TrendingDown, Clock, Dumbbell, BarChart2, Flame,
-  Star, Target, Activity, ChevronRight,
+  Star, Target, Activity, ChevronRight, AlertTriangle,
 } from 'lucide-react';
 import BottomNav from '@/components/layout/BottomNav';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -509,18 +509,73 @@ function SetRow({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Recommended Workout Logic
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SPLIT_DAYS: Record<WorkoutSplit, { name: string; muscles: string[] }[]> = {
+  push_pull_legs: [
+    { name: 'Push Day', muscles: ['chest', 'shoulders', 'triceps'] },
+    { name: 'Pull Day', muscles: ['back', 'biceps'] },
+    { name: 'Leg Day', muscles: ['legs', 'glutes'] },
+  ],
+  upper_lower: [
+    { name: 'Upper Body', muscles: ['chest', 'back', 'shoulders', 'biceps', 'triceps'] },
+    { name: 'Lower Body', muscles: ['legs', 'glutes'] },
+  ],
+  full_body: [
+    { name: 'Full Body', muscles: ['chest', 'back', 'legs', 'shoulders', 'core'] },
+  ],
+  bro_split: [
+    { name: 'Chest Day', muscles: ['chest', 'triceps'] },
+    { name: 'Back Day', muscles: ['back', 'biceps'] },
+    { name: 'Shoulder Day', muscles: ['shoulders'] },
+    { name: 'Arms Day', muscles: ['biceps', 'triceps'] },
+    { name: 'Leg Day', muscles: ['legs', 'glutes'] },
+  ],
+};
+
+function getRecommendedDay(split: WorkoutSplit, lastSplitIndex: number, completedWorkouts: import('@/types/fitness').Workout[]) {
+  const days = SPLIT_DAYS[split];
+  const nextIndex = (lastSplitIndex + (completedWorkouts.length > 0 ? 1 : 0)) % days.length;
+  return { day: days[nextIndex], index: nextIndex };
+}
+
+function buildRecommendedExercises(muscles: string[]) {
+  const exercises = EXERCISE_DATABASE.filter(ex =>
+    muscles.some(m => ex.muscleGroup === m || ex.muscleGroup.startsWith(m))
+  );
+  // Compounds first, then isolation
+  const compounds = exercises.filter(ex => ex.isCompound).slice(0, 3);
+  const isolation = exercises.filter(ex => !ex.isCompound).slice(0, 2);
+  const selected = [...compounds, ...isolation].slice(0, 5);
+  return selected.map(ex => ({
+    id: v4(),
+    exerciseId: ex.id,
+    exerciseName: ex.name,
+    muscleGroup: ex.muscleGroup,
+    restSeconds: ex.isCompound ? 120 : 60,
+    sets: [
+      { id: v4(), weight: 0, reps: 8, completed: false },
+      { id: v4(), weight: 0, reps: 8, completed: false },
+      { id: v4(), weight: 0, reps: 8, completed: false },
+    ],
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WorkoutLogger — main page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function WorkoutLogger() {
   const {
     activeWorkoutId, currentPlan, updateWorkout, completeWorkout,
     getTodaysWorkout, startWorkout, recentPRs, clearRecentPRs,
-    progressHistory,
+    progressHistory, profile, workouts, startCustomWorkout,
   } = useFitness();
   const navigate = useNavigate();
 
   const [currentExIndex, setCurrentExIndex] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [rating, setRating] = useState(3);
   const [activeRestTimer, setActiveRestTimer] = useState<string | null>(null); // set.id
   const [elapsedSec, setElapsedSec] = useState(0);
@@ -550,47 +605,132 @@ export default function WorkoutLogger() {
     return () => clearInterval(interval);
   }, []);
 
-  // ── No active workout fallback ──────────────────────────────────────────────
+  // ── No active workout — enhanced landing ────────────────────────────────────
   if (!workout) {
-    const next = getTodaysWorkout();
+    const split = profile?.preferredSplit ?? 'push_pull_legs';
+    const lastSplitIndex = 0; // future: read from profile.last_split_index
+    const completedWorkouts = workouts.filter(w => w.completed);
+    const { day: recommendedDay } = getRecommendedDay(split, lastSplitIndex, completedWorkouts);
+    const recommendedExercises = buildRecommendedExercises(recommendedDay.muscles);
+
+    const handleStartRecommended = () => {
+      const template = {
+        id: v4(),
+        name: recommendedDay.name,
+        exercises: recommendedExercises,
+        tags: recommendedDay.muscles,
+        difficulty: 'intermediate' as const,
+        estimatedDuration: 45,
+        isAIGenerated: true,
+      };
+      startCustomWorkout(template);
+    };
+
     return (
-      <div className="min-h-screen bg-canvas pb-20 flex flex-col items-center justify-center px-6 gap-4">
-        <div
-          className="w-18 h-18 rounded-full flex items-center justify-center mb-2"
-          style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
-          <Dumbbell className="w-8 h-8 text-text-3" />
-        </div>
-        <p className="text-[17px] font-bold text-text-1">No Active Workout</p>
-        <p className="text-[13px] text-text-3 text-center leading-relaxed">
-          Start today's plan or build a custom session
-        </p>
-        {next ? (
+      <div className="min-h-screen bg-canvas pb-24 font-sans">
+        <div className="flex items-center gap-3 px-4 pt-6 pb-3">
           <button
-            onClick={() => startWorkout(next.id)}
-            className="px-7 py-3.5 rounded-full font-bold text-[15px] mt-2 text-canvas"
-            style={{ background: 'linear-gradient(135deg,#F5C518,#E8B000)', boxShadow: '0 6px 24px rgba(245,197,24,0.30)' }}
+            onClick={() => navigate('/')}
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
           >
-            Start: {next.name}
+            <ChevronLeft className="w-4 h-4 text-text-1" />
           </button>
-        ) : (
-          <div className="flex flex-col gap-2.5 w-full max-w-xs mt-2">
-            <button
-              onClick={() => navigate('/')}
-              className="py-3.5 rounded-full text-text-1 font-semibold text-[14px]"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
-            >
-              Go to Dashboard
-            </button>
-            <button
-              onClick={() => navigate('/builder')}
-              className="py-3.5 rounded-full text-canvas font-bold text-[14px]"
-              style={{ background: 'linear-gradient(135deg,#F5C518,#E8B000)' }}
-            >
-              Create Custom Workout
-            </button>
+          <h1 className="text-[18px] font-bold text-text-1">Workout</h1>
+        </div>
+
+        <div className="px-4 space-y-4">
+          {/* Recommended workout card */}
+          <div
+            className="rounded-[24px] p-5 relative overflow-hidden"
+            style={{ background: 'linear-gradient(135deg, rgba(245,197,24,0.12), rgba(245,197,24,0.04))', border: '1px solid rgba(245,197,24,0.25)' }}
+          >
+            <div className="absolute -top-8 -right-8 w-40 h-40 bg-primary-accent/10 blur-[50px] rounded-full pointer-events-none" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-6 h-6 rounded-full bg-primary-accent/20 flex items-center justify-center">
+                  <Zap className="w-3.5 h-3.5 text-primary-accent" />
+                </div>
+                <span className="text-[11px] font-bold text-primary-accent uppercase tracking-widest">Recommended for you</span>
+              </div>
+              <h2 className="text-[22px] font-extrabold text-text-1 mb-1">{recommendedDay.name}</h2>
+              <p className="text-[12px] text-text-2 mb-4 capitalize">
+                {recommendedDay.muscles.join(' · ')}
+              </p>
+
+              {/* Exercise preview */}
+              <div className="flex flex-col gap-1.5 mb-5">
+                {recommendedExercises.slice(0, 4).map((ex, i) => (
+                  <div key={ex.id} className="flex items-center gap-2">
+                    <span className="text-[11px] text-primary-accent/60 font-bold w-4">{i + 1}.</span>
+                    <span className="text-[13px] text-text-1 font-medium">{ex.exerciseName}</span>
+                    <span className="text-[11px] text-text-3">· {ex.sets.length} sets</span>
+                  </div>
+                ))}
+                {recommendedExercises.length > 4 && (
+                  <p className="text-[11px] text-text-3 ml-6">+{recommendedExercises.length - 4} more</p>
+                )}
+              </div>
+
+              <div className="flex gap-2.5">
+                <button
+                  onClick={handleStartRecommended}
+                  className="flex-1 py-3.5 rounded-full font-bold text-[15px] text-canvas flex items-center justify-center gap-2"
+                  style={{ background: 'linear-gradient(135deg,#F5C518,#E8B000)', boxShadow: '0 6px 24px rgba(245,197,24,0.35)' }}
+                >
+                  <Star className="w-4 h-4" />
+                  Start This Workout
+                </button>
+                <button
+                  onClick={() => navigate('/builder')}
+                  className="px-4 py-3.5 rounded-full font-semibold text-[13px] text-text-1"
+                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
+                >
+                  Customize
+                </button>
+              </div>
+            </div>
           </div>
-        )}
+
+          {/* Custom workout option */}
+          <button
+            onClick={() => navigate('/builder')}
+            className="w-full rounded-[20px] p-5 flex items-center gap-4 text-left"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}
+          >
+            <div
+              className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+              style={{ background: 'rgba(255,255,255,0.06)' }}
+            >
+              <Dumbbell className="w-5 h-5 text-text-2" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[15px] font-bold text-text-1">Start Custom Workout</p>
+              <p className="text-[12px] text-text-3 mt-0.5">Pick your own exercises &amp; sets</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-text-3 shrink-0" />
+          </button>
+
+          {/* Exercise library shortcut */}
+          <button
+            onClick={() => navigate('/exercises')}
+            className="w-full rounded-[20px] p-5 flex items-center gap-4 text-left"
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}
+          >
+            <div
+              className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
+              style={{ background: 'rgba(255,255,255,0.06)' }}
+            >
+              <Target className="w-5 h-5 text-text-2" />
+            </div>
+            <div className="flex-1">
+              <p className="text-[15px] font-bold text-text-1">Browse Exercises</p>
+              <p className="text-[12px] text-text-3 mt-0.5">Search by muscle group or equipment</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-text-3 shrink-0" />
+          </button>
+        </div>
+
         <BottomNav />
       </div>
     );
@@ -690,10 +830,54 @@ export default function WorkoutLogger() {
   // ── Main Logger UI ─────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-canvas pb-24 font-sans">
+      {/* ─── Cancel confirmation dialog ─── */}
+      <AnimatePresence>
+        {showCancelConfirm && (
+          <div
+            className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
+            onClick={() => setShowCancelConfirm(false)}
+          >
+            <motion.div
+              initial={{ y: 60, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 60, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+              className="w-full max-w-lg bg-surface-1 border border-border-subtle rounded-t-[28px] p-5 pb-8"
+              onClick={e => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-5" />
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-400" />
+                </div>
+                <div>
+                  <h3 className="text-[17px] font-bold text-text-1">Cancel workout?</h3>
+                  <p className="text-[12px] text-text-3">All progress will be lost</p>
+                </div>
+              </div>
+              <div className="flex gap-3 mt-5">
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  className="flex-1 py-3.5 rounded-full bg-surface-2 border border-border-subtle text-[14px] font-semibold text-text-1"
+                >
+                  Keep Going
+                </button>
+                <button
+                  onClick={() => { setShowCancelConfirm(false); navigate('/workout'); }}
+                  className="flex-1 py-3.5 rounded-full bg-red-500/15 border border-red-500/30 text-[14px] font-bold text-red-400"
+                >
+                  Cancel Workout
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ─── Header ─── */}
       <div className="flex items-center justify-between px-4 pt-safe pt-6 pb-3">
         <button
-          onClick={() => navigate('/')}
+          onClick={() => setShowCancelConfirm(true)}
           className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
           style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
         >

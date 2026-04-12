@@ -1,46 +1,242 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Camera, User, Save, Flame, Zap, Trophy, ChevronRight, LogOut, Info } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  ArrowLeft, Camera, User, Flame, Zap, Trophy,
+  ChevronRight, LogOut, Check,
+} from 'lucide-react';
 import { xpForLevel, xpForNextLevel, getLevelTier } from '@/lib/gamification';
-import { UserProfile, FitnessGoal, ExperienceLevel, WorkoutSplit, ActivityLevel, GOAL_LABELS, SPLIT_LABELS, ACTIVITY_LABELS } from '@/types/fitness';
+import {
+  UserProfile, FitnessGoal, WorkoutSplit, ActivityLevel,
+  GOAL_LABELS, SPLIT_LABELS, ACTIVITY_LABELS,
+} from '@/types/fitness';
 import { toast } from 'sonner';
 import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip } from 'recharts';
 import BottomNav from '@/components/layout/BottomNav';
 import CalorieMacroCard from '@/components/profile/CalorieMacroCard';
 import XPBreakdownCard from '@/components/profile/XPBreakdownCard';
-import { uploadAvatar, getCachedAvatarUrl } from '@/services/api';
+import { uploadAvatar, getCachedAvatarUrl, updateProfileField } from '@/services/api';
 
-const GOAL_CARDS = [
-  { value: 'aggressive_cut', label: 'Aggressive Cut', icon: '🔥', cal: '-750' },
-  { value: 'lose_fat', label: 'Fat Loss', icon: '📉', cal: '-500' },
-  { value: 'maintenance', label: 'Maintenance', icon: '⚖️', cal: '+0' },
-  { value: 'general', label: 'General Fitness', icon: '🎯', cal: '+0' },
-  { value: 'lean_bulk', label: 'Lean Bulk', icon: '💪', cal: '+250' },
-  { value: 'build_muscle', label: 'Muscle Gain', icon: '🏋️', cal: '+500' },
-  { value: 'strength', label: 'Strength', icon: '🦾', cal: '+200' },
+// ── Types for the edit modal ─────────────────────────────────
+type FieldKey =
+  | 'goalWeight' | 'bodyFat' | 'activityLevel'
+  | 'goal' | 'preferredSplit' | 'daysPerWeek';
+
+interface FieldDef {
+  key: FieldKey;
+  label: string;
+  type: 'number' | 'select';
+  options?: { value: string; label: string; description?: string }[];
+  min?: number;
+  max?: number;
+  step?: number;
+  unit?: string;
+  dbKey: string;
+}
+
+const FIELD_DEFS: FieldDef[] = [
+  {
+    key: 'goalWeight',
+    label: 'Goal Weight',
+    type: 'number',
+    min: 30,
+    max: 300,
+    step: 0.5,
+    unit: 'kg',
+    dbKey: 'goal_weight_kg',
+  },
+  {
+    key: 'bodyFat',
+    label: 'Body Fat %',
+    type: 'number',
+    min: 1,
+    max: 70,
+    step: 0.5,
+    unit: '%',
+    dbKey: 'body_fat',
+  },
+  {
+    key: 'activityLevel',
+    label: 'Activity Level',
+    type: 'select',
+    dbKey: 'activity_level',
+    options: [
+      { value: 'sedentary', label: 'Sedentary', description: 'Desk job, little movement' },
+      { value: 'lightly_active', label: 'Lightly Active', description: 'Light walking, 1–3 days/week' },
+      { value: 'moderately_active', label: 'Moderately Active', description: 'Regular daily activity, 3–5 days/week' },
+      { value: 'very_active', label: 'Very Active', description: 'Physical job or intense training' },
+      { value: 'extremely_active', label: 'Extremely Active', description: 'Athlete / heavy labour daily' },
+    ],
+  },
+  {
+    key: 'goal',
+    label: 'Fitness Goal',
+    type: 'select',
+    dbKey: 'goal',
+    options: [
+      { value: 'aggressive_cut', label: 'Aggressive Cut', description: '–750 cal/day deficit' },
+      { value: 'lose_fat', label: 'Fat Loss', description: '–500 cal/day deficit' },
+      { value: 'maintenance', label: 'Maintenance', description: 'Eat at TDEE' },
+      { value: 'lean_bulk', label: 'Lean Bulk', description: '+250 cal/day surplus' },
+      { value: 'build_muscle', label: 'Muscle Gain', description: '+500 cal/day surplus' },
+    ],
+  },
+  {
+    key: 'preferredSplit',
+    label: 'Workout Split',
+    type: 'select',
+    dbKey: 'preferred_split',
+    options: [
+      { value: 'push_pull_legs', label: 'Push / Pull / Legs', description: '6-day rotation' },
+      { value: 'upper_lower', label: 'Upper / Lower', description: '4-day rotation' },
+      { value: 'full_body', label: 'Full Body', description: '3-day rotation' },
+      { value: 'bro_split', label: 'Bro Split', description: 'Chest / Back / Shoulders / Arms / Legs' },
+    ],
+  },
+  {
+    key: 'daysPerWeek',
+    label: 'Days / Week',
+    type: 'number',
+    min: 1,
+    max: 7,
+    step: 1,
+    unit: 'days',
+    dbKey: 'days_per_week',
+  },
 ];
 
-const ACTIVITY_DESCRIPTIONS: Record<string, string> = {
-  sedentary: 'Desk job, little exercise',
-  lightly_active: 'Light exercise 1-3 days/week',
-  moderately_active: 'Moderate exercise 3-5 days/week',
-  very_active: 'Hard exercise 6-7 days/week',
-  extremely_active: 'Very intense daily + physical job',
+const containerVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
-
-const containerVariants = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.05 } } };
 const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1 } };
 
+// ── Inline field-edit bottom sheet ──────────────────────────
+interface EditModalProps {
+  field: FieldDef | null;
+  currentValue: string | number | undefined;
+  onClose: () => void;
+  onSave: (key: FieldKey, value: string | number) => void;
+}
+
+function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
+  const [val, setVal] = useState<string | number>(currentValue ?? '');
+
+  if (!field) return null;
+
+  const handleSave = () => {
+    if (field.type === 'number') {
+      const n = parseFloat(String(val));
+      if (isNaN(n) || n < (field.min ?? 0) || n > (field.max ?? 9999)) {
+        toast.error(`Enter a value between ${field.min} and ${field.max}`);
+        return;
+      }
+      onSave(field.key, n);
+    } else {
+      onSave(field.key, String(val));
+    }
+    onClose();
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ y: 80, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        exit={{ y: 80, opacity: 0 }}
+        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+        className="w-full max-w-lg bg-surface-1 border border-border-subtle rounded-t-[28px] p-5 pb-8"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-5" />
+        <h3 className="text-[18px] font-bold text-text-1 mb-5">Edit {field.label}</h3>
+
+        {field.type === 'number' ? (
+          <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-between bg-surface-2 border border-border-subtle rounded-2xl px-4 py-4">
+              <button
+                onClick={() => setVal(v => Math.max(field.min ?? 0, Number(v) - (field.step ?? 1)))}
+                className="w-11 h-11 rounded-xl bg-surface-3 flex items-center justify-center text-xl font-bold text-text-1"
+              >−</button>
+              <div className="text-center">
+                <span className="text-[36px] font-extrabold text-text-1 tabular-nums">{val}</span>
+                {field.unit && <span className="text-[16px] text-text-2 ml-1">{field.unit}</span>}
+              </div>
+              <button
+                onClick={() => setVal(v => Math.min(field.max ?? 9999, Number(v) + (field.step ?? 1)))}
+                className="w-11 h-11 rounded-xl bg-surface-3 flex items-center justify-center text-xl font-bold text-text-1"
+              >+</button>
+            </div>
+            <input
+              type="number"
+              value={val}
+              min={field.min}
+              max={field.max}
+              step={field.step}
+              onChange={e => setVal(e.target.value)}
+              className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50 text-center"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
+            {field.options?.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => setVal(opt.value)}
+                className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all text-left ${
+                  val === opt.value
+                    ? 'border-primary-accent/50 bg-primary-accent/8'
+                    : 'border-border-subtle bg-surface-2'
+                }`}
+              >
+                <div>
+                  <p className="text-[14px] font-semibold text-text-1">{opt.label}</p>
+                  {opt.description && (
+                    <p className="text-[12px] text-text-3 mt-0.5">{opt.description}</p>
+                  )}
+                </div>
+                {val === opt.value && (
+                  <div className="w-5 h-5 rounded-full bg-primary-accent flex items-center justify-center shrink-0 ml-3">
+                    <Check className="w-3 h-3 text-canvas" />
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="flex gap-3 mt-5">
+          <button
+            onClick={onClose}
+            className="flex-1 py-3.5 rounded-full bg-surface-2 border border-border-subtle text-[14px] font-semibold text-text-1"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            className="flex-1 py-3.5 rounded-full bg-primary-accent text-canvas text-[14px] font-bold"
+          >
+            Save
+          </button>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Main Profile Page ───────────────────────────────────────
 export default function Profile() {
   const { profile, gamification, weightLogs, signOut, updateWeight, setProfile, isLoading } = useFitness();
   const { isGuest, signInWithGoogle, exitGuestMode } = useAuth();
   const navigate = useNavigate();
   const { xp, level, streak } = gamification;
-  const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState<UserProfile | null>(null);
+
+  const [editingField, setEditingField] = useState<FieldKey | null>(null);
   const [showLogModal, setShowLogModal] = useState(false);
   const [logWeight, setLogWeight] = useState('');
   const [logBodyFat, setLogBodyFat] = useState('');
@@ -48,6 +244,29 @@ export default function Profile() {
   const [unitPref, setUnitPref] = useState<'metric' | 'imperial'>('metric');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  const openField = useCallback((key: FieldKey) => setEditingField(key), []);
+  const closeField = useCallback(() => setEditingField(null), []);
+
+  const saveField = useCallback(
+    async (key: FieldKey, value: string | number) => {
+      if (!profile) return;
+      const def = FIELD_DEFS.find(f => f.key === key);
+      if (!def) return;
+
+      const updated: UserProfile = { ...profile, [key]: value };
+      setProfile(updated); // optimistic
+
+      try {
+        await updateProfileField({ [def.dbKey]: value });
+        toast.success(`${def.label} updated`);
+      } catch {
+        setProfile(profile); // rollback
+        toast.error('Failed to save — please try again');
+      }
+    },
+    [profile, setProfile]
+  );
 
   if (isLoading) {
     return (
@@ -70,34 +289,30 @@ export default function Profile() {
         <p className="text-[14px] text-text-2 text-center mb-8 max-w-[280px]">
           Sign in to save your workouts, track progress, and compete with others.
         </p>
-
-        <button 
+        <button
           onClick={signInWithGoogle}
           className="w-full max-w-xs flex items-center justify-center gap-3 bg-[#FAFAFA] text-[#111113] h-14 rounded-[16px] font-bold text-[15px] transition-transform active:scale-[0.98] mb-4 shadow-md"
         >
           <svg className="w-5 h-5 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
-            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
+            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853" />
+            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
+            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
           </svg>
           Sign in with Google
         </button>
-        
-        <button 
-          onClick={() => navigate('/')} 
+        <button
+          onClick={() => navigate('/')}
           className="text-[14px] font-semibold text-text-2 hover:text-text-1 transition-colors mb-12"
         >
           Back to Home
         </button>
-
-        <button 
-          onClick={() => { if(exitGuestMode) exitGuestMode(); }}
+        <button
+          onClick={() => { if (exitGuestMode) exitGuestMode(); }}
           className="text-[13px] font-semibold text-red-500 hover:text-red-400 transition-colors py-4 px-6 rounded-full border border-red-500/20 bg-red-500/5 mt-8"
         >
           Exit Guest Mode
         </button>
-        
         <BottomNav />
       </div>
     );
@@ -108,21 +323,14 @@ export default function Profile() {
   const tier = getLevelTier(level);
   const nextLevelXP = xpForNextLevel(level);
   const currentLevelXP = xpForLevel(level);
-  const xpProgress = nextLevelXP > currentLevelXP ? ((xp - currentLevelXP) / (nextLevelXP - currentLevelXP)) * 100 : 100;
-
-  const bmi = profile.height > 0 ? profile.weight / ((profile.height / 100) ** 2) : 0;
-  const bmiLabel = bmi < 18.5 ? 'Underweight' : bmi < 25 ? 'Normal' : bmi < 30 ? 'Overweight' : 'Obese';
-  const bmiColor = bmi < 18.5 ? 'text-accent-alt' : bmi < 25 ? 'text-emerald-400' : bmi < 30 ? 'text-yellow-400' : 'text-red-400';
+  const xpProgress = nextLevelXP > currentLevelXP
+    ? ((xp - currentLevelXP) / (nextLevelXP - currentLevelXP)) * 100
+    : 100;
 
   const chartData = weightLogs.slice(0, 30).reverse().map(log => ({
     date: new Date(log.logged_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     weight: Number(log.weight),
   }));
-
-  const startEdit = () => { setForm({ ...profile }); setEditing(true); };
-  const cancelEdit = () => { setForm(null); setEditing(false); };
-  const saveEdit = () => { if (form) { setProfile(form); setEditing(false); setForm(null); toast.success('Profile updated'); } };
-  const update = (fields: Partial<UserProfile>) => setForm(prev => prev ? { ...prev, ...fields } : prev);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -130,12 +338,8 @@ export default function Profile() {
     setIsUploadingAvatar(true);
     try {
       const url = await uploadAvatar(file);
-      if (url) {
-        setAvatarUrl(url);
-        toast.success('Avatar updated');
-      } else {
-        toast.error('Failed to upload avatar');
-      }
+      if (url) { setAvatarUrl(url); toast.success('Avatar updated'); }
+      else toast.error('Failed to upload avatar');
     } catch {
       toast.error('Failed to upload avatar');
     } finally {
@@ -150,7 +354,7 @@ export default function Profile() {
     await updateWeight(w);
     if (logBodyFat) {
       const bf = parseFloat(logBodyFat);
-      if (bf > 0 && form) update({ bodyFat: bf });
+      if (bf > 0) saveField('bodyFat', bf);
     }
     setShowLogModal(false);
     setLogWeight('');
@@ -158,38 +362,79 @@ export default function Profile() {
     toast.success('Measurement logged');
   };
 
-  const p = editing && form ? form : profile;
-  const DETAILS = [
-    ['Full Name', p.name || 'Not set'],
-    ['Age', `${p.age} years`],
-    ['Sex', p.gender.charAt(0).toUpperCase() + p.gender.slice(1)],
-    ['Height', `${p.height} cm`],
-    ['Weight', `${p.weight} kg`],
-    ['Goal Wt', p.goalWeight ? `${p.goalWeight} kg` : 'Not set'],
-    ['Body Fat', p.bodyFat ? `${p.bodyFat}%` : 'Not set'],
-    ['Activity', ACTIVITY_LABELS[p.activityLevel]],
-    ['Goal', GOAL_LABELS[p.goal]],
-    ['Split', SPLIT_LABELS[p.preferredSplit]],
-    ['Days/Wk', `${p.daysPerWeek}`],
+  const editingFieldDef = editingField ? FIELD_DEFS.find(f => f.key === editingField) ?? null : null;
+  const editingCurrentValue = editingField ? (profile as unknown as Record<string, unknown>)[editingField] as string | number | undefined : undefined;
+
+  // Tappable rows: label → display value → field key (null = not editable inline)
+  type DetailRow = { label: string; value: string; fieldKey: FieldKey | null };
+  const DETAILS: DetailRow[] = [
+    { label: 'Full Name', value: profile.name || 'Not set', fieldKey: null },
+    { label: 'Age', value: `${profile.age} years`, fieldKey: null },
+    { label: 'Sex', value: profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1), fieldKey: null },
+    { label: 'Height', value: `${profile.height} cm`, fieldKey: null },
+    { label: 'Weight', value: `${profile.weight} kg`, fieldKey: null },
+    {
+      label: 'Goal Weight',
+      value: profile.goalWeight
+        ? `${profile.goalWeight} kg`
+        : 'Tap to set',
+      fieldKey: 'goalWeight',
+    },
+    {
+      label: 'Body Fat',
+      value: profile.bodyFat ? `${profile.bodyFat}%` : 'Tap to set',
+      fieldKey: 'bodyFat',
+    },
+    {
+      label: 'Activity',
+      value: ACTIVITY_LABELS[profile.activityLevel],
+      fieldKey: 'activityLevel',
+    },
+    {
+      label: 'Goal',
+      value: GOAL_LABELS[profile.goal],
+      fieldKey: 'goal',
+    },
+    {
+      label: 'Split',
+      value: SPLIT_LABELS[profile.preferredSplit],
+      fieldKey: 'preferredSplit',
+    },
+    {
+      label: 'Days / Week',
+      value: `${profile.daysPerWeek} days`,
+      fieldKey: 'daysPerWeek',
+    },
   ];
+
+  // Goal weight secondary hint (e.g. "4 kg less than current")
+  const goalWeightHint = (() => {
+    if (!profile.goalWeight) return null;
+    const diff = profile.goalWeight - profile.weight;
+    if (Math.abs(diff) < 0.5) return 'At goal weight';
+    return diff > 0
+      ? `${diff.toFixed(1)} kg to gain`
+      : `${Math.abs(diff).toFixed(1)} kg to lose`;
+  })();
 
   return (
     <div className="min-h-screen bg-canvas pb-[100px] font-sans">
-      <motion.div variants={containerVariants} initial="hidden" animate="visible" className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8 space-y-5 px-4 pt-14 md:pt-10 mb-8">
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8 space-y-5 px-4 pt-14 md:pt-10 mb-8"
+      >
         {/* HEADER */}
         <motion.div variants={itemVariants} className="flex items-center justify-between">
-          <button onClick={() => navigate(-1)} className="w-10 h-10 rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center">
+          <button
+            onClick={() => navigate(-1)}
+            className="w-10 h-10 rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center"
+          >
             <ArrowLeft className="w-4 h-4 text-text-1" />
           </button>
           <h1 className="text-[18px] font-bold text-text-1">Profile</h1>
-          {!editing ? (
-            <button onClick={startEdit} className="px-4 py-2 rounded-full bg-surface-2 border border-border-subtle text-[13px] font-semibold text-text-1">Edit</button>
-          ) : (
-            <div className="flex gap-2">
-              <button onClick={cancelEdit} className="px-3 py-2 rounded-full bg-surface-2 border border-border-subtle text-[12px] text-text-2">Cancel</button>
-              <button onClick={saveEdit} className="px-3 py-2 rounded-full bg-primary-accent text-canvas text-[12px] font-bold flex items-center gap-1"><Save className="w-3 h-3" /> Save</button>
-            </div>
-          )}
+          <div className="w-10" /> {/* spacer */}
         </motion.div>
 
         {/* AVATAR + IDENTITY */}
@@ -202,13 +447,7 @@ export default function Profile() {
                 : <User className="w-12 h-12 text-text-3" />
               }
             </div>
-            <input
-              ref={avatarInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleAvatarChange}
-            />
+            <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
             <button
               onClick={() => avatarInputRef.current?.click()}
               disabled={isUploadingAvatar}
@@ -220,7 +459,7 @@ export default function Profile() {
               <span className="text-[10px] font-extrabold text-canvas">L{level}</span>
             </div>
           </div>
-          <h2 className="text-[22px] font-bold text-text-1">{p.name || 'Athlete'}</h2>
+          <h2 className="text-[22px] font-bold text-text-1">{profile.name || 'Athlete'}</h2>
           <div className="flex items-center gap-1.5 mt-1">
             <span className="text-[13px]">{tier.icon}</span>
             <span className="text-[13px] text-text-2 capitalize">{tier.tier} · Lv.{level}</span>
@@ -232,8 +471,13 @@ export default function Profile() {
               <span className="text-primary-accent font-semibold">{nextLevelXP} XP</span>
             </div>
             <div className="h-2 w-full bg-surface-2 rounded-full overflow-hidden">
-              <motion.div className="h-full bg-gradient-to-r from-primary-accent to-accent-alt rounded-full" layoutId="xpBar"
-                initial={{ width: 0 }} animate={{ width: `${xpProgress}%` }} transition={{ type: 'spring' as const, stiffness: 50 }} />
+              <motion.div
+                className="h-full bg-gradient-to-r from-primary-accent to-accent-alt rounded-full"
+                layoutId="xpBar"
+                initial={{ width: 0 }}
+                animate={{ width: `${xpProgress}%` }}
+                transition={{ type: 'spring', stiffness: 50 }}
+              />
             </div>
           </div>
 
@@ -259,51 +503,41 @@ export default function Profile() {
         {/* SPLIT GRID */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
           <div className="space-y-6">
-            {/* PERSONAL DETAILS */}
+
+            {/* PERSONAL DETAILS — tappable rows */}
             <motion.div variants={itemVariants}>
               <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-3 px-1">Personal Details</p>
-              {editing && form ? (
-                <div className="bg-surface-1 rounded-[20px] border border-border-subtle p-4 flex flex-col gap-3">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] text-text-3">Full Name</span>
-                    <input className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none focus:border-primary-accent/50" value={form.name} onChange={e => update({ name: e.target.value })} />
-                  </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-3">Age</span>
-                      <input type="number" className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none" value={form.age} onChange={e => update({ age: parseInt(e.target.value) || 0 })} />
-                    </label>
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-3">Sex</span>
-                      <div className="flex rounded-xl overflow-hidden border border-border-subtle">
-                        {(['male', 'female', 'other'] as const).map(g => (
-                          <button key={g} onClick={() => update({ gender: g })} className={`flex-1 py-2.5 text-[11px] font-semibold capitalize transition-colors ${form.gender === g ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'}`}>{g}</button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-3">Height (cm)</span>
-                      <input type="number" className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none" value={form.height} onChange={e => update({ height: parseInt(e.target.value) || 0 })} />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span className="text-[11px] text-text-3">Weight (kg)</span>
-                      <input type="number" step="0.1" className="bg-surface-2 border border-border-subtle rounded-xl px-3 py-2.5 text-[14px] text-text-1 outline-none" value={form.weight} onChange={e => update({ weight: parseFloat(e.target.value) || 0 })} />
-                    </label>
-                  </div>
-                  {/* Additional form elements here... */}
-                </div>
-              ) : (
-                <div className="bg-surface-1 rounded-[20px] border border-border-subtle overflow-hidden">
-                  {DETAILS.map(([label, value], i) => (
-                    <div key={label} className={`flex justify-between px-4 py-3 ${i < DETAILS.length - 1 ? 'border-b border-border-subtle' : ''}`}>
+              <div className="bg-surface-1 rounded-[20px] border border-border-subtle overflow-hidden">
+                {DETAILS.map(({ label, value, fieldKey }, i) => {
+                  const isTappable = fieldKey !== null;
+                  const isGoalWeight = fieldKey === 'goalWeight';
+                  return (
+                    <button
+                      key={label}
+                      disabled={!isTappable}
+                      onClick={() => isTappable && openField(fieldKey!)}
+                      className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
+                        i < DETAILS.length - 1 ? 'border-b border-border-subtle' : ''
+                      } ${isTappable ? 'hover:bg-surface-2 active:bg-surface-2 cursor-pointer' : 'cursor-default'}`}
+                    >
                       <span className="text-[13px] text-text-2">{label}</span>
-                      <span className="text-[13px] font-semibold text-text-1">{value}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <span className={`text-[13px] font-semibold ${
+                            value === 'Tap to set' ? 'text-text-3 italic' : 'text-text-1'
+                          }`}>
+                            {value}
+                          </span>
+                          {isGoalWeight && goalWeightHint && (
+                            <p className="text-[10px] text-text-3 mt-0.5">{goalWeightHint}</p>
+                          )}
+                        </div>
+                        {isTappable && <ChevronRight className="w-3.5 h-3.5 text-text-3 shrink-0" />}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </motion.div>
 
             {/* NUTRITION & XP BREAKDOWN */}
@@ -318,11 +552,16 @@ export default function Profile() {
           </div>
 
           <div className="space-y-6">
-            {/* BODY STATS */}
+            {/* BODY STATS — weight chart only, NO BMI */}
             <motion.div variants={itemVariants}>
               <div className="flex items-center justify-between mb-3 px-1">
-                <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest">Body Stats History</p>
-                <button onClick={() => setShowLogModal(true)} className="px-3 py-1.5 rounded-full bg-primary-accent text-canvas text-[11px] font-bold">Log New</button>
+                <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest">Weight History</p>
+                <button
+                  onClick={() => setShowLogModal(true)}
+                  className="px-3 py-1.5 rounded-full bg-primary-accent text-canvas text-[11px] font-bold"
+                >
+                  Log New
+                </button>
               </div>
               <div className="bg-surface-1 rounded-[20px] border border-border-subtle p-4">
                 {chartData.length > 1 ? (
@@ -335,16 +574,7 @@ export default function Profile() {
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
-                  <p className="text-[13px] text-text-3 text-center py-8">Log measurements to see trends</p>
-                )}
-                {bmi > 0 && (
-                  <div className="mt-3 pt-3 border-t border-border-subtle flex items-center justify-between">
-                    <span className="text-[12px] text-text-2">BMI</span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[18px] font-extrabold ${bmiColor} tabular-nums`}>{bmi.toFixed(1)}</span>
-                      <span className={`text-[11px] px-2.5 py-0.5 rounded-full bg-surface-2 border border-border-subtle ${bmiColor}`}>{bmiLabel}</span>
-                    </div>
-                  </div>
+                  <p className="text-[13px] text-text-3 text-center py-8">Log measurements to see your weight trend</p>
                 )}
               </div>
             </motion.div>
@@ -357,8 +587,13 @@ export default function Profile() {
               </button>
               <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
                 {gamification.achievements.filter(a => a.unlockedAt).slice(0, 6).map(a => (
-                  <div key={a.id} className="shrink-0 w-[60px] h-[60px] rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center text-xl">{a.icon}</div>
+                  <div key={a.id} className="shrink-0 w-[60px] h-[60px] rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center text-xl">
+                    {a.icon}
+                  </div>
                 ))}
+                {gamification.achievements.filter(a => a.unlockedAt).length === 0 && (
+                  <p className="text-[12px] text-text-3 py-2">Complete workouts to earn achievements</p>
+                )}
               </div>
             </motion.div>
 
@@ -385,7 +620,6 @@ export default function Profile() {
                 </button>
               </div>
             </motion.div>
-
           </div>
         </div>
       </motion.div>
@@ -393,17 +627,37 @@ export default function Profile() {
       {/* LOG MODAL */}
       {showLogModal && (
         <div className="fixed inset-0 z-50 bg-canvas/80 backdrop-blur-sm flex items-end justify-center" onClick={() => setShowLogModal(false)}>
-          <motion.div initial={{ y: 80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="w-full max-w-lg bg-surface-1 border border-border-subtle p-5 rounded-t-[28px]" onClick={e => e.stopPropagation()}>
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            className="w-full max-w-lg bg-surface-1 border border-border-subtle p-5 rounded-t-[28px]"
+            onClick={e => e.stopPropagation()}
+          >
             <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-4" />
             <h3 className="text-[18px] font-bold text-text-1 mb-4">Log Measurement</h3>
             <div className="flex flex-col gap-3 mb-4">
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] text-text-3">Weight (kg)</span>
-                <input type="number" step="0.1" className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50" value={logWeight} onChange={e => setLogWeight(e.target.value)} placeholder={`${profile.weight}`} autoFocus />
+                <input
+                  type="number"
+                  step="0.1"
+                  className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
+                  value={logWeight}
+                  onChange={e => setLogWeight(e.target.value)}
+                  placeholder={`${profile.weight}`}
+                  autoFocus
+                />
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] text-text-3">Body Fat % (optional)</span>
-                <input type="number" step="0.1" placeholder="Optional" className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50" value={logBodyFat} onChange={e => setLogBodyFat(e.target.value)} />
+                <input
+                  type="number"
+                  step="0.1"
+                  placeholder="Optional"
+                  className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
+                  value={logBodyFat}
+                  onChange={e => setLogBodyFat(e.target.value)}
+                />
               </label>
             </div>
             <div className="flex gap-3">
@@ -413,6 +667,19 @@ export default function Profile() {
           </motion.div>
         </div>
       )}
+
+      {/* FIELD EDIT MODAL */}
+      <AnimatePresence>
+        {editingField && (
+          <EditModal
+            field={editingFieldDef}
+            currentValue={editingCurrentValue}
+            onClose={closeField}
+            onSave={saveField}
+          />
+        )}
+      </AnimatePresence>
+
       <BottomNav />
     </div>
   );

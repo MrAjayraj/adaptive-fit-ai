@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useFitness } from '@/context/FitnessContext';
 import { useNavigate } from 'react-router-dom';
 import { detectFatigue } from '@/lib/workout-generator';
@@ -6,12 +6,13 @@ import { calculateBMR, calculateFullCalories } from '@/lib/calories';
 import { xpForNextLevel, xpForLevel, getLevelTier } from '@/lib/gamification';
 import {
   Bell, Play, TrendingUp, Flame, Dumbbell, ChevronRight,
-  Star, Footprints, Zap, AlertTriangle, Users, Trophy, CalendarDays,
+  Star, Footprints, Zap, AlertTriangle, Users, Trophy, CalendarDays, Plus, Minus,
 } from 'lucide-react';
 import BottomNav from '@/components/layout/BottomNav';
 import DailyMissions from '@/components/gamification/DailyMissions';
 import RankBadgeCard from '@/components/gamification/RankBadgeCard';
 import { motion } from 'framer-motion';
+import { upsertTodaySteps } from '@/services/api';
 
 const CATEGORIES = ['All', 'Shoulders', 'Arms', 'Chest', 'Legs', 'Core', 'Back'];
 
@@ -31,19 +32,19 @@ const itemVariants = {
   visible: { opacity: 1, y: 0, transition: { type: 'spring' as const, stiffness: 320, damping: 28 } },
 };
 
-// ── Weekly Recap Banner (shows Monday–Sunday if workouts exist this week) ──
+// ── Weekly Recap Banner ──────────────────────────────────────
 function WeeklyRecapBanner() {
   const { workouts } = useFitness();
   const navigate = useNavigate();
 
   const now = new Date();
-  const day = now.getDay(); // 0 = Sun
+  const day = now.getDay();
   const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - ((day + 6) % 7)); // Monday start
+  weekStart.setDate(now.getDate() - ((day + 6) % 7));
   const weekStartStr = weekStart.toISOString().split('T')[0];
 
   const weekWorkouts = workouts.filter(w => w.completed && w.date >= weekStartStr);
-  if (weekWorkouts.length < 2) return null; // Only show if 2+ workouts
+  if (weekWorkouts.length < 2) return null;
 
   const totalVol = weekWorkouts.reduce((sum, w) =>
     sum + w.exercises.reduce((es, ex) =>
@@ -79,7 +80,7 @@ function WeeklyRecapBanner() {
   );
 }
 
-// ── State-aware Challenge Hero Card ──────────────────────────
+// ── Challenge Hero Card ──────────────────────────────────────
 function ChallengeHeroCard() {
   const { gamification, currentPlan, workouts, getTodaysWorkout, generatePlan, startWorkout } = useFitness();
   const navigate = useNavigate();
@@ -126,7 +127,6 @@ function ChallengeHeroCard() {
     );
   }
 
-  // Active challenge state
   if (hasActiveChallenges) {
     return (
       <motion.div
@@ -145,19 +145,8 @@ function ChallengeHeroCard() {
               {joinedIds.size} challenge{joinedIds.size > 1 ? 's' : ''} in progress
             </h2>
             <p className="text-[12px] text-text-2 mb-3">Keep going — your rivals are watching</p>
-            <div className="flex items-center gap-2">
-              <div className="flex -space-x-2">
-                {['bg-orange-400', 'bg-blue-400', 'bg-emerald-400'].map((c, i) => (
-                  <div key={i} className={`w-6 h-6 rounded-full ${c} border-2 border-surface-1`} />
-                ))}
-              </div>
-              <span className="text-[11px] text-text-3">4.5k+ athletes competing</span>
-            </div>
           </div>
-          <button
-            onClick={() => navigate('/challenges')}
-            className="shrink-0 flex flex-col items-center gap-1"
-          >
+          <button onClick={() => navigate('/challenges')} className="shrink-0 flex flex-col items-center gap-1">
             <div className="w-12 h-12 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
               <Trophy className="w-5 h-5 text-emerald-400" />
             </div>
@@ -168,7 +157,6 @@ function ChallengeHeroCard() {
     );
   }
 
-  // Default — no challenge joined
   return (
     <motion.div
       variants={itemVariants}
@@ -193,9 +181,6 @@ function ChallengeHeroCard() {
               {['bg-orange-400', 'bg-blue-400', 'bg-emerald-400'].map((c, i) => (
                 <div key={i} className={`w-6 h-6 rounded-full ${c} border-2 border-surface-1`} />
               ))}
-              <div className="w-6 h-6 rounded-full bg-primary-accent border-2 border-surface-1 flex items-center justify-center">
-                <span className="text-[8px] font-bold text-canvas">+</span>
-              </div>
             </div>
             <span className="text-[11px] text-text-3">Join them</span>
           </div>
@@ -217,15 +202,85 @@ function ChallengeHeroCard() {
   );
 }
 
+// ── Interactive Step Counter ─────────────────────────────────
+function StepCounter({ steps, onChange }: { steps: number; onChange: (n: number) => void }) {
+  const STEP_GOAL = 10000;
+  const pct = Math.min((steps / STEP_GOAL) * 100, 100);
+
+  return (
+    <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between">
+      <div className="flex items-center justify-between mb-1">
+        <Footprints className="w-5 h-5 text-text-2" />
+        <span className="text-[10px] text-text-3 font-semibold tracking-widest uppercase">Steps</span>
+      </div>
+      <p className="text-[26px] font-extrabold text-text-1 tabular-nums leading-none">
+        {steps.toLocaleString()}
+      </p>
+      <div className="h-1 w-full bg-surface-3 rounded-full mt-2 mb-3 overflow-hidden">
+        <div className="h-full bg-primary-accent rounded-full transition-all" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onChange(Math.max(0, steps - 500))}
+          className="w-8 h-8 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <Minus className="w-3.5 h-3.5 text-text-2" />
+        </button>
+        <button
+          onClick={() => onChange(steps + 500)}
+          className="flex-1 h-8 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center text-[11px] font-bold text-text-1 active:scale-95 transition-transform"
+        >
+          +500
+        </button>
+        <button
+          onClick={() => onChange(steps + 1000)}
+          className="flex-1 h-8 rounded-full bg-primary-accent/15 border border-primary-accent/30 flex items-center justify-center text-[11px] font-bold text-primary-accent active:scale-95 transition-transform"
+        >
+          +1k
+        </button>
+        <button
+          onClick={() => onChange(steps + 100)}
+          className="w-8 h-8 rounded-full bg-surface-2 border border-border-subtle flex items-center justify-center active:scale-95 transition-transform"
+        >
+          <Plus className="w-3.5 h-3.5 text-text-2" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Dashboard ───────────────────────────────────────────
 export default function Dashboard() {
   const {
-    profile, workouts, gamification, getWeeklyStats,
+    profile, workouts, gamification, getWeeklyStats, setStepsToday, getDailyMissions,
   } = useFitness();
   const navigate = useNavigate();
   const [activeCategory, setActiveCategory] = useState('All');
+  const missionsRef = useRef<HTMLDivElement>(null);
 
+  // Step counter with debounced Supabase save
   const stats = getWeeklyStats();
   const { xp, level, streak, stepsToday, stepDate, prs, achievements } = gamification;
+
+  const today = new Date().toISOString().split('T')[0];
+  const steps = stepDate === today ? stepsToday : 0;
+
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleStepChange = useCallback((newSteps: number) => {
+    setStepsToday(newSteps);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      upsertTodaySteps(newSteps).catch(() => {/* silent */});
+    }, 1000);
+  }, [setStepsToday]);
+
+  // Bell badge: count incomplete missions
+  const missions = getDailyMissions();
+  const incompleteMissions = missions.filter(m => !m.completed).length;
+
+  const scrollToMissions = () => {
+    missionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const currentLevelXP = xpForLevel(level);
   const nextLevelXP    = xpForNextLevel(level);
@@ -235,8 +290,6 @@ export default function Dashboard() {
 
   const bmr      = profile ? calculateBMR(profile.weight, profile.height, profile.age, profile.gender, profile.bodyFat) : 0;
   const calories = profile ? calculateFullCalories(bmr, profile.goal, profile.activityLevel) : null;
-  const today    = new Date().toISOString().split('T')[0];
-  const steps    = stepDate === today ? stepsToday : 0;
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -251,7 +304,7 @@ export default function Dashboard() {
         animate="visible"
         className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8 space-y-5 px-4 pt-14 md:pt-10"
       >
-        {/* ── 1. HEADER ─────────────────────────────────────────── */}
+        {/* ── 1. HEADER ───────────────────────────────────────── */}
         <motion.div variants={itemVariants} className="flex items-center justify-between">
           <div>
             <p className="text-[12px] text-text-2 tracking-wide">{greeting}</p>
@@ -263,12 +316,20 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Bell — scrolls to Daily Missions, shows incomplete count */}
             <button
               id="notification-bell"
+              onClick={scrollToMissions}
               className="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center relative"
             >
               <Bell className="w-[18px] h-[18px] text-text-2" strokeWidth={1.8} />
-              <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-canvas" />
+              {incompleteMissions > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] bg-primary-accent rounded-full border-2 border-canvas flex items-center justify-center">
+                  <span className="text-[9px] font-extrabold text-canvas leading-none px-0.5">
+                    {incompleteMissions}
+                  </span>
+                </span>
+              )}
             </button>
             <button
               id="profile-avatar"
@@ -282,7 +343,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* ── 2. XP BAR ─────────────────────────────────────────── */}
+        {/* ── 2. XP BAR ────────────────────────────────────────── */}
         <motion.div variants={itemVariants} className="flex items-center gap-3">
           <div className="flex-1 h-12 bg-surface-1 rounded-full flex items-center px-4 gap-2 border border-border-subtle">
             <Zap className="w-4 h-4 text-primary-accent" />
@@ -301,18 +362,18 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* ── 3. SEASONAL RANK BADGE CARD ────────────────────────── */}
+        {/* ── 3. RANK BADGE ────────────────────────────────────── */}
         <motion.div variants={itemVariants}>
           <RankBadgeCard />
         </motion.div>
 
-        {/* ── 4. STATE-AWARE CHALLENGE HERO CARD ─────────────────── */}
+        {/* ── 4. CHALLENGE HERO ────────────────────────────────── */}
         <ChallengeHeroCard />
 
-        {/* ── 5. WEEKLY RECAP (conditional) ──────────────────────── */}
+        {/* ── 5. WEEKLY RECAP ──────────────────────────────────── */}
         <WeeklyRecapBanner />
 
-        {/* ── 6. QUICK STATS ROW ─────────────────────────────────── */}
+        {/* ── 6. QUICK STATS ROW ───────────────────────────────── */}
         <motion.div variants={itemVariants} className="flex gap-3">
           {/* Streak */}
           <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col items-center justify-center relative overflow-hidden">
@@ -321,19 +382,10 @@ export default function Dashboard() {
             <span className="text-[32px] font-extrabold text-text-1 tabular-nums leading-none relative z-10">{streak}</span>
             <span className="text-[10px] text-text-2 mt-1 relative z-10">day streak</span>
           </div>
-          {/* Steps */}
-          <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between">
-            <div>
-              <Footprints className="w-5 h-5 text-text-2 mb-1" />
-              <span className="text-[10px] text-text-3 font-semibold tracking-widest uppercase">Steps</span>
-            </div>
-            <div>
-              <p className="text-[26px] font-extrabold text-text-1 tabular-nums leading-none">{steps.toLocaleString()}</p>
-              <div className="h-1 w-full bg-surface-3 rounded-full mt-2 overflow-hidden">
-                <div className="h-full bg-primary-accent rounded-full" style={{ width: `${Math.min((steps / 10000) * 100, 100)}%` }} />
-              </div>
-            </div>
-          </div>
+
+          {/* Steps — interactive */}
+          <StepCounter steps={steps} onChange={handleStepChange} />
+
           {/* Calories */}
           <div className="flex-1 bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between">
             <Flame className="w-5 h-5 text-primary-accent mb-1" />
@@ -344,7 +396,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* ── 7. CATEGORY FILTERS ────────────────────────────────── */}
+        {/* ── 7. CATEGORY FILTERS ──────────────────────────────── */}
         <motion.div variants={itemVariants}>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
             {CATEGORIES.map(cat => (
@@ -364,7 +416,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* ── 8. POPULAR EXERCISES ───────────────────────────────── */}
+        {/* ── 8. POPULAR EXERCISES ─────────────────────────────── */}
         <motion.div variants={itemVariants}>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-[16px] font-bold text-text-1">Popular exercises</h3>
@@ -380,7 +432,7 @@ export default function Dashboard() {
               <motion.button
                 key={card.name}
                 onClick={() => navigate('/exercises')}
-                className={`shrink-0 w-[158px] bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between overflow-hidden relative`}
+                className="shrink-0 w-[158px] bg-surface-1 rounded-[20px] p-4 border border-border-subtle flex flex-col justify-between overflow-hidden relative"
                 style={{ minHeight: 172 }}
                 whileTap={{ scale: 0.97 }}
               >
@@ -401,7 +453,7 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* ── 9. THIS WEEK STATS ──────────────────────────────────── */}
+        {/* ── 9. THIS WEEK STATS ───────────────────────────────── */}
         <motion.div variants={itemVariants} className="bg-surface-1 rounded-[20px] border border-border-subtle">
           <div className="flex items-center justify-between px-4 pt-4 mb-3">
             <h3 className="text-[14px] font-bold text-text-1">This Week</h3>
@@ -409,9 +461,9 @@ export default function Dashboard() {
           </div>
           <div className="flex divide-x divide-border-subtle">
             {[
-              { label: 'Workouts', value: stats.totalWorkouts, unit: '', icon: Dumbbell },
+              { label: 'Workouts', value: stats.totalWorkouts,  unit: '',    icon: Dumbbell },
               { label: 'Volume',   value: `${(stats.totalVolume / 1000).toFixed(1)}k`, unit: 'kg', icon: TrendingUp },
-              { label: 'Duration', value: stats.totalDuration, unit: 'min', icon: Footprints },
+              { label: 'Duration', value: stats.totalDuration,  unit: 'min', icon: Footprints },
             ].map(({ label, value, unit, icon: Icon }) => (
               <div key={label} className="flex-1 flex flex-col items-center py-4 gap-1">
                 <Icon className="w-4 h-4 text-text-3 mb-1" />
@@ -423,8 +475,8 @@ export default function Dashboard() {
           </div>
         </motion.div>
 
-        {/* ── 10. DAILY MISSIONS ─────────────────────────────────── */}
-        <motion.div variants={itemVariants}>
+        {/* ── 10. DAILY MISSIONS ───────────────────────────────── */}
+        <motion.div variants={itemVariants} ref={missionsRef}>
           <div className="flex items-center justify-between mb-3 px-1">
             <h3 className="text-[14px] font-bold text-text-1">Daily Missions</h3>
             <span className="text-[11px] text-text-3">
@@ -439,7 +491,7 @@ export default function Dashboard() {
           <DailyMissions />
         </motion.div>
 
-        {/* ── 11. PERSONAL RECORDS ───────────────────────────────── */}
+        {/* ── 11. PERSONAL RECORDS ─────────────────────────────── */}
         {prs.length > 0 && (
           <motion.div variants={itemVariants}>
             <div className="flex items-center justify-between mb-3 px-1">
@@ -474,7 +526,7 @@ export default function Dashboard() {
           </motion.div>
         )}
 
-        {/* ── 12. ACHIEVEMENTS ───────────────────────────────────── */}
+        {/* ── 12. ACHIEVEMENTS ─────────────────────────────────── */}
         {unlockedAchievements.length > 0 && (
           <motion.div variants={itemVariants} className="pb-4">
             <div className="flex items-center justify-between mb-3 px-1">

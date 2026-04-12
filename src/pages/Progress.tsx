@@ -3,10 +3,11 @@ import { useFitness } from '@/context/FitnessContext';
 import BottomNav from '@/components/layout/BottomNav';
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
-  TrendingUp, Dumbbell, Calendar, Trophy, ChevronRight,
-  Medal, BarChart3, Activity, Flame, Footprints, Clock,
+  TrendingUp, Dumbbell, Calendar, Trophy, ChevronRight, ChevronLeft,
+  Medal, BarChart3, Activity, Flame, Footprints, Clock, Star,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Workout } from '@/types/fitness';
 
 const PERIODS = ['Daily', 'Weekly', 'Monthly'];
 const WORKOUT_TYPES = ['All types', 'Full body', 'Upper', 'Lower', 'Core'];
@@ -58,6 +59,7 @@ export default function Progress() {
   const [period, setPeriod]           = useState('Daily');
   const [workoutType, setWorkoutType] = useState('All types');
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
+  const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
 
   const { prs } = gamification;
   const isEmpty  = workouts.length === 0;
@@ -398,6 +400,54 @@ export default function Progress() {
               </div>
             </motion.div>
 
+            {/* ── WORKOUT HISTORY ───────────────────────────── */}
+            {workouts.filter(w => w.completed).length > 0 && (
+              <motion.div variants={itemVariants} className="px-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-[15px] font-bold text-text-1">
+                    <Calendar className="w-4 h-4 inline mr-1.5 text-text-2" />
+                    Workout History
+                  </h3>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {workouts
+                    .filter(w => w.completed)
+                    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                    .slice(0, 10)
+                    .map(w => {
+                      const vol = w.exercises.reduce((sum, ex) =>
+                        sum + ex.sets.filter(s => s.completed).reduce((s2, set) => s2 + set.weight * set.reps, 0), 0);
+                      const sets = w.exercises.reduce((sum, ex) => sum + ex.sets.filter(s => s.completed).length, 0);
+                      return (
+                        <button
+                          key={w.id}
+                          onClick={() => setSelectedWorkout(w)}
+                          className="flex items-center gap-4 p-4 bg-surface-1 rounded-[16px] border border-border-subtle hover:border-primary-accent/20 transition-all text-left"
+                        >
+                          <div className="w-10 h-10 rounded-xl bg-primary-accent/10 flex items-center justify-center shrink-0">
+                            <Dumbbell className="w-4.5 h-4.5 text-primary-accent" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[14px] font-bold text-text-1 truncate">{w.name}</p>
+                            <p className="text-[11px] text-text-3 mt-0.5">
+                              {new Date(w.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                              {w.duration ? ` · ${w.duration} min` : ''}
+                            </p>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="text-[13px] font-semibold text-text-1 tabular-nums">
+                              {vol >= 1000 ? `${(vol / 1000).toFixed(1)}k` : vol} kg
+                            </p>
+                            <p className="text-[11px] text-text-3">{sets} sets</p>
+                          </div>
+                          <ChevronRight className="w-3.5 h-3.5 text-text-3 shrink-0" />
+                        </button>
+                      );
+                    })}
+                </div>
+              </motion.div>
+            )}
+
             {/* ── MUSCLE BREAKDOWN ─────────────────────────── */}
             {muscleData.length > 0 && (
               <motion.div variants={itemVariants} className="px-5 pb-2">
@@ -427,6 +477,133 @@ export default function Progress() {
           </div>
         )}
       </motion.div>
+
+      {/* ── WORKOUT DETAIL SLIDE-IN ─────────────────────────────── */}
+      <AnimatePresence>
+        {selectedWorkout && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', stiffness: 380, damping: 36 }}
+            className="fixed inset-0 z-40 bg-canvas overflow-y-auto pb-24"
+          >
+            {/* Detail header */}
+            <div className="flex items-center gap-3 px-4 pt-14 pb-4 sticky top-0 bg-canvas/95 backdrop-blur-sm border-b border-border-subtle">
+              <button
+                onClick={() => setSelectedWorkout(null)}
+                className="w-9 h-9 rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center shrink-0"
+              >
+                <ChevronLeft className="w-4 h-4 text-text-1" />
+              </button>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-[18px] font-bold text-text-1 truncate">{selectedWorkout.name}</h2>
+                <p className="text-[12px] text-text-3">
+                  {new Date(selectedWorkout.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-4 space-y-4 pt-4">
+              {/* Summary stats */}
+              {(() => {
+                const vol = selectedWorkout.exercises.reduce((sum, ex) =>
+                  sum + ex.sets.filter(s => s.completed).reduce((s2, set) => s2 + set.weight * set.reps, 0), 0);
+                const sets = selectedWorkout.exercises.reduce((sum, ex) => sum + ex.sets.filter(s => s.completed).length, 0);
+                return (
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Duration', value: selectedWorkout.duration ? `${selectedWorkout.duration} min` : '—', icon: Clock },
+                      { label: 'Volume', value: vol >= 1000 ? `${(vol / 1000).toFixed(1)}k kg` : `${vol} kg`, icon: TrendingUp },
+                      { label: 'Sets', value: String(sets), icon: Activity },
+                    ].map(({ label, value, icon: Icon }) => (
+                      <div key={label} className="bg-surface-1 rounded-[16px] p-3 border border-border-subtle text-center">
+                        <Icon className="w-4 h-4 text-text-3 mx-auto mb-1" />
+                        <p className="text-[16px] font-extrabold text-text-1 tabular-nums leading-none">{value}</p>
+                        <p className="text-[10px] text-text-3 mt-0.5">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Rating */}
+              {selectedWorkout.rating && (
+                <div className="flex items-center gap-2 px-1">
+                  {['😫', '😐', '🙂', '💪', '🔥'].map((emoji, i) => (
+                    <span
+                      key={i}
+                      className={`text-xl ${i + 1 === selectedWorkout.rating ? 'opacity-100' : 'opacity-25'}`}
+                    >{emoji}</span>
+                  ))}
+                  <span className="text-[12px] text-text-3 ml-1">
+                    {['Rough', 'Okay', 'Good', 'Strong', 'Beast!'][selectedWorkout.rating - 1]}
+                  </span>
+                </div>
+              )}
+
+              {/* Exercise breakdown */}
+              <div>
+                <p className="text-[11px] uppercase font-bold text-text-3 tracking-widest mb-3 px-1">Exercises</p>
+                <div className="flex flex-col gap-3">
+                  {selectedWorkout.exercises.map(ex => {
+                    const bestSet = ex.sets
+                      .filter(s => s.completed)
+                      .reduce((best, s) => s.weight > best.weight ? s : best, { weight: 0, reps: 0 });
+                    const exVol = ex.sets.filter(s => s.completed).reduce((sum, s) => sum + s.weight * s.reps, 0);
+                    const completedSets = ex.sets.filter(s => s.completed);
+
+                    return (
+                      <div key={ex.id} className="bg-surface-1 rounded-[20px] border border-border-subtle overflow-hidden">
+                        {/* Exercise header */}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle">
+                          <div>
+                            <p className="text-[14px] font-bold text-text-1">{ex.exerciseName}</p>
+                            <p className="text-[11px] text-text-3 capitalize">{ex.muscleGroup}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[13px] font-semibold text-primary-accent tabular-nums">
+                              {exVol >= 1000 ? `${(exVol / 1000).toFixed(1)}k` : exVol} kg
+                            </p>
+                            {bestSet.weight > 0 && (
+                              <p className="text-[11px] text-text-3 flex items-center gap-1 justify-end">
+                                <Star className="w-2.5 h-2.5 text-primary-accent" />
+                                Best: {bestSet.weight}kg × {bestSet.reps}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {/* Sets table */}
+                        {completedSets.length > 0 && (
+                          <div className="px-4 py-2">
+                            <div className="grid grid-cols-3 text-[10px] text-text-3 font-semibold uppercase tracking-widest mb-2">
+                              <span>Set</span>
+                              <span className="text-center">Weight</span>
+                              <span className="text-right">Reps</span>
+                            </div>
+                            {completedSets.map((set, si) => (
+                              <div key={set.id} className="grid grid-cols-3 py-1.5 border-t border-border-subtle/50">
+                                <span className="text-[12px] text-text-3">{si + 1}</span>
+                                <span className="text-[13px] font-semibold text-text-1 text-center tabular-nums">
+                                  {set.weight > 0 ? `${set.weight} kg` : 'BW'}
+                                </span>
+                                <span className="text-[13px] font-semibold text-text-1 text-right tabular-nums">
+                                  {set.reps} reps
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <BottomNav />
     </div>
   );

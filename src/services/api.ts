@@ -262,3 +262,39 @@ export async function getLatestWeight(): Promise<number | null> {
   if (error || !data) return null;
   return (data as { weight: number }).weight;
 }
+
+// ─── Daily Steps ───
+export async function fetchTodaySteps(): Promise<number> {
+  const { userId } = await getIdentity();
+  if (!userId) return 0;
+  const today = new Date().toISOString().split('T')[0];
+  const { data } = await supabase
+    .from('daily_steps')
+    .select('step_count')
+    .eq('user_id', userId)
+    .eq('step_date', today)
+    .maybeSingle();
+  return (data as { step_count: number } | null)?.step_count ?? 0;
+}
+
+export async function upsertTodaySteps(stepCount: number): Promise<void> {
+  const { userId } = await getIdentity();
+  if (!userId) return;
+  const today = new Date().toISOString().split('T')[0];
+  await supabase
+    .from('daily_steps')
+    .upsert(
+      { user_id: userId, step_date: today, step_count: stepCount, updated_at: new Date().toISOString() },
+      { onConflict: 'user_id,step_date' }
+    );
+}
+
+// ─── Profile field update (single-field optimistic save) ───
+export async function updateProfileField(fields: Partial<Record<string, unknown>>): Promise<void> {
+  const { userId } = await getIdentity();
+  if (!userId) return;
+  await supabase
+    .from('user_profiles')
+    .update({ ...fields, updated_at: new Date().toISOString() } as Record<string, unknown>)
+    .eq('user_id', userId);
+}
