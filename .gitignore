@@ -30,6 +30,7 @@ dist-ssr
 # Debug / temp files
 lint_output.txt
 *.mjs.map
+vite.config.ts.timestamp-*
 
 # Editor directories and files
 .vscode/*
