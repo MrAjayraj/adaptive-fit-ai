@@ -197,6 +197,30 @@ export default function FriendsList() {
     searchUsers,
   } = useFriends();
 
+  // ── All hooks MUST come before any conditional returns (Rules of Hooks) ────
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<UserProfileSummary[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+
+  const friendIds = new Set(friends.map((f) => f.friend_profile?.user_id));
+
+  const handleSearch = useCallback(
+    async (val: string) => {
+      setQuery(val);
+      if (!val.trim()) { setSearchResults([]); return; }
+      setIsSearching(true);
+      try {
+        const results = await searchUsers(val);
+        setSearchResults(results);
+      } catch {
+        toast.error('Search failed');
+      } finally {
+        setIsSearching(false);
+      }
+    },
+    [searchUsers]
+  );
+
   // ── Error state: DB tables missing or RLS issue ───────────────────────────
   if (error) {
     return (
@@ -220,29 +244,6 @@ export default function FriendsList() {
       </div>
     );
   }
-
-  const [query, setQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<UserProfileSummary[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-
-  const friendIds = new Set(friends.map((f) => f.friend_profile?.user_id));
-
-  const handleSearch = useCallback(
-    async (val: string) => {
-      setQuery(val);
-      if (!val.trim()) { setSearchResults([]); return; }
-      setIsSearching(true);
-      try {
-        const results = await searchUsers(val);
-        setSearchResults(results);
-      } catch {
-        toast.error('Search failed');
-      } finally {
-        setIsSearching(false);
-      }
-    },
-    [searchUsers]
-  );
 
   const handleAdd = async (addresseeId: string) => {
     try {
