@@ -22,7 +22,8 @@ import { uploadAvatar, getCachedAvatarUrl, updateProfileField } from '@/services
 // ── Types for the edit modal ─────────────────────────────────
 type FieldKey =
   | 'goalWeight' | 'bodyFat' | 'activityLevel'
-  | 'goal' | 'preferredSplit' | 'workoutDays';
+  | 'goal' | 'preferredSplit' | 'workoutDays'
+  | 'username' | 'name';
 
 interface FieldDef {
   key: FieldKey;
@@ -473,6 +474,8 @@ export default function Profile() {
 
   const editingFieldDef = editingField ? FIELD_DEFS.find(f => f.key === editingField) ?? null : null;
   const editingCurrentValue = editingField ? (profile as unknown as Record<string, unknown>)[editingField] as string | number | undefined : undefined;
+
+  type DetailRow = { label: string; value: string; fieldKey: FieldKey | null };
 
   const DETAILS: DetailRow[] = [
     { label: 'Username', value: profile.username ? `@${profile.username}` : 'Tap to set', fieldKey: 'username' as any },
