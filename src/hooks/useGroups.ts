@@ -135,19 +135,45 @@ export function useGroups(): UseGroupsReturn {
   }, [user, load]);
 
   const getGroupMembers = useCallback(async (groupId: string): Promise<GroupMember[]> => {
-    const { data, error } = await db('group_members')
-      .select('*, profile:user_profiles(user_id,name,username,avatar_url,rank_tier,rank_division,level)')
+    // STEP 1: fetch raw member rows (no embedded join)
+    const { data: memberRows, error } = await db('group_members')
+      .select('id,group_id,user_id,role,joined_at')
       .eq('group_id', groupId);
 
     if (error) throw error;
 
-    return ((data ?? []) as Record<string, unknown>[]).map((row) => ({
-      id: row.id as string,
-      group_id: row.group_id as string,
-      user_id: row.user_id as string,
-      role: row.role as GroupMember['role'],
-      joined_at: row.joined_at as string,
-      profile: row.profile as GroupMember['profile'],
+    const rawMembers = (memberRows ?? []) as Array<{
+      id: string;
+      group_id: string;
+      user_id: string;
+      role: GroupMember['role'];
+      joined_at: string;
+    }>;
+
+    // STEP 2: collect user_ids and bulk-fetch profiles
+    const userIds = rawMembers.map((m) => m.user_id);
+    let profileMap = new Map<string, GroupMember['profile']>();
+    if (userIds.length > 0) {
+      const { data: profiles, error: profileErr } = await db('user_profiles')
+        .select('user_id,name,username,avatar_url,rank_tier,rank_division,level')
+        .in('user_id', userIds);
+      if (profileErr) {
+        console.error('[useGroups] getGroupMembers profile fetch error:', profileErr);
+      } else {
+        for (const p of (profiles ?? []) as Array<GroupMember['profile']>) {
+          if (p) profileMap.set((p as { user_id: string }).user_id, p);
+        }
+      }
+    }
+
+    // STEP 3: merge
+    return rawMembers.map((row) => ({
+      id: row.id,
+      group_id: row.group_id,
+      user_id: row.user_id,
+      role: row.role,
+      joined_at: row.joined_at,
+      profile: profileMap.get(row.user_id),
     }));
   }, []);
 

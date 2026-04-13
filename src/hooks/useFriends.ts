@@ -21,19 +21,21 @@ interface UseFriendsReturn {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = (table: string) => supabase.from(table as never) as any;
 
-function classifyError(err: unknown): string {
-  // DEBUG: Return raw error message so we can see the actual Supabase error
-  // (RLS violation, column mismatch, etc.) instead of a generic message.
-  if (err instanceof Error) {
-    const code = (err as Error & { code?: string }).code;
-    return `[${code ?? 'ERR'}] ${err.message}`;
+/** Fetch user_profiles for a list of user_ids in one query, returns a map keyed by user_id */
+async function fetchProfileMap(userIds: string[]): Promise<Map<string, UserProfileSummary>> {
+  if (userIds.length === 0) return new Map();
+  const { data, error } = await db('user_profiles')
+    .select('user_id,name,username,avatar_url,goal,level,rank_tier,rank_division')
+    .in('user_id', userIds);
+  if (error) {
+    console.error('[useFriends] fetchProfileMap error:', error);
+    return new Map();
   }
-  if (typeof err === 'object' && err !== null && 'message' in err) {
-    const msg = (err as { message: string; code?: string }).message;
-    const code = (err as { code?: string }).code;
-    return `[${code ?? 'ERR'}] ${msg}`;
+  const map = new Map<string, UserProfileSummary>();
+  for (const p of (data ?? []) as UserProfileSummary[]) {
+    map.set(p.user_id, p);
   }
-  return 'An unknown error occurred';
+  return map;
 }
 
 export function useFriends(): UseFriendsReturn {
@@ -50,39 +52,40 @@ export function useFriends(): UseFriendsReturn {
     setError(null);
 
     try {
-      const { data, error: fetchError } = await db('friendships')
-        .select(
-          '*, requester_profile:user_profiles!friendships_requester_id_fkey(user_id,name,username,avatar_url,goal,level,rank_tier,rank_division), addressee_profile:user_profiles!friendships_addressee_id_fkey(user_id,name,username,avatar_url,goal,level,rank_tier,rank_division)'
-        )
+      // ── STEP 1: fetch raw friendship rows (no join) ──────────────────────
+      const { data: rows, error: fetchError } = await db('friendships')
+        .select('id,requester_id,addressee_id,status,created_at,updated_at')
         .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
 
-      if (fetchError) {
-        // Re-throw as a proper Error so classifyError can handle it
-        const err = new Error(fetchError.message);
-        (err as Error & { code: string }).code = fetchError.code;
-        throw err;
-      }
+      if (fetchError) throw new Error(`[${fetchError.code}] ${fetchError.message}`);
 
-      const rows = (data ?? []) as Array<{
+      const rawRows = (rows ?? []) as Array<{
         id: string;
         requester_id: string;
         addressee_id: string;
         status: 'pending' | 'accepted' | 'blocked';
         created_at: string;
         updated_at: string;
-        requester_profile: UserProfileSummary | null;
-        addressee_profile: UserProfileSummary | null;
       }>;
 
+      // ── STEP 2: collect all friend user_ids ─────────────────────────────
+      const friendUserIds = rawRows
+        .filter((r) => r.status !== 'blocked')
+        .map((r) => (r.requester_id === user.id ? r.addressee_id : r.requester_id));
+
+      // ── STEP 3: bulk-fetch profiles by user_id IN (...) ─────────────────
+      const profileMap = await fetchProfileMap([...new Set(friendUserIds)]);
+
+      // ── STEP 4: merge ────────────────────────────────────────────────────
       const accepted: Friendship[] = [];
       const incoming: Friendship[] = [];
       const outgoing: Friendship[] = [];
 
-      for (const row of rows) {
+      for (const row of rawRows) {
         if (row.status === 'blocked') continue;
 
         const isRequester = row.requester_id === user.id;
-        const friendProfile = isRequester ? row.addressee_profile : row.requester_profile;
+        const friendId = isRequester ? row.addressee_id : row.requester_id;
 
         const friendship: Friendship = {
           id: row.id,
@@ -91,7 +94,7 @@ export function useFriends(): UseFriendsReturn {
           status: row.status,
           created_at: row.created_at,
           updated_at: row.updated_at,
-          friend_profile: friendProfile ?? undefined,
+          friend_profile: profileMap.get(friendId),
         };
 
         if (row.status === 'accepted') {
@@ -106,7 +109,7 @@ export function useFriends(): UseFriendsReturn {
       setPendingIncoming(incoming);
       setPendingOutgoing(outgoing);
     } catch (err) {
-      const msg = classifyError(err);
+      const msg = err instanceof Error ? err.message : 'Failed to load friends';
       console.error('[useFriends] load error:', err);
       setError(msg);
     } finally {
@@ -114,20 +117,17 @@ export function useFriends(): UseFriendsReturn {
     }
   }, [user]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  // Refetch on window focus — friendships don't need sub-second latency,
-  // and removing realtime here eliminates the duplicate-channel error entirely.
+  // Refetch on window focus
   useEffect(() => {
     const handleFocus = () => { if (user) load(); };
+    const handleVisibility = () => { if (document.visibilityState === 'visible' && user) load(); };
     window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && user) load();
-    });
+    document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [user, load]);
 
@@ -138,25 +138,25 @@ export function useFriends(): UseFriendsReturn {
       addressee_id: addresseeId,
       status: 'pending',
     });
-    if (insertError) throw new Error(classifyError(insertError));
+    if (insertError) throw new Error(`[${insertError.code}] ${insertError.message}`);
     await load();
   }, [user, load]);
 
   const acceptRequest = useCallback(async (friendshipId: string) => {
     const { error: updateError } = await db('friendships').update({ status: 'accepted' }).eq('id', friendshipId);
-    if (updateError) throw new Error(classifyError(updateError));
+    if (updateError) throw new Error(`[${updateError.code}] ${updateError.message}`);
     await load();
   }, [load]);
 
   const declinRequest = useCallback(async (friendshipId: string) => {
     const { error: deleteError } = await db('friendships').delete().eq('id', friendshipId);
-    if (deleteError) throw new Error(classifyError(deleteError));
+    if (deleteError) throw new Error(`[${deleteError.code}] ${deleteError.message}`);
     await load();
   }, [load]);
 
   const removeFriend = useCallback(async (friendshipId: string) => {
     const { error: deleteError } = await db('friendships').delete().eq('id', friendshipId);
-    if (deleteError) throw new Error(classifyError(deleteError));
+    if (deleteError) throw new Error(`[${deleteError.code}] ${deleteError.message}`);
     await load();
   }, [load]);
 
@@ -166,7 +166,7 @@ export function useFriends(): UseFriendsReturn {
       { requester_id: user.id, addressee_id: userId, status: 'blocked' },
       { onConflict: 'requester_id,addressee_id' }
     );
-    if (upsertError) throw new Error(classifyError(upsertError));
+    if (upsertError) throw new Error(`[${upsertError.code}] ${upsertError.message}`);
     await load();
   }, [user, load]);
 
@@ -176,7 +176,7 @@ export function useFriends(): UseFriendsReturn {
       .select('user_id,name,username,avatar_url,goal,level,rank_tier,rank_division')
       .or(`name.ilike.%${query}%,username.ilike.%${query}%`)
       .limit(20);
-    if (searchError) throw new Error(classifyError(searchError));
+    if (searchError) throw new Error(`[${searchError.code}] ${searchError.message}`);
     return ((data ?? []) as UserProfileSummary[]).filter((p) => p.user_id !== user?.id);
   }, [user]);
 
