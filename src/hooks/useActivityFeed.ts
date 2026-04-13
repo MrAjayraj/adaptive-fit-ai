@@ -27,9 +27,10 @@ export function useActivityFeed(): UseActivityFeedReturn {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageRef = useRef(0);
-  // Stable ref to load() so the realtime subscription effect never needs
-  // load in its dependency array (which would re-subscribe on every render).
-  const loadRef = useRef(load);
+  // Initialized to null — assigned after load() is defined below.
+  // Using a nullable ref avoids the TDZ error that occurs when useRef(load)
+  // is called before the load useCallback declaration.
+  const loadRef = useRef<(() => Promise<void>) | null>(null);
 
   const fetchPage = useCallback(async (page: number): Promise<ActivityFeedItem[]> => {
     if (!user) return [];
@@ -110,7 +111,8 @@ export function useActivityFeed(): UseActivityFeedReturn {
     }
   }, [hasMore, isLoading, fetchPage]);
 
-  // Keep loadRef current so the subscription callback always calls the latest load()
+  // Keep loadRef current AFTER load is defined so the subscription callback
+  // always calls the latest version without load being a subscription dependency.
   useEffect(() => { loadRef.current = load; }, [load]);
 
   useEffect(() => {
@@ -127,10 +129,10 @@ export function useActivityFeed(): UseActivityFeedReturn {
     const channel = supabase
       .channel(channelName)
       .on('postgres_changes' as never, { event: 'INSERT', schema: 'public', table: 'activity_feed' }, () => {
-        loadRef.current();
+        loadRef.current?.();
       })
       .on('postgres_changes' as never, { event: '*', schema: 'public', table: 'activity_reactions' }, () => {
-        loadRef.current();
+        loadRef.current?.();
       })
       .subscribe();
 
