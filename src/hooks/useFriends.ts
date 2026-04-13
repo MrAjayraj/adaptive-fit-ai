@@ -22,20 +22,16 @@ interface UseFriendsReturn {
 const db = (table: string) => supabase.from(table as never) as any;
 
 function classifyError(err: unknown): string {
+  // DEBUG: Return raw error message so we can see the actual Supabase error
+  // (RLS violation, column mismatch, etc.) instead of a generic message.
   if (err instanceof Error) {
-    // Postgres "relation does not exist" — table hasn't been created
-    if (err.message.includes('relation') || err.message.includes('does not exist')) {
-      return 'Social tables are not set up yet. Please run the database migration in Supabase.';
-    }
-    return err.message;
+    const code = (err as Error & { code?: string }).code;
+    return `[${code ?? 'ERR'}] ${err.message}`;
   }
   if (typeof err === 'object' && err !== null && 'message' in err) {
     const msg = (err as { message: string; code?: string }).message;
     const code = (err as { code?: string }).code;
-    if (code === '42P01') {
-      return 'Social tables are not set up yet. Please run the database migration in Supabase.';
-    }
-    return msg;
+    return `[${code ?? 'ERR'}] ${msg}`;
   }
   return 'An unknown error occurred';
 }

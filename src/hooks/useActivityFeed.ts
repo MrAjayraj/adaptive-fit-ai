@@ -48,11 +48,9 @@ export function useActivityFeed(): UseActivityFeedReturn {
 
     if (fetchError) {
       console.error('[useActivityFeed] fetch error:', fetchError);
-      // Surface a user-readable error
-      if (fetchError.code === '42P01') {
-        throw new Error('Social tables are not set up yet. Please run the database migration in Supabase.');
-      }
-      throw new Error(fetchError.message);
+      // DEBUG: Surface the raw Supabase error (code + message) so we can diagnose
+      // the actual issue (RLS, column mismatch, etc.) instead of a generic message.
+      throw new Error(`[${fetchError.code ?? 'ERR'}] ${fetchError.message}`);
     }
 
     return ((rows ?? []) as Record<string, unknown>[]).map((row) => {
