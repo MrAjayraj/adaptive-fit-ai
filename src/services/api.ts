@@ -304,3 +304,174 @@ export async function updateProfileField(fields: Partial<Record<string, unknown>
     .update({ ...fields, updated_at: new Date().toISOString() } as Record<string, unknown>)
     .eq('user_id', userId);
 }
+
+// ─── Workouts — persistent cloud storage ───────────────────
+
+export interface WorkoutRow {
+  id: string;
+  user_id: string;
+  name: string;
+  date: string;
+  completed: boolean;
+  duration: number | null;
+  rating: number | null;
+  split_type: string | null;
+  exercises: unknown; // WorkoutExercise[] as JSON
+  created_at: string;
+  updated_at: string;
+}
+
+/** Upsert a single workout to Supabase. Call after every save. */
+export async function upsertWorkout(workout: {
+  id: string;
+  name: string;
+  date: string;
+  completed: boolean;
+  duration?: number;
+  rating?: number;
+  splitType?: string;
+  exercises: unknown;
+}): Promise<void> {
+  const { userId } = await getIdentity();
+  if (!userId) return;
+  await supabase
+    .from('workouts' as never)
+    .upsert(
+      {
+        id: workout.id,
+        user_id: userId,
+        name: workout.name,
+        date: workout.date,
+        completed: workout.completed,
+        duration: workout.duration ?? null,
+        rating: workout.rating ?? null,
+        split_type: workout.splitType ?? null,
+        exercises: workout.exercises,
+        updated_at: new Date().toISOString(),
+      } as Record<string, unknown>,
+      { onConflict: 'id' }
+    );
+}
+
+/** Fetch all workouts for the current user, newest first. */
+export async function fetchWorkouts(): Promise<WorkoutRow[]> {
+  const { userId } = await getIdentity();
+  if (!userId) return [];
+  const { data, error } = await supabase
+    .from('workouts' as never)
+    .select('*')
+    .eq('user_id', userId)
+    .order('date', { ascending: false });
+  if (error) { console.error('fetchWorkouts error:', error); return []; }
+  return (data as WorkoutRow[]) ?? [];
+}
+
+/** Delete a workout by ID. */
+export async function deleteWorkout(id: string): Promise<void> {
+  await supabase.from('workouts' as never).delete().eq('id', id);
+}
+
+// ─── Gamification snapshot — cloud backup ──────────────────
+
+export interface GamificationSnapshot {
+  xp: number;
+  level: number;
+  current_streak: number;
+  longest_streak: number;
+  last_workout_date: string | null;
+  total_steps: number;
+  prs: unknown;
+  achievements: unknown;
+  completed_mission_ids: string[];
+  streak_freeze_used: boolean;
+}
+
+/** Persist gamification state to Supabase so it survives localStorage clears. */
+export async function syncGamification(snap: GamificationSnapshot): Promise<void> {
+  const { userId } = await getIdentity();
+  if (!userId) return;
+  await supabase
+    .from('user_gamification' as never)
+    .upsert(
+      { user_id: userId, ...snap, updated_at: new Date().toISOString() } as Record<string, unknown>,
+      { onConflict: 'user_id' }
+    );
+}
+
+/** Fetch gamification snapshot from Supabase. Returns null if none saved yet. */
+export async function fetchGamification(): Promise<GamificationSnapshot | null> {
+  const { userId } = await getIdentity();
+  if (!userId) return null;
+  const { data } = await supabase
+    .from('user_gamification' as never)
+    .select('*')
+    .eq('user_id', userId)
+    .maybeSingle();
+  return (data as GamificationSnapshot | null);
+}
+
+// ─── Rank — cloud sync ──────────────────────────────────────
+
+export interface RankRow {
+  user_id: string;
+  season_id: string;
+  rp: number;
+  tier: string;
+  division: number;
+}
+
+export async function upsertRank(rank: Omit<RankRow, 'user_id'>): Promise<void> {
+  const { userId } = await getIdentity();
+  if (!userId) return;
+  await supabase
+    .from('user_ranks' as never)
+    .upsert(
+      { user_id: userId, ...rank, updated_at: new Date().toISOString() } as Record<string, unknown>,
+      { onConflict: 'user_id,season_id' }
+    );
+}
+
+export async function fetchRank(seasonId: string): Promise<RankRow | null> {
+  const { userId } = await getIdentity();
+  if (!userId) return null;
+  const { data } = await supabase
+    .from('user_ranks' as never)
+    .select('*')
+    .eq('user_id', userId)
+    .eq('season_id', seasonId)
+    .maybeSingle();
+  return data as RankRow | null;
+}
+
+// ─── Activity feed helpers ─────────────────────────────────
+
+export async function postActivity(payload: {
+  activityType: string;
+  title: string;
+  description?: string;
+  metadata?: Record<string, unknown>;
+  isPublic?: boolean;
+}): Promise<void> {
+  const { userId } = await getIdentity();
+  if (!userId) return;
+  await supabase
+    .from('activity_feed' as never)
+    .insert({
+      user_id: userId,
+      activity_type: payload.activityType,
+      title: payload.title,
+      description: payload.description ?? null,
+      metadata: payload.metadata ?? {},
+      is_public: payload.isPublic ?? true,
+    } as Record<string, unknown>);
+}
+
+// ─── Data integrity check ───────────────────────────────────
+
+export async function runIntegrityCheck(userId: string): Promise<Record<string, unknown> | null> {
+  const { data, error } = await supabase.rpc('check_user_data_integrity', {
+    target_user_id: userId,
+  });
+  if (error) { console.error('Integrity check error:', error); return null; }
+  return data as Record<string, unknown>;
+}

@@ -1,14 +1,14 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, AlarmClock, Star, BarChart2, User } from 'lucide-react';
+import { Home, AlarmClock, Star, BarChart2, User, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 
 const NAV_ITEMS = [
-  { path: '/',           icon: Home,       label: 'Home'     },
-  { path: '/exercises',  icon: AlarmClock, label: 'Library'  },
-  { path: '/workout',    icon: Star,       label: 'Workout'  },
-  { path: '/progress',   icon: BarChart2,  label: 'Progress' },
-  { path: '/profile',    icon: User,       label: 'Profile'  },
+  { path: '/home',      icon: Home,       label: 'Home'     },
+  { path: '/workout',   icon: Star,       label: 'Workout'  },
+  { path: '/social',    icon: Users,      label: 'Social'   },
+  { path: '/progress',  icon: BarChart2,  label: 'Progress' },
+  { path: '/profile',   icon: User,       label: 'Profile'  },
 ];
 
 export default function BottomNav() {
@@ -22,10 +22,7 @@ export default function BottomNav() {
         className="pointer-events-auto flex md:flex-col md:justify-center items-center gap-1 md:gap-4 px-3 md:px-0 py-2.5 md:py-8 mx-4 md:mx-0 w-full max-w-sm md:max-w-none md:h-full nav-glass md:bg-surface-1 md:border-r md:border-border-subtle md:backdrop-blur-none rounded-[32px] md:rounded-none shadow-card-lg md:shadow-none"
       >
         {NAV_ITEMS.map(({ path, icon: Icon, label }) => {
-          const isActive =
-            path === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(path);
+          const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
 
           return (
             <button

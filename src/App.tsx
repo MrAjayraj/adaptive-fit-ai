@@ -69,6 +69,8 @@ const Challenges    = lazy(() => import('./pages/Challenges'));
 const Achievements  = lazy(() => import('./pages/Achievements'));
 const Rank          = lazy(() => import('./pages/Rank'));
 const NotFound      = lazy(() => import('./pages/NotFound'));
+const Social        = lazy(() => import('./pages/Social'));
+const DebugPanel    = lazy(() => import('./pages/DebugPanel'));
 
 // ── Suspense fallback ─────────────────────────────────────────────────────────
 function PageLoader() {
@@ -139,6 +141,8 @@ const App = () => (
                   <Route path="/profile"      element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                   <Route path="/achievements" element={<ProtectedRoute><Achievements /></ProtectedRoute>} />
                   <Route path="/rank"         element={<ProtectedRoute><Rank /></ProtectedRoute>} />
+                  <Route path="/social"       element={<ProtectedRoute><Social /></ProtectedRoute>} />
+                  <Route path="/debug"        element={<ProtectedRoute><DebugPanel /></ProtectedRoute>} />
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />

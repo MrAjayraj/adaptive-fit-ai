@@ -53,14 +53,29 @@ export default function AuthCallback() {
         // Redirect based on DB profile only — never trust localStorage for this decision.
         // Old guest localStorage data (fitai-state) must not bypass onboarding for a new auth user.
         if (profile?.onboarding_complete) {
-          // Clear any stale guest state so the authenticated profile loads fresh
-          localStorage.removeItem('fitai-state');
+          // Returning user — leave localStorage intact so workout history survives
+          // Only strip the stale guest profile key so FitnessContext fetches fresh from DB
+          try {
+            const raw = localStorage.getItem('fitai-state');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              // Keep workouts / gamification / progressHistory — only reset stale profile
+              delete parsed.profile;
+              localStorage.setItem('fitai-state', JSON.stringify(parsed));
+            }
+          } catch { /* ignore parse errors */ }
           toast.success(`Welcome back!`);
           navigate('/home');
         } else {
-          // New user or incomplete onboarding — always go through the flow
-          // Also clear stale guest state so FitnessContext starts clean
-          localStorage.removeItem('fitai-state');
+          // New user — strip only the guest profile fragment, keep nothing else to wipe
+          try {
+            const raw = localStorage.getItem('fitai-state');
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              delete parsed.profile;
+              localStorage.setItem('fitai-state', JSON.stringify(parsed));
+            }
+          } catch { /* ignore */ }
           navigate('/onboarding');
         }
       } catch (err) {

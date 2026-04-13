@@ -14,7 +14,11 @@ import {
   getDivisionFromRP, RP,
 } from '@/lib/seasonal-rank';
 import { v4 } from '@/lib/id';
-import { fetchProfile, upsertProfile, addWeightLog, fetchWeightLogs, type WeightLogRow } from '@/services/api';
+import {
+  fetchProfile, upsertProfile, addWeightLog, fetchWeightLogs, type WeightLogRow,
+  upsertWorkout, fetchWorkouts, syncGamification, fetchGamification,
+  upsertRank, fetchRank,
+} from '@/services/api';
 import { supabase } from '@/integrations/supabase/client';
 
 // ── Seasonal Rank State ──────────────────────────────────────
@@ -164,37 +168,86 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(RANK_STORAGE_KEY, JSON.stringify(seasonalRank));
   }, [state]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load profile from Supabase on mount
+  // Load profile, workouts, and gamification from Supabase on mount
   useEffect(() => {
     (async () => {
       try {
-        const dbProfile = await fetchProfile();
-        const logs = await fetchWeightLogs();
-        if (dbProfile) {
-          const row = dbProfile as unknown as Record<string, unknown>;
-          const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
-          const profile: UserProfile = {
-            name: dbProfile.name,
-            age: dbProfile.age,
-            gender: dbProfile.gender as UserProfile['gender'],
-            weight: latestWeight ?? 70,
-            height: Number(dbProfile.height),
-            bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
-            goalWeight: row.goal_weight_kg ? Number(row.goal_weight_kg) : undefined,
-            activityLevel: (row.activity_level as UserProfile['activityLevel']) || 'moderately_active',
-            goal: dbProfile.goal as UserProfile['goal'],
-            experience: dbProfile.experience as UserProfile['experience'],
-            daysPerWeek: dbProfile.days_per_week,
-            workoutDays: dbProfile.workout_days ?? [1, 2, 4, 5],
-            preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
-            onboardingComplete: dbProfile.onboarding_complete,
-          };
-          setState(prev => ({ ...prev, profile, weightLogs: logs, isLoading: false }));
-        } else {
-          // No DB profile — clear any stale profile that may have been loaded from localStorage
-          // (e.g. a previous guest session's profile should not appear for a new auth user)
-          setState(prev => ({ ...prev, profile: null, weightLogs: logs, isLoading: false }));
-        }
+        const [dbProfile, logs, dbWorkouts, dbGamification] = await Promise.all([
+          fetchProfile(),
+          fetchWeightLogs(),
+          fetchWorkouts(),
+          fetchGamification(),
+        ]);
+
+        setState(prev => {
+          let next = { ...prev, weightLogs: logs, isLoading: false };
+
+          // ── Profile ──
+          if (dbProfile) {
+            const row = dbProfile as unknown as Record<string, unknown>;
+            const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
+            next.profile = {
+              name: dbProfile.name,
+              age: dbProfile.age,
+              gender: dbProfile.gender as UserProfile['gender'],
+              weight: latestWeight ?? 70,
+              height: Number(dbProfile.height),
+              bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
+              goalWeight: row.goal_weight_kg ? Number(row.goal_weight_kg) : undefined,
+              activityLevel: (row.activity_level as UserProfile['activityLevel']) || 'moderately_active',
+              goal: dbProfile.goal as UserProfile['goal'],
+              experience: dbProfile.experience as UserProfile['experience'],
+              daysPerWeek: dbProfile.days_per_week,
+              workoutDays: dbProfile.workout_days ?? [1, 2, 4, 5],
+              preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
+              onboardingComplete: dbProfile.onboarding_complete,
+            };
+          } else {
+            // No DB profile — clear stale guest profile from localStorage state
+            next.profile = null;
+          }
+
+          // ── Workouts: merge DB into localStorage state (DB wins for completed, LS wins for active) ──
+          if (dbWorkouts.length > 0) {
+            const dbMapped: Workout[] = dbWorkouts
+              .filter(w => w.completed)
+              .map(w => ({
+                id: w.id,
+                date: w.date,
+                name: w.name,
+                exercises: (w.exercises as Workout['exercises']) ?? [],
+                duration: w.duration ?? undefined,
+                completed: w.completed,
+                rating: w.rating ?? undefined,
+              }));
+            // Merge: keep localStorage active workouts, add any DB workouts not already present
+            const localIds = new Set(prev.workouts.map(w => w.id));
+            const newFromDB = dbMapped.filter(w => !localIds.has(w.id));
+            if (newFromDB.length > 0) {
+              next.workouts = [...prev.workouts, ...newFromDB];
+            }
+          }
+
+          // ── Gamification: DB snapshot wins over localStorage if more recent ──
+          if (dbGamification && dbGamification.xp >= prev.gamification.xp) {
+            next.gamification = {
+              ...prev.gamification,
+              xp: dbGamification.xp,
+              level: dbGamification.level,
+              streak: dbGamification.current_streak,
+              lastWorkoutDate: dbGamification.last_workout_date,
+              prs: (dbGamification.prs as PR[]) ?? prev.gamification.prs,
+              achievements: (dbGamification.achievements as Achievement[]) ?? prev.gamification.achievements,
+              stepsToday: prev.gamification.stepsToday,
+              stepDate: prev.gamification.stepDate,
+              totalSteps: Math.max(Number(dbGamification.total_steps), prev.gamification.totalSteps),
+              completedMissionIds: dbGamification.completed_mission_ids ?? prev.gamification.completedMissionIds,
+              streakFreezeUsed: dbGamification.streak_freeze_used ?? prev.gamification.streakFreezeUsed,
+            };
+          }
+
+          return next;
+        });
       } catch {
         setState(prev => ({ ...prev, isLoading: false }));
       }
@@ -424,7 +477,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date().toISOString(),
       };
 
-      return {
+      const nextState = {
         ...prev,
         currentPlan: prev.currentPlan.map(w => (w.id === id ? completed : w)),
         workouts: [...prev.workouts, completed],
@@ -452,6 +505,35 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
           history: [rpEntry, ...prev.seasonalRank.history].slice(0, 100),
         },
       };
+
+      // ── Cloud backup — fire and forget ──
+      upsertWorkout({
+        id: completed.id,
+        name: completed.name,
+        date: completed.date,
+        completed: true,
+        duration: completed.duration,
+        rating: completed.rating,
+        exercises: completed.exercises,
+      }).catch(e => console.error('upsertWorkout failed:', e));
+
+      syncGamification({
+        xp: newXP,
+        level: newLevel,
+        current_streak: streakResult.streak,
+        longest_streak: Math.max(streakResult.streak, prev.gamification.streak),
+        last_workout_date: today,
+        total_steps: prev.gamification.totalSteps,
+        prs: updatedPRs,
+        achievements: mergedAchievements,
+        completed_mission_ids: prev.gamification.completedMissionIds,
+        streak_freeze_used: streakResult.usedFreeze ? true : prev.gamification.streakFreezeUsed,
+      }).catch(e => console.error('syncGamification failed:', e));
+
+      upsertRank({ season_id: season.id, rp: newRP, tier: newTier, division: newDivision })
+        .catch(e => console.error('upsertRank failed:', e));
+
+      return nextState;
     });
   }, []);
 
