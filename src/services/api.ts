@@ -194,6 +194,17 @@ export async function addWeightLog(weight: number, date?: string): Promise<Weigh
   return data as WeightLogRow | null;
 }
 
+export async function editWeightLog(id: string, weight: number, date: string): Promise<WeightLogRow | null> {
+  const { data, error } = await supabase
+    .from('weight_logs')
+    .update({ weight, logged_at: date } as Record<string, unknown>)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as WeightLogRow | null;
+}
+
 export async function deleteWeightLog(id: string): Promise<void> {
   const { error } = await supabase.from('weight_logs').delete().eq('id', id);
   if (error) throw error;

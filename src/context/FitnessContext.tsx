@@ -56,7 +56,7 @@ interface FitnessContextType extends FitnessState {
   setStepsToday: (steps: number) => void;
   clearRecentPRs: () => void;
   getTotalVolume: () => number;
-  updateWeight: (weight: number, date?: string) => Promise<void>;
+  updateWeight: (weight: number, date?: string, idToEdit?: string | null) => Promise<void>;
   deleteWeightLog: (id: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
   getDailyMissions: () => DailyMission[];
@@ -344,20 +344,44 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const updateWeight = useCallback(async (weight: number, date?: string) => {
-    await addWeightLog(weight, date);
+  const updateWeight = useCallback(async (weight: number, date?: string, idToEdit?: string | null) => {
+    // Note: To avoid circular dependencies, use api.ts editWeightLog here directly.
+    const { editWeightLog } = await import('@/services/api');
+    
+    const isNew = !idToEdit;
+    if (idToEdit) {
+      await editWeightLog(idToEdit, weight, date || new Date().toISOString().split('T')[0]);
+    } else {
+      await addWeightLog(weight, date);
+    }
+    
     const logs = await fetchWeightLogs();
-    setState(prev => ({
-      ...prev,
-      profile: prev.profile ? { ...prev.profile, weight } : prev.profile,
-      weightLogs: logs,
-      gamification: {
-        ...prev.gamification,
-        xp: prev.gamification.xp + XP_LOG_STATS,
-        level: calculateLevel(prev.gamification.xp + XP_LOG_STATS),
-      },
-    }));
-    awardRP(RP.LOG_STATS, 'Logged body stats');
+    
+    setState(prev => {
+      // Only award XP/RP if we are creating a brand new log
+      if (isNew) {
+        awardRP(RP.LOG_STATS, 'Logged body stats');
+        return {
+          ...prev,
+          profile: prev.profile ? { ...prev.profile, weight } : prev.profile,
+          weightLogs: logs,
+          gamification: {
+            ...prev.gamification,
+            xp: prev.gamification.xp + XP_LOG_STATS,
+            level: calculateLevel(prev.gamification.xp + XP_LOG_STATS),
+          },
+        };
+      } else {
+        // If editing an existing log, just update the data, no XP/RP awarded
+        return {
+          ...prev,
+          profile: prev.profile && logs[0] && logs[0].id === idToEdit 
+             ? { ...prev.profile, weight: logs[0].weight } // Sync latest weight if the edited one is the newest
+             : prev.profile,
+          weightLogs: logs,
+        };
+      }
+    });
   }, [awardRP]);
 
   const deleteWeightLog = useCallback(async (id: string) => {

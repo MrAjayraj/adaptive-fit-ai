@@ -459,7 +459,7 @@ export default function Profile() {
       if (logWeight) toast.error('Please enter a valid weight.');
       return;
     }
-    await updateWeight(w, logDate);
+    await updateWeight(w, logDate, logIdToEdit);
     if (logBodyFat) {
       const bf = parseFloat(logBodyFat);
       if (bf > 0) saveField('bodyFat', bf);
@@ -469,7 +469,7 @@ export default function Profile() {
     setLogBodyFat('');
     setLogDate(new Date().toISOString().split('T')[0]);
     if (logIdToEdit) setLogIdToEdit(null);
-    toast.success('Measurement logged');
+    toast.success(logIdToEdit ? 'Measurement updated' : 'Measurement logged');
   };
 
   const editingFieldDef = editingField ? FIELD_DEFS.find(f => f.key === editingField) ?? null : null;
