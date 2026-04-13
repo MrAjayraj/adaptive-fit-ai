@@ -346,7 +346,7 @@ export async function upsertWorkout(workout: {
   const { userId } = await getIdentity();
   if (!userId) return;
   await supabase
-    .from('workouts' as never)
+    .from('workouts' as any)
     .upsert(
       {
         id: workout.id,
@@ -369,7 +369,7 @@ export async function fetchWorkouts(): Promise<WorkoutRow[]> {
   const { userId } = await getIdentity();
   if (!userId) return [];
   const { data, error } = await supabase
-    .from('workouts' as never)
+    .from('workouts' as any)
     .select('*')
     .eq('user_id', userId)
     .order('date', { ascending: false });
@@ -379,7 +379,7 @@ export async function fetchWorkouts(): Promise<WorkoutRow[]> {
 
 /** Delete a workout by ID. */
 export async function deleteWorkout(id: string): Promise<void> {
-  await supabase.from('workouts' as never).delete().eq('id', id);
+  await supabase.from('workouts' as any).delete().eq('id', id);
 }
 
 // ─── Gamification snapshot — cloud backup ──────────────────
@@ -402,7 +402,7 @@ export async function syncGamification(snap: GamificationSnapshot): Promise<void
   const { userId } = await getIdentity();
   if (!userId) return;
   await supabase
-    .from('user_gamification' as never)
+    .from('user_gamification' as any)
     .upsert(
       { user_id: userId, ...snap, updated_at: new Date().toISOString() } as Record<string, unknown>,
       { onConflict: 'user_id' }
@@ -414,7 +414,7 @@ export async function fetchGamification(): Promise<GamificationSnapshot | null> 
   const { userId } = await getIdentity();
   if (!userId) return null;
   const { data } = await supabase
-    .from('user_gamification' as never)
+    .from('user_gamification' as any)
     .select('*')
     .eq('user_id', userId)
     .maybeSingle();
@@ -435,7 +435,7 @@ export async function upsertRank(rank: Omit<RankRow, 'user_id'>): Promise<void> 
   const { userId } = await getIdentity();
   if (!userId) return;
   await supabase
-    .from('user_ranks' as never)
+    .from('user_ranks' as any)
     .upsert(
       { user_id: userId, ...rank, updated_at: new Date().toISOString() } as Record<string, unknown>,
       { onConflict: 'user_id,season_id' }
@@ -446,7 +446,7 @@ export async function fetchRank(seasonId: string): Promise<RankRow | null> {
   const { userId } = await getIdentity();
   if (!userId) return null;
   const { data } = await supabase
-    .from('user_ranks' as never)
+    .from('user_ranks' as any)
     .select('*')
     .eq('user_id', userId)
     .eq('season_id', seasonId)
@@ -466,7 +466,7 @@ export async function postActivity(payload: {
   const { userId } = await getIdentity();
   if (!userId) return;
   await supabase
-    .from('activity_feed' as never)
+    .from('activity_feed' as any)
     .insert({
       user_id: userId,
       activity_type: payload.activityType,
@@ -480,7 +480,7 @@ export async function postActivity(payload: {
 // ─── Data integrity check ───────────────────────────────────
 
 export async function runIntegrityCheck(userId: string): Promise<Record<string, unknown> | null> {
-  const { data, error } = await supabase.rpc('check_user_data_integrity', {
+  const { data, error } = await (supabase.rpc as any)('check_user_data_integrity', {
     target_user_id: userId,
   });
   if (error) { console.error('Integrity check error:', error); return null; }
