@@ -11,6 +11,7 @@ interface UseActivityFeedReturn {
   feed: ActivityFeedItem[];
   isLoading: boolean;
   hasMore: boolean;
+  error: string | null;
   loadMore: () => Promise<void>;
   postWorkoutActivity: (workout: Workout) => Promise<void>;
   toggleReaction: (activityId: string, reactionType: ReactionType) => Promise<void>;
@@ -24,6 +25,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
   const [feed, setFeed] = useState<ActivityFeedItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const pageRef = useRef(0);
 
   const fetchPage = useCallback(async (page: number): Promise<ActivityFeedItem[]> => {
@@ -32,7 +34,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    const { data: rows, error } = await db('activity_feed')
+    const { data: rows, error: fetchError } = await db('activity_feed')
       .select(
         '*, user_profile:user_profiles(user_id,name,username,avatar_url,rank_tier,rank_division,level), reactions:activity_reactions(*)'
       )
@@ -40,9 +42,13 @@ export function useActivityFeed(): UseActivityFeedReturn {
       .order('created_at', { ascending: false })
       .range(from, to);
 
-    if (error) {
-      console.error('[useActivityFeed] fetch error:', error);
-      return [];
+    if (fetchError) {
+      console.error('[useActivityFeed] fetch error:', fetchError);
+      // Surface a user-readable error
+      if (fetchError.code === '42P01') {
+        throw new Error('Social tables are not set up yet. Please run the database migration in Supabase.');
+      }
+      throw new Error(fetchError.message);
     }
 
     return ((rows ?? []) as Record<string, unknown>[]).map((row) => {
@@ -67,24 +73,38 @@ export function useActivityFeed(): UseActivityFeedReturn {
 
   const load = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
     pageRef.current = 0;
-    const items = await fetchPage(0);
-    setFeed(items);
-    setHasMore(items.length === PAGE_SIZE);
-    setIsLoading(false);
+    try {
+      const items = await fetchPage(0);
+      setFeed(items);
+      setHasMore(items.length === PAGE_SIZE);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load feed';
+      setError(msg);
+      setFeed([]);
+    } finally {
+      setIsLoading(false);
+    }
   }, [fetchPage]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoading) return;
     setIsLoading(true);
-    const nextPage = pageRef.current + 1;
-    const items = await fetchPage(nextPage);
-    if (items.length > 0) {
-      pageRef.current = nextPage;
-      setFeed((prev) => [...prev, ...items]);
+    try {
+      const nextPage = pageRef.current + 1;
+      const items = await fetchPage(nextPage);
+      if (items.length > 0) {
+        pageRef.current = nextPage;
+        setFeed((prev) => [...prev, ...items]);
+      }
+      setHasMore(items.length === PAGE_SIZE);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load more';
+      setError(msg);
+    } finally {
+      setIsLoading(false);
     }
-    setHasMore(items.length === PAGE_SIZE);
-    setIsLoading(false);
   }, [hasMore, isLoading, fetchPage]);
 
   useEffect(() => {
@@ -115,7 +135,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
       0
     );
 
-    const { error } = await db('activity_feed').insert({
+    const { error: insertError } = await db('activity_feed').insert({
       user_id: user.id,
       activity_type: 'workout_completed',
       title: `Completed ${workout.name}`,
@@ -129,14 +149,13 @@ export function useActivityFeed(): UseActivityFeedReturn {
       is_public: true,
     });
 
-    if (error) console.error('[useActivityFeed] postWorkoutActivity error:', error);
+    if (insertError) console.error('[useActivityFeed] postWorkoutActivity error:', insertError);
     else await load();
   }, [user, load]);
 
   const toggleReaction = useCallback(async (activityId: string, reactionType: ReactionType) => {
     if (!user) return;
 
-    // Check if this user already reacted with any type on this activity
     const { data: existing } = await db('activity_reactions')
       .select('id,reaction_type')
       .eq('activity_id', activityId)
@@ -144,11 +163,9 @@ export function useActivityFeed(): UseActivityFeedReturn {
       .maybeSingle();
 
     if (existing && existing.reaction_type === reactionType) {
-      // Toggle off — same reaction type clicked again
       await db('activity_reactions').delete().eq('id', existing.id);
     } else {
       if (existing) {
-        // Remove old reaction first, then insert new one
         await db('activity_reactions').delete().eq('id', existing.id);
       }
       await db('activity_reactions').insert({
@@ -161,5 +178,5 @@ export function useActivityFeed(): UseActivityFeedReturn {
     await load();
   }, [user, load]);
 
-  return { feed, isLoading, hasMore, loadMore, postWorkoutActivity, toggleReaction };
+  return { feed, isLoading, hasMore, error, loadMore, postWorkoutActivity, toggleReaction };
 }

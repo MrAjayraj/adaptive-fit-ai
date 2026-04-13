@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import type { ActivityFeedItem, ReactionType } from '@/types/social';
-import { Dumbbell, Flame, Trophy, Star, TrendingUp, Zap, Heart, Users } from 'lucide-react';
+import { Dumbbell, Flame, Trophy, Star, TrendingUp, Zap, Heart, Users, AlertCircle } from 'lucide-react';
 
 const REACTION_CONFIG: { type: ReactionType; emoji: string; label: string }[] = [
   { type: 'kudos', emoji: '👏', label: 'Kudos' },
@@ -136,7 +136,7 @@ function FeedCard({
 }
 
 export default function ActivityFeedView() {
-  const { feed, isLoading, hasMore, loadMore, toggleReaction } = useActivityFeed();
+  const { feed, isLoading, hasMore, error, loadMore, toggleReaction } = useActivityFeed();
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   const handleReact = useCallback(
@@ -166,6 +166,34 @@ export default function ActivityFeedView() {
         <div className="w-7 h-7 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
         <p className="text-[13px] text-text-3">Loading feed…</p>
       </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.3 }}
+        className="py-12 px-4 flex flex-col items-center gap-4 text-center"
+      >
+        <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+          <AlertCircle size={28} className="text-red-400" />
+        </div>
+        <div>
+          <p className="text-[17px] font-semibold text-text-1">Social Feed Unavailable</p>
+          <p className="text-[13px] text-text-2 mt-1 leading-relaxed max-w-xs">{error}</p>
+        </div>
+        {error.includes('migration') && (
+          <div className="bg-surface-1 border border-border rounded-[16px] p-4 text-left text-[12px] text-text-2 max-w-sm w-full">
+            <p className="font-semibold text-text-1 mb-2">📋 Action Required</p>
+            <p>Go to your <span className="text-primary font-semibold">Supabase Dashboard → SQL Editor</span> and run the migration file:</p>
+            <code className="block mt-2 bg-surface-2 rounded px-2 py-1 text-[11px] text-primary break-all">
+              supabase/migrations/20260413000000_workouts_integrity_social.sql
+            </code>
+          </div>
+        )}
+      </motion.div>
     );
   }
 

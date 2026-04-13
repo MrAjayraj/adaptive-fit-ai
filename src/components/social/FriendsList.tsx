@@ -1,6 +1,6 @@
 // src/components/social/FriendsList.tsx
 import React, { useState, useCallback } from 'react';
-import { Search, UserPlus, Check, X, Clock, UserMinus, Shield } from 'lucide-react';
+import { Search, UserPlus, Check, X, Clock, UserMinus, Shield, AlertCircle } from 'lucide-react';
 import { useFriends } from '@/hooks/useFriends';
 import type { UserProfileSummary, Friendship } from '@/types/social';
 import { toast } from 'sonner';
@@ -188,6 +188,7 @@ export default function FriendsList() {
     pendingIncoming,
     pendingOutgoing,
     isLoading,
+    error,
     sendRequest,
     acceptRequest,
     declinRequest,
@@ -195,6 +196,30 @@ export default function FriendsList() {
     blockUser,
     searchUsers,
   } = useFriends();
+
+  // ── Error state: DB tables missing or RLS issue ───────────────────────────
+  if (error) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-12 px-4 text-center">
+        <div className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center">
+          <AlertCircle size={28} className="text-red-400" />
+        </div>
+        <div>
+          <p className="text-[17px] font-semibold text-text-1">Friends Unavailable</p>
+          <p className="text-[13px] text-text-2 mt-1 leading-relaxed max-w-xs">{error}</p>
+        </div>
+        {error.includes('migration') && (
+          <div className="bg-surface-1 border border-border rounded-[16px] p-4 text-left text-[12px] text-text-2 max-w-sm w-full">
+            <p className="font-semibold text-text-1 mb-2">📋 Action Required</p>
+            <p>Go to your <span className="text-primary font-semibold">Supabase Dashboard → SQL Editor</span> and run:</p>
+            <code className="block mt-2 bg-surface-2 rounded px-2 py-1 text-[11px] text-primary break-all">
+              supabase/migrations/20260413000000_workouts_integrity_social.sql
+            </code>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const [query, setQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserProfileSummary[]>([]);
