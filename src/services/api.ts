@@ -40,6 +40,11 @@ export interface ProfileRow {
   workout_days: number[];
   onboarding_complete: boolean;
   avatar_url: string | null;
+  username: string | null;
+  bio: string | null;
+  is_profile_public: boolean;
+  show_in_feed: boolean;
+  last_split_index: number | null;
 }
 
 export async function fetchProfile(): Promise<ProfileRow | null> {
