@@ -178,7 +178,7 @@ export function useFriends(): UseFriendsReturn {
     if (!query.trim()) return [];
     const { data, error: searchError } = await db('user_profiles')
       .select('user_id,name,username,avatar_url,goal,level,rank_tier,rank_division')
-      .ilike('name', `%${query}%`)
+      .or(`name.ilike.%${query}%,username.ilike.%${query}%`)
       .limit(20);
     if (searchError) throw new Error(classifyError(searchError));
     return ((data ?? []) as UserProfileSummary[]).filter((p) => p.user_id !== user?.id);

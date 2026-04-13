@@ -38,6 +38,18 @@ interface FieldDef {
 
 const FIELD_DEFS: FieldDef[] = [
   {
+    key: 'username' as any,
+    label: 'Username',
+    type: 'text' as any,
+    dbKey: 'username',
+  },
+  {
+    key: 'name' as any,
+    label: 'Full Name',
+    type: 'text' as any,
+    dbKey: 'name',
+  },
+  {
     key: 'goalWeight',
     label: 'Goal Weight',
     type: 'number',
@@ -138,6 +150,13 @@ function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
         return;
       }
       onSave(field.key, val);
+    } else if (field.key === 'username') {
+      const u = String(val);
+      if (u && (u.length < 3 || u.length > 20)) {
+        toast.error('Username must be between 3 and 20 characters');
+        return;
+      }
+      onSave(field.key, u);
     } else {
       onSave(field.key, String(val));
     }
@@ -195,6 +214,26 @@ function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
               onChange={e => setVal(e.target.value)}
               className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50 text-center"
             />
+          </div>
+        ) : (field.type as any) === 'text' ? (
+          <div className="flex flex-col gap-4">
+            <input
+              type="text"
+              value={String(val)}
+              onChange={e => {
+                if (field.key === 'username') {
+                   // lowercase, alphanumeric + underscores only
+                   setVal(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
+                } else {
+                   setVal(e.target.value);
+                }
+              }}
+              placeholder={`Enter ${field.label}`}
+              className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
+            />
+            {field.key === 'username' && (
+              <p className="text-[12px] text-text-3">Username must be unique, lowercase, and contain only letters, numbers, and underscores (3-20 characters).</p>
+            )}
           </div>
         ) : field.type === 'multiselect-days' ? (
           <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
@@ -435,10 +474,9 @@ export default function Profile() {
   const editingFieldDef = editingField ? FIELD_DEFS.find(f => f.key === editingField) ?? null : null;
   const editingCurrentValue = editingField ? (profile as unknown as Record<string, unknown>)[editingField] as string | number | undefined : undefined;
 
-  // Tappable rows: label → display value → field key (null = not editable inline)
-  type DetailRow = { label: string; value: string; fieldKey: FieldKey | null };
   const DETAILS: DetailRow[] = [
-    { label: 'Full Name', value: profile.name || 'Not set', fieldKey: null },
+    { label: 'Username', value: profile.username ? `@${profile.username}` : 'Tap to set', fieldKey: 'username' as any },
+    { label: 'Full Name', value: profile.name || 'Not set', fieldKey: 'name' as any },
     { label: 'Age', value: `${profile.age} years`, fieldKey: null },
     { label: 'Sex', value: profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1), fieldKey: null },
     { label: 'Height', value: `${profile.height} cm`, fieldKey: null },
@@ -473,7 +511,7 @@ export default function Profile() {
     {
       label: 'Workout Days',
       value: profile.workoutDays?.length 
-        ? `${profile.workoutDays.length} days (${profile.workoutDays.map(d => DAYS_OF_WEEK[d].substring(0, 3)).join(', ')})` 
+        ? `${profile.workoutDays.length} days (${profile.workoutDays.map((d: number) => DAYS_OF_WEEK[d].substring(0, 3)).join(', ')})` 
         : 'Not set',
       fieldKey: 'workoutDays',
     },

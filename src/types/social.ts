@@ -77,6 +77,15 @@ export interface GroupMember {
   profile?: UserProfileSummary;
 }
 
+export interface GroupMessage {
+  id: string;
+  group_id: string;
+  user_id: string;
+  message: string;
+  created_at: string;
+  user_profile?: UserProfileSummary;
+}
+
 export interface SharedWorkoutCard {
   id: string;
   user_id: string;

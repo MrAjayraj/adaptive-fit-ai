@@ -158,11 +158,14 @@ function GroupCard({ group }: { group: Group }) {
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
+import GroupChatView from './GroupChatView';
+
 export default function GroupsView() {
-  const { myGroups, isLoading, joinByInviteCode } = useGroups();
+  const { myGroups, isLoading, joinByInviteCode, leaveGroup } = useGroups();
   const [showCreate, setShowCreate] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [joining, setJoining] = useState(false);
+  const [activeGroup, setActiveGroup] = useState<Group | null>(null);
 
   async function handleJoin() {
     if (!inviteCode.trim()) return;
@@ -176,6 +179,21 @@ export default function GroupsView() {
     } finally {
       setJoining(false);
     }
+  }
+
+  if (activeGroup) {
+    return (
+      <GroupChatView
+        group={activeGroup}
+        onBack={() => setActiveGroup(null)}
+        onLeave={async () => {
+          if (window.confirm(`Leave group "${activeGroup.name}"?`)) {
+            await leaveGroup(activeGroup.id);
+            setActiveGroup(null);
+          }
+        }}
+      />
+    );
   }
 
   return (
@@ -226,7 +244,13 @@ export default function GroupsView() {
       ) : (
         <div className="space-y-3">
           {myGroups.map((group) => (
-            <GroupCard key={group.id} group={group} />
+             <button
+               key={group.id}
+               className="w-full text-left bg-transparent border-none p-0 outline-none block"
+               onClick={() => setActiveGroup(group)}
+             >
+              <GroupCard group={group} />
+            </button>
           ))}
         </div>
       )}

@@ -280,6 +280,7 @@ CREATE POLICY "Users remove own reactions" ON activity_reactions FOR DELETE  USI
 -- SECTION 9: SOCIAL LAYER — GROUPS / SQUADS
 -- ============================================================
 
+-- Both tables must exist before policies that cross-reference each other
 CREATE TABLE IF NOT EXISTS groups (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name        text NOT NULL,
@@ -291,8 +292,6 @@ CREATE TABLE IF NOT EXISTS groups (
   max_members integer DEFAULT 50,
   created_at  timestamptz DEFAULT now()
 );
-
-ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE IF NOT EXISTS group_members (
   id        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -306,16 +305,20 @@ CREATE TABLE IF NOT EXISTS group_members (
 CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_members_user  ON group_members(user_id);
 
+-- Enable RLS on both before creating policies (policies may reference each other's tables)
+ALTER TABLE groups        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE group_members ENABLE ROW LEVEL SECURITY;
 
+-- Policies on groups — "See groups" references group_members so group_members must exist first
 CREATE POLICY "See groups" ON groups FOR SELECT USING (
   is_public = true
   OR created_by = auth.uid()
   OR EXISTS (SELECT 1 FROM group_members WHERE group_id = groups.id AND user_id = auth.uid())
 );
-CREATE POLICY "Create groups"    ON groups FOR INSERT WITH CHECK (auth.uid() = created_by);
+CREATE POLICY "Create groups"     ON groups FOR INSERT WITH CHECK (auth.uid() = created_by);
 CREATE POLICY "Update own groups" ON groups FOR UPDATE USING (auth.uid() = created_by);
 
+-- Policies on group_members
 CREATE POLICY "See group members" ON group_members FOR SELECT USING (
   user_id = auth.uid()
   OR EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = group_members.group_id AND gm.user_id = auth.uid())

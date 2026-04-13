@@ -209,12 +209,8 @@ export default function ActivityFeedView() {
           <Users size={28} className="text-primary" />
         </div>
         <div>
-          <p className="text-[17px] font-semibold text-text-1">Nothing here yet</p>
-          <p className="text-[14px] text-text-2 mt-1">Follow friends to see their activity</p>
-        </div>
-        <div className="flex items-center gap-2 text-[13px] text-text-3">
-          <Heart size={13} className="text-primary" />
-          <span>Complete a workout to share your progress</span>
+          <p className="text-[17px] font-semibold text-text-1">No activity yet</p>
+          <p className="text-[14px] text-text-2 mt-1">Complete a workout or add friends to see updates here.</p>
         </div>
       </motion.div>
     );
