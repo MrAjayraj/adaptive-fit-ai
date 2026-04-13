@@ -27,6 +27,9 @@ export function useActivityFeed(): UseActivityFeedReturn {
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageRef = useRef(0);
+  // Stable ref to load() so the realtime subscription effect never needs
+  // load in its dependency array (which would re-subscribe on every render).
+  const loadRef = useRef(load);
 
   const fetchPage = useCallback(async (page: number): Promise<ActivityFeedItem[]> => {
     if (!user) return [];
@@ -107,6 +110,9 @@ export function useActivityFeed(): UseActivityFeedReturn {
     }
   }, [hasMore, isLoading, fetchPage]);
 
+  // Keep loadRef current so the subscription callback always calls the latest load()
+  useEffect(() => { loadRef.current = load; }, [load]);
+
   useEffect(() => {
     load();
   }, [load]);
@@ -114,18 +120,23 @@ export function useActivityFeed(): UseActivityFeedReturn {
   useEffect(() => {
     if (!user) return;
 
+    // User-scoped channel name prevents collisions when the effect re-runs
+    // (e.g. React StrictMode double-mount) or across multiple hook instances.
+    const channelName = `activity-feed:${user.id}`;
+
     const channel = supabase
-      .channel('activity-feed-realtime')
+      .channel(channelName)
       .on('postgres_changes' as never, { event: 'INSERT', schema: 'public', table: 'activity_feed' }, () => {
-        load();
+        loadRef.current();
       })
       .on('postgres_changes' as never, { event: '*', schema: 'public', table: 'activity_reactions' }, () => {
-        load();
+        loadRef.current();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user, load]);
+    // Only re-subscribe when the user changes — NOT when load changes.
+  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const postWorkoutActivity = useCallback(async (workout: Workout) => {
     if (!user) return;

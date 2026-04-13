@@ -122,17 +122,17 @@ export function useFriends(): UseFriendsReturn {
     load();
   }, [load]);
 
+  // Refetch on window focus — friendships don't need sub-second latency,
+  // and removing realtime here eliminates the duplicate-channel error entirely.
   useEffect(() => {
-    if (!user) return;
-
-    const channel = supabase
-      .channel('friendships-realtime')
-      .on('postgres_changes' as never, { event: '*', schema: 'public', table: 'friendships' }, () => {
-        load();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
+    const handleFocus = () => { if (user) load(); };
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && user) load();
+    });
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+    };
   }, [user, load]);
 
   const sendRequest = useCallback(async (addresseeId: string) => {
