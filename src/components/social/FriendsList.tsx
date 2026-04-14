@@ -221,7 +221,7 @@ export default function FriendsList() {
     [searchUsers]
   );
 
-  // ── Error state: DB tables missing or RLS issue ───────────────────────────
+  // ── Error state ───────────────────────────────────────────────────────────
   if (error) {
     return (
       <div className="flex flex-col items-center gap-4 py-12 px-4 text-center">
@@ -232,15 +232,6 @@ export default function FriendsList() {
           <p className="text-[17px] font-semibold text-text-1">Friends Unavailable</p>
           <p className="text-[13px] text-text-2 mt-1 leading-relaxed max-w-xs">{error}</p>
         </div>
-        {error.includes('migration') && (
-          <div className="bg-surface-1 border border-border rounded-[16px] p-4 text-left text-[12px] text-text-2 max-w-sm w-full">
-            <p className="font-semibold text-text-1 mb-2">📋 Action Required</p>
-            <p>Go to your <span className="text-primary font-semibold">Supabase Dashboard → SQL Editor</span> and run:</p>
-            <code className="block mt-2 bg-surface-2 rounded px-2 py-1 text-[11px] text-primary break-all">
-              supabase/migrations/20260413000000_workouts_integrity_social.sql
-            </code>
-          </div>
-        )}
       </div>
     );
   }

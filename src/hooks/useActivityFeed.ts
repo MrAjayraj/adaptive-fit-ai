@@ -35,9 +35,9 @@ export function useActivityFeed(): UseActivityFeedReturn {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
 
-    // ── STEP 1: fetch activity_feed rows + reactions (no user_profiles join) ──
+    // ── STEP 1: fetch activity_feed rows (no embedded joins at all) ──────────
     const { data: rows, error: fetchError } = await db('activity_feed')
-      .select('*, reactions:activity_reactions(*)')
+      .select('id,user_id,activity_type,title,description,metadata,is_public,created_at')
       .eq('is_public', true)
       .order('created_at', { ascending: false })
       .range(from, to);
@@ -48,11 +48,29 @@ export function useActivityFeed(): UseActivityFeedReturn {
     }
 
     const rawRows = (rows ?? []) as Array<Record<string, unknown>>;
+    if (rawRows.length === 0) return [];
 
-    // ── STEP 2: collect unique poster user_ids ─────────────────────────────
+    const feedIds = rawRows.map((r) => r.id as string);
+
+    // ── STEP 2: fetch reactions for these feed items ───────────────────────
+    const { data: reactionRows, error: reactionErr } = await db('activity_reactions')
+      .select('id,activity_id,user_id,reaction_type,created_at')
+      .in('activity_id', feedIds);
+
+    if (reactionErr) {
+      console.error('[useActivityFeed] reactions fetch error:', reactionErr);
+    }
+
+    const allReactions = (reactionRows ?? []) as ActivityFeedItem['reactions'];
+    const reactionsByFeedId = new Map<string, ActivityFeedItem['reactions']>();
+    for (const r of (allReactions ?? [])) {
+      const list = reactionsByFeedId.get(r.activity_id) ?? [];
+      list.push(r);
+      reactionsByFeedId.set(r.activity_id, list);
+    }
+
+    // ── STEP 3: bulk-fetch profiles ────────────────────────────────────────
     const posterIds = [...new Set(rawRows.map((r) => r.user_id as string))];
-
-    // ── STEP 3: bulk-fetch profiles in one query ───────────────────────────
     let profileMap = new Map<string, ActivityFeedItem['user_profile']>();
     if (posterIds.length > 0) {
       const { data: profiles, error: profileErr } = await db('user_profiles')
@@ -61,7 +79,6 @@ export function useActivityFeed(): UseActivityFeedReturn {
 
       if (profileErr) {
         console.error('[useActivityFeed] profile fetch error:', profileErr);
-        // Non-fatal — feed still renders without avatars
       } else {
         for (const p of (profiles ?? []) as Array<ActivityFeedItem['user_profile']>) {
           if (p) profileMap.set((p as { user_id: string }).user_id, p);
@@ -71,7 +88,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
 
     // ── STEP 4: merge ──────────────────────────────────────────────────────
     return rawRows.map((row) => {
-      const reactions = (row.reactions as ActivityFeedItem['reactions']) ?? [];
+      const reactions = reactionsByFeedId.get(row.id as string) ?? [];
       const userReaction = reactions?.find((r) => r.user_id === user.id);
       return {
         id: row.id as string,
