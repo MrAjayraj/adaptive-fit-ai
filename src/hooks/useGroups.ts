@@ -79,17 +79,29 @@ export function useGroups(): UseGroupsReturn {
     console.log('[useGroups] Creating group with payload:', payload);
     console.log('[useGroups] User ID:', user.id);
 
-    const { data: groupData, error: groupErr } = await supabase
+    // Step 1: insert only — no .select() to avoid SELECT policy evaluation on the same call
+    const { error: groupErr } = await supabase
       .from('groups' as never)
-      .insert(payload as never)
-      .select('*')
-      .single() as unknown as { data: Group | null; error: { code: string; message: string; details: string; hint: string } | null };
+      .insert(payload as never) as unknown as { error: { code: string; message: string; details: string; hint: string } | null };
 
     if (groupErr) {
       console.error('[useGroups] createGroup error:', JSON.stringify(groupErr));
       throw new Error(groupErr.message || groupErr.details || JSON.stringify(groupErr));
     }
-    if (!groupData) throw new Error('No group returned');
+
+    // Step 2: fetch the newly created group back
+    const { data: groupData, error: fetchErr } = await supabase
+      .from('groups' as never)
+      .select('*')
+      .eq('created_by' as never, user.id)
+      .order('created_at' as never, { ascending: false })
+      .limit(1)
+      .single() as unknown as { data: Group | null; error: { code: string; message: string } | null };
+
+    if (fetchErr || !groupData) {
+      console.error('[useGroups] createGroup fetch error:', JSON.stringify(fetchErr));
+      throw new Error(fetchErr?.message || 'Group created but could not fetch it');
+    }
 
     const { error: memberErr } = await db('group_members').insert({
       group_id: groupData.id,
