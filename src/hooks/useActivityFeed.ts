@@ -4,6 +4,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 import type { ActivityFeedItem, ReactionType } from '@/types/social';
 import type { Workout } from '@/types/fitness';
+import { fetchFeedPage, postActivity, toggleReaction as svcToggleReaction } from '@/services/socialService';
 
 const PAGE_SIZE = 20;
 
@@ -17,9 +18,6 @@ interface UseActivityFeedReturn {
   toggleReaction: (activityId: string, reactionType: ReactionType) => Promise<void>;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = (table: string) => supabase.from(table as never) as any;
-
 export function useActivityFeed(): UseActivityFeedReturn {
   const { user } = useAuth();
   const [feed, setFeed] = useState<ActivityFeedItem[]>([]);
@@ -29,128 +27,51 @@ export function useActivityFeed(): UseActivityFeedReturn {
   const pageRef = useRef(0);
   const loadRef = useRef<(() => Promise<void>) | null>(null);
 
-  const fetchPage = useCallback(async (page: number): Promise<ActivityFeedItem[]> => {
-    if (!user) return [];
-
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    // ── STEP 1: fetch activity_feed rows (no embedded joins at all) ──────────
-    const { data: rows, error: fetchError } = await db('activity_feed')
-      .select('id,user_id,activity_type,title,description,metadata,is_public,created_at')
-      .eq('is_public', true)
-      .order('created_at', { ascending: false })
-      .range(from, to);
-
-    if (fetchError) {
-      console.error('[useActivityFeed] fetch error:', fetchError);
-      throw new Error(`[${fetchError.code ?? 'ERR'}] ${fetchError.message}`);
-    }
-
-    const rawRows = (rows ?? []) as Array<Record<string, unknown>>;
-    if (rawRows.length === 0) return [];
-
-    const feedIds = rawRows.map((r) => r.id as string);
-
-    // ── STEP 2: fetch reactions for these feed items ───────────────────────
-    const { data: reactionRows, error: reactionErr } = await db('activity_reactions')
-      .select('id,activity_id,user_id,reaction_type,created_at')
-      .in('activity_id', feedIds);
-
-    if (reactionErr) {
-      console.error('[useActivityFeed] reactions fetch error:', reactionErr);
-    }
-
-    const allReactions = (reactionRows ?? []) as ActivityFeedItem['reactions'];
-    const reactionsByFeedId = new Map<string, ActivityFeedItem['reactions']>();
-    for (const r of (allReactions ?? [])) {
-      const list = reactionsByFeedId.get(r.activity_id) ?? [];
-      list.push(r);
-      reactionsByFeedId.set(r.activity_id, list);
-    }
-
-    // ── STEP 3: bulk-fetch profiles ────────────────────────────────────────
-    const posterIds = [...new Set(rawRows.map((r) => r.user_id as string))];
-    let profileMap = new Map<string, ActivityFeedItem['user_profile']>();
-    if (posterIds.length > 0) {
-      const { data: profiles, error: profileErr } = await db('user_profiles')
-        .select('user_id,name,username,avatar_url,rank_tier,rank_division,level')
-        .in('user_id', posterIds);
-
-      if (profileErr) {
-        console.error('[useActivityFeed] profile fetch error:', profileErr);
-      } else {
-        for (const p of (profiles ?? []) as Array<ActivityFeedItem['user_profile']>) {
-          if (p) profileMap.set((p as { user_id: string }).user_id, p);
-        }
-      }
-    }
-
-    // ── STEP 4: merge ──────────────────────────────────────────────────────
-    return rawRows.map((row) => {
-      const reactions = reactionsByFeedId.get(row.id as string) ?? [];
-      const userReaction = reactions?.find((r) => r.user_id === user.id);
-      return {
-        id: row.id as string,
-        user_id: row.user_id as string,
-        activity_type: row.activity_type as ActivityFeedItem['activity_type'],
-        title: row.title as string,
-        description: (row.description as string | null) ?? null,
-        metadata: (row.metadata ?? {}) as Record<string, unknown>,
-        is_public: row.is_public as boolean,
-        created_at: row.created_at as string,
-        user_profile: profileMap.get(row.user_id as string),
-        reactions,
-        reaction_count: reactions?.length ?? 0,
-        user_has_reacted: !!userReaction,
-      };
-    });
-  }, [user]);
-
   const load = useCallback(async () => {
+    if (!user) return;
     setIsLoading(true);
     setError(null);
     pageRef.current = 0;
     try {
-      const items = await fetchPage(0);
+      const items = await fetchFeedPage(user.id, 0);
       setFeed(items);
       setHasMore(items.length === PAGE_SIZE);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load feed';
+      console.error('[useActivityFeed] load error:', msg);
       setError(msg);
       setFeed([]);
     } finally {
       setIsLoading(false);
     }
-  }, [fetchPage]);
+  }, [user]);
 
   const loadMore = useCallback(async () => {
-    if (!hasMore || isLoading) return;
+    if (!hasMore || isLoading || !user) return;
     setIsLoading(true);
     try {
       const nextPage = pageRef.current + 1;
-      const items = await fetchPage(nextPage);
+      const items = await fetchFeedPage(user.id, nextPage);
       if (items.length > 0) {
         pageRef.current = nextPage;
         setFeed((prev) => [...prev, ...items]);
       }
       setHasMore(items.length === PAGE_SIZE);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to load more';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'Failed to load more');
     } finally {
       setIsLoading(false);
     }
-  }, [hasMore, isLoading, fetchPage]);
+  }, [hasMore, isLoading, user]);
 
   useEffect(() => { loadRef.current = load; }, [load]);
   useEffect(() => { load(); }, [load]);
 
+  // Realtime subscription for new feed items
   useEffect(() => {
     if (!user) return;
-    const channelName = `activity-feed:${user.id}`;
     const channel = supabase
-      .channel(channelName)
+      .channel(`activity-feed:${user.id}`)
       .on('postgres_changes' as never, { event: 'INSERT', schema: 'public', table: 'activity_feed' }, () => {
         loadRef.current?.();
       })
@@ -159,7 +80,7 @@ export function useActivityFeed(): UseActivityFeedReturn {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const postWorkoutActivity = useCallback(async (workout: Workout) => {
     if (!user) return;
@@ -167,41 +88,24 @@ export function useActivityFeed(): UseActivityFeedReturn {
       (acc, ex) => acc + ex.sets.reduce((s, set) => s + (set.completed ? set.weight * set.reps : 0), 0),
       0
     );
-    const { error: insertError } = await db('activity_feed').insert({
-      user_id: user.id,
-      activity_type: 'workout_completed',
-      title: `Completed ${workout.name}`,
-      description: `${workout.exercises.length} exercises · ${Math.round(workout.duration ?? 0)} min · ${Math.round(totalVolume)} kg total volume`,
-      metadata: {
+    await postActivity(
+      user.id,
+      'workout_completed',
+      `Completed ${workout.name}`,
+      `${workout.exercises.length} exercises · ${Math.round(workout.duration ?? 0)} min · ${Math.round(totalVolume)} kg total volume`,
+      {
         workout_id: workout.id,
         exercise_count: workout.exercises.length,
         duration_min: workout.duration ?? 0,
         total_volume: totalVolume,
-      },
-      is_public: true,
-    });
-    if (insertError) console.error('[useActivityFeed] postWorkoutActivity error:', insertError);
-    else await load();
+      }
+    );
+    await load();
   }, [user, load]);
 
   const toggleReaction = useCallback(async (activityId: string, reactionType: ReactionType) => {
     if (!user) return;
-    const { data: existing } = await db('activity_reactions')
-      .select('id,reaction_type')
-      .eq('activity_id', activityId)
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (existing && existing.reaction_type === reactionType) {
-      await db('activity_reactions').delete().eq('id', existing.id);
-    } else {
-      if (existing) await db('activity_reactions').delete().eq('id', existing.id);
-      await db('activity_reactions').insert({
-        activity_id: activityId,
-        user_id: user.id,
-        reaction_type: reactionType,
-      });
-    }
+    await svcToggleReaction(user.id, activityId, reactionType);
     await load();
   }, [user, load]);
 

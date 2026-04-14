@@ -76,28 +76,31 @@ function PendingIncomingRow({
   onDecline: (id: string) => void;
 }) {
   const p = friendship.friend_profile;
-  if (!p) return null;
+  const name = p?.name ?? 'Unknown User';
+  const username = p?.username;
+  const avatar = p?.avatar_url ?? null;
   return (
     <div className="flex items-center gap-3 py-3 px-1">
-      <Avatar src={p.avatar_url} name={p.name} />
+      <Avatar src={avatar} name={name} size={44} />
       <div className="flex-1 min-w-0">
-        <p className="text-[15px] font-medium text-text-1 truncate">{p.name}</p>
-        {p.username && <p className="text-[13px] text-text-2 truncate">@{p.username}</p>}
+        <p className="text-[15px] font-semibold text-text-1 truncate">{name}</p>
+        {username && <p className="text-[12px] text-text-2 truncate">@{username}</p>}
+        <p className="text-[11px] text-text-3 mt-0.5">Wants to be your friend</p>
       </div>
       <div className="flex gap-2">
         <button
           onClick={() => onAccept(friendship.id)}
-          className="p-2 rounded-[10px] bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-[10px] bg-[#00E676] text-[#06090D] text-[13px] font-bold hover:bg-[#00E676]/90 transition-colors"
           title="Accept"
         >
-          <Check size={15} />
+          <Check size={13} /> Accept
         </button>
         <button
           onClick={() => onDecline(friendship.id)}
-          className="p-2 rounded-[10px] bg-red-400/10 text-red-400 hover:bg-red-400/20 transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-[10px] border border-red-400/40 text-red-400 text-[13px] font-semibold hover:bg-red-400/10 transition-colors"
           title="Decline"
         >
-          <X size={15} />
+          <X size={13} /> Decline
         </button>
       </div>
     </div>
@@ -301,11 +304,11 @@ export default function FriendsList() {
         </div>
       )}
 
-      {/* Incoming requests */}
+      {/* Incoming requests — shown prominently above friends list */}
       {pendingIncoming.length > 0 && (
-        <>
-          <SectionHeader title="Requests" count={pendingIncoming.length} />
-          <div className="divide-y divide-border-subtle">
+        <div className="mt-3 mb-1 rounded-[16px] border border-[#00E676]/20 bg-[#00E676]/5 px-3 pb-1">
+          <SectionHeader title={`Pending Requests`} count={pendingIncoming.length} />
+          <div className="divide-y divide-border-subtle/50">
             {pendingIncoming.map((f) => (
               <PendingIncomingRow
                 key={f.id}
@@ -315,7 +318,7 @@ export default function FriendsList() {
               />
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {/* Outgoing requests */}

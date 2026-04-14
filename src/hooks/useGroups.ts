@@ -1,75 +1,49 @@
 // src/hooks/useGroups.ts
 import { useState, useEffect, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 import type { Group, GroupMember } from '@/types/social';
+import {
+  fetchMyGroups,
+  createGroup as svcCreateGroup,
+  joinGroupByCode,
+  leaveGroup as svcLeaveGroup,
+  fetchGroupMembers,
+} from '@/services/socialService';
 
 interface UseGroupsReturn {
   myGroups: Group[];
   isLoading: boolean;
+  error: string | null;
   createGroup: (name: string, description: string, isPublic: boolean) => Promise<Group>;
   joinByInviteCode: (code: string) => Promise<void>;
   leaveGroup: (groupId: string) => Promise<void>;
   getGroupMembers: (groupId: string) => Promise<GroupMember[]>;
+  refresh: () => Promise<void>;
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const db = (table: string) => supabase.from(table as never) as any;
-
 
 export function useGroups(): UseGroupsReturn {
   const { user } = useAuth();
   const [myGroups, setMyGroups] = useState<Group[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!user) return;
     setIsLoading(true);
-
+    setError(null);
     try {
-      const { data: memberRows, error: memberErr } = await db('group_members')
-        .select('group_id')
-        .eq('user_id', user.id);
-
-      console.log('[useGroups] load — memberRows:', memberRows, 'error:', memberErr);
-      if (memberErr) throw memberErr;
-
-      const groupIds: string[] = ((memberRows ?? []) as { group_id: string }[]).map((r) => r.group_id);
-      console.log('[useGroups] load — groupIds:', groupIds);
-
-      if (groupIds.length === 0) {
-        setMyGroups([]);
-        return;
-      }
-
-      const { data: groups, error: groupsErr } = await db('groups')
-        .select('*')
-        .in('id', groupIds);
-
-      console.log('[useGroups] load — groups:', groups, 'error:', groupsErr);
-      if (groupsErr) throw groupsErr;
-
-      // Enrich with member_count and is_member flag
-      const enriched = await Promise.all(
-        ((groups ?? []) as Group[]).map(async (group) => {
-          const { count } = await db('group_members')
-            .select('id', { count: 'exact', head: true })
-            .eq('group_id', group.id);
-          return { ...group, member_count: count ?? 0, is_member: true };
-        })
-      );
-
-      setMyGroups(enriched);
+      const groups = await fetchMyGroups(user.id);
+      setMyGroups(groups);
     } catch (err) {
-      console.error('[useGroups] load error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[useGroups] load error:', msg);
+      setError(msg);
     } finally {
       setIsLoading(false);
     }
   }, [user]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const createGroup = useCallback(async (
     name: string,
@@ -77,119 +51,36 @@ export function useGroups(): UseGroupsReturn {
     isPublic: boolean
   ): Promise<Group> => {
     if (!user) throw new Error('Not authenticated');
-
-    const payload = { name, description, is_public: isPublic, created_by: user.id };
-    console.log('[useGroups] Creating group with payload:', payload);
-    console.log('[useGroups] User ID:', user.id);
-
-    // Step 1: insert only — no .select() to avoid SELECT policy evaluation on the same call
-    const { error: groupErr } = await supabase
-      .from('groups' as never)
-      .insert(payload as never) as unknown as { error: { code: string; message: string; details: string; hint: string } | null };
-
-    if (groupErr) {
-      console.error('[useGroups] createGroup error:', JSON.stringify(groupErr));
-      throw new Error(groupErr.message || groupErr.details || JSON.stringify(groupErr));
-    }
-
-    // Step 2: fetch the newly created group back
-    const { data: groupData, error: fetchErr } = await supabase
-      .from('groups' as never)
-      .select('*')
-      .eq('created_by' as never, user.id)
-      .order('created_at' as never, { ascending: false })
-      .limit(1)
-      .single() as unknown as { data: Group | null; error: { code: string; message: string } | null };
-
-    if (fetchErr || !groupData) {
-      console.error('[useGroups] createGroup fetch error:', JSON.stringify(fetchErr));
-      throw new Error(fetchErr?.message || 'Group created but could not fetch it');
-    }
-
-    const { error: memberErr } = await db('group_members').insert({
-      group_id: groupData.id,
-      user_id: user.id,
-      role: 'owner',
-    });
-
-    if (memberErr) {
-      console.error('[useGroups] createGroup member insert error:', JSON.stringify(memberErr));
-      throw new Error((memberErr as { message?: string }).message || JSON.stringify(memberErr));
-    }
-
+    const group = await svcCreateGroup(user.id, name, description, isPublic);
+    // Reload immediately so the new group appears
     await load();
-    return groupData as Group;
+    return group;
   }, [user, load]);
 
   const joinByInviteCode = useCallback(async (code: string) => {
     if (!user) return;
-
-    const { data: group, error: findErr } = await db('groups')
-      .select('*')
-      .eq('invite_code', code.toUpperCase().trim())
-      .single();
-
-    if (findErr || !group) throw new Error('Invalid invite code');
-
-    const { error: memberErr } = await db('group_members').insert({
-      group_id: (group as Group).id,
-      user_id: user.id,
-      role: 'member',
-    });
-
-    if (memberErr) throw memberErr;
+    await joinGroupByCode(user.id, code);
     await load();
   }, [user, load]);
 
   const leaveGroup = useCallback(async (groupId: string) => {
     if (!user) return;
-    const { error } = await db('group_members').delete().eq('group_id', groupId).eq('user_id', user.id);
-    if (error) throw error;
+    await svcLeaveGroup(user.id, groupId);
     await load();
   }, [user, load]);
 
   const getGroupMembers = useCallback(async (groupId: string): Promise<GroupMember[]> => {
-    // STEP 1: fetch raw member rows (no embedded join)
-    const { data: memberRows, error } = await db('group_members')
-      .select('id,group_id,user_id,role,joined_at')
-      .eq('group_id', groupId);
-
-    if (error) throw error;
-
-    const rawMembers = (memberRows ?? []) as Array<{
-      id: string;
-      group_id: string;
-      user_id: string;
-      role: GroupMember['role'];
-      joined_at: string;
-    }>;
-
-    // STEP 2: collect user_ids and bulk-fetch profiles
-    const userIds = rawMembers.map((m) => m.user_id);
-    let profileMap = new Map<string, GroupMember['profile']>();
-    if (userIds.length > 0) {
-      const { data: profiles, error: profileErr } = await db('user_profiles')
-        .select('user_id,name,username,avatar_url,rank_tier,rank_division,level')
-        .in('user_id', userIds);
-      if (profileErr) {
-        console.error('[useGroups] getGroupMembers profile fetch error:', profileErr);
-      } else {
-        for (const p of (profiles ?? []) as Array<GroupMember['profile']>) {
-          if (p) profileMap.set((p as { user_id: string }).user_id, p);
-        }
-      }
-    }
-
-    // STEP 3: merge
-    return rawMembers.map((row) => ({
-      id: row.id,
-      group_id: row.group_id,
-      user_id: row.user_id,
-      role: row.role,
-      joined_at: row.joined_at,
-      profile: profileMap.get(row.user_id),
-    }));
+    return fetchGroupMembers(groupId);
   }, []);
 
-  return { myGroups, isLoading, createGroup, joinByInviteCode, leaveGroup, getGroupMembers };
+  return {
+    myGroups,
+    isLoading,
+    error,
+    createGroup,
+    joinByInviteCode,
+    leaveGroup,
+    getGroupMembers,
+    refresh: load,
+  };
 }
