@@ -75,19 +75,19 @@ export function useGroups(): UseGroupsReturn {
   ): Promise<Group> => {
     if (!user) throw new Error('Not authenticated');
 
-    const { data: groupData, error: groupErr } = await db('groups')
-      .insert({
-        name,
-        description,
-        is_public: isPublic,
-        created_by: user.id,
-      })
+    const payload = { name, description, is_public: isPublic, created_by: user.id };
+    console.log('[useGroups] Creating group with payload:', payload);
+    console.log('[useGroups] User ID:', user.id);
+
+    const { data: groupData, error: groupErr } = await supabase
+      .from('groups' as never)
+      .insert(payload as never)
       .select('*')
-      .single();
+      .single() as unknown as { data: Group | null; error: { code: string; message: string; details: string; hint: string } | null };
 
     if (groupErr) {
-      console.error('[useGroups] createGroup error:', groupErr);
-      throw groupErr;
+      console.error('[useGroups] createGroup error:', JSON.stringify(groupErr));
+      throw new Error(groupErr.message || groupErr.details || JSON.stringify(groupErr));
     }
     if (!groupData) throw new Error('No group returned');
 
@@ -98,8 +98,8 @@ export function useGroups(): UseGroupsReturn {
     });
 
     if (memberErr) {
-      console.error('[useGroups] createGroup member insert error:', memberErr);
-      throw memberErr;
+      console.error('[useGroups] createGroup member insert error:', JSON.stringify(memberErr));
+      throw new Error((memberErr as { message?: string }).message || JSON.stringify(memberErr));
     }
 
     await load();
