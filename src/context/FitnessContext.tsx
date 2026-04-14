@@ -188,6 +188,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
             const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
             next.profile = {
               name: dbProfile.name,
+              username: dbProfile.username ?? undefined,
               age: dbProfile.age,
               gender: dbProfile.gender as UserProfile['gender'],
               weight: latestWeight ?? 70,
@@ -262,6 +263,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       const latestWeight = logs.length > 0 ? Number(logs[0].weight) : null;
       const profile: UserProfile = {
         name: dbProfile.name,
+        username: dbProfile.username ?? undefined,
         age: dbProfile.age,
         gender: dbProfile.gender as UserProfile['gender'],
         weight: latestWeight ?? 70,

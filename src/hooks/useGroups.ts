@@ -16,9 +16,6 @@ interface UseGroupsReturn {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = (table: string) => supabase.from(table as never) as any;
 
-function generateInviteCode(): string {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
-}
 
 export function useGroups(): UseGroupsReturn {
   const { user } = useAuth();
@@ -78,21 +75,20 @@ export function useGroups(): UseGroupsReturn {
   ): Promise<Group> => {
     if (!user) throw new Error('Not authenticated');
 
-    const inviteCode = generateInviteCode();
-
     const { data: groupData, error: groupErr } = await db('groups')
       .insert({
         name,
         description,
         is_public: isPublic,
-        invite_code: inviteCode,
         created_by: user.id,
-        max_members: 50,
       })
       .select('*')
       .single();
 
-    if (groupErr) throw groupErr;
+    if (groupErr) {
+      console.error('[useGroups] createGroup error:', groupErr);
+      throw groupErr;
+    }
     if (!groupData) throw new Error('No group returned');
 
     const { error: memberErr } = await db('group_members').insert({
@@ -101,7 +97,10 @@ export function useGroups(): UseGroupsReturn {
       role: 'owner',
     });
 
-    if (memberErr) throw memberErr;
+    if (memberErr) {
+      console.error('[useGroups] createGroup member insert error:', memberErr);
+      throw memberErr;
+    }
 
     await load();
     return groupData as Group;

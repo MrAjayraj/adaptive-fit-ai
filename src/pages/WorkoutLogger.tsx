@@ -549,16 +549,12 @@ function buildRecommendedExercises(muscles: string[]) {
   const isolation = exercises.filter(ex => !ex.isCompound).slice(0, 2);
   const selected = [...compounds, ...isolation].slice(0, 5);
   return selected.map(ex => ({
-    id: v4(),
     exerciseId: ex.id,
     exerciseName: ex.name,
-    muscleGroup: ex.muscleGroup,
-    restSeconds: ex.isCompound ? 120 : 60,
-    sets: [
-      { id: v4(), weight: 0, reps: 8, completed: false },
-      { id: v4(), weight: 0, reps: 8, completed: false },
-      { id: v4(), weight: 0, reps: 8, completed: false },
-    ],
+    muscleGroup: ex.muscleGroup as import('@/types/fitness').MuscleGroup,
+    sets: 3,
+    reps: 8,
+    weight: 0,
   }));
 }
 
@@ -662,10 +658,10 @@ export default function WorkoutLogger() {
               {/* Exercise preview */}
               <div className="flex flex-col gap-1.5 mb-5">
                 {recommendedExercises.slice(0, 4).map((ex, i) => (
-                  <div key={ex.id} className="flex items-center gap-2">
+                  <div key={ex.exerciseId} className="flex items-center gap-2">
                     <span className="text-[11px] text-primary-accent/60 font-bold w-4">{i + 1}.</span>
                     <span className="text-[13px] text-text-1 font-medium">{ex.exerciseName}</span>
-                    <span className="text-[11px] text-text-3">· {ex.sets.length} sets</span>
+                    <span className="text-[11px] text-text-3">· {ex.sets} sets</span>
                   </div>
                 ))}
                 {recommendedExercises.length > 4 && (

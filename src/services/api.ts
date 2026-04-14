@@ -59,7 +59,7 @@ export async function fetchProfile(): Promise<ProfileRow | null> {
       .maybeSingle();
 
     if (error) throw error;
-    if (authProfile) return authProfile as ProfileRow;
+    if (authProfile) return authProfile as unknown as ProfileRow;
   }
 
   // Hand off to localId if no authenticated profile was found (e.g., they just signed in and haven't linked)
@@ -73,7 +73,7 @@ export async function fetchProfile(): Promise<ProfileRow | null> {
       .maybeSingle();
 
     if (error) throw error;
-    if (guestProfile) return guestProfile as ProfileRow;
+    if (guestProfile) return guestProfile as unknown as ProfileRow;
   }
 
   return null;
@@ -110,7 +110,7 @@ export async function upsertProfile(profile: Partial<ProfileRow>): Promise<Profi
       throw error;
     }
     
-    return data as ProfileRow | null;
+    return data as unknown as ProfileRow | null;
   }
 
   // If no existing profile, perform a clean upsert
@@ -139,7 +139,7 @@ export async function upsertProfile(profile: Partial<ProfileRow>): Promise<Profi
     console.error('upsertProfile error:', error);
     throw error;
   }
-  return data as ProfileRow | null;
+  return data as unknown as ProfileRow | null;
 }
 
 // ─── Weight Logs ───
@@ -379,7 +379,7 @@ export async function fetchWorkouts(): Promise<WorkoutRow[]> {
     .eq('user_id', userId)
     .order('date', { ascending: false });
   if (error) { console.error('fetchWorkouts error:', error); return []; }
-  return (data as WorkoutRow[]) ?? [];
+  return (data as unknown as WorkoutRow[]) ?? [];
 }
 
 /** Delete a workout by ID. */
@@ -423,7 +423,7 @@ export async function fetchGamification(): Promise<GamificationSnapshot | null> 
     .select('*')
     .eq('user_id', userId)
     .maybeSingle();
-  return (data as GamificationSnapshot | null);
+  return (data as unknown as GamificationSnapshot | null);
 }
 
 // ─── Rank — cloud sync ──────────────────────────────────────
@@ -456,7 +456,7 @@ export async function fetchRank(seasonId: string): Promise<RankRow | null> {
     .eq('user_id', userId)
     .eq('season_id', seasonId)
     .maybeSingle();
-  return data as RankRow | null;
+  return data as unknown as RankRow | null;
 }
 
 // ─── Activity feed helpers ─────────────────────────────────
