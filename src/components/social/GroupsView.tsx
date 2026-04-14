@@ -5,9 +5,7 @@ import type { Group } from '@/types/social';
 import { Users, Plus, Hash, ChevronRight, X, Globe, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 
-// ── Create Group Bottom Sheet ────────────────────────────────────────────────
-function CreateGroupSheet({ onClose }: { onClose: () => void }) {
-  const { createGroup } = useGroups();
+function CreateGroupSheet({ onClose, createGroup }: { onClose: () => void, createGroup: any }) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
@@ -161,7 +159,7 @@ function GroupCard({ group }: { group: Group }) {
 import GroupChatView from './GroupChatView';
 
 export default function GroupsView() {
-  const { myGroups, isLoading, joinByInviteCode, leaveGroup } = useGroups();
+  const { myGroups, isLoading, joinByInviteCode, leaveGroup, createGroup } = useGroups();
   const [showCreate, setShowCreate] = useState(false);
   const [inviteCode, setInviteCode] = useState('');
   const [joining, setJoining] = useState(false);
@@ -242,7 +240,8 @@ export default function GroupsView() {
           <p className="text-xs text-[#4B5563] mt-1">Create a group or join one with an invite code.</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-3 pb-8">
+          <h2 className="text-[16px] font-bold text-[#E5E7EB] px-1 mb-1">My Groups</h2>
           {myGroups.map((group) => (
              <button
                key={group.id}
@@ -256,7 +255,7 @@ export default function GroupsView() {
       )}
 
       {/* Create Group Sheet */}
-      {showCreate && <CreateGroupSheet onClose={() => setShowCreate(false)} />}
+      {showCreate && <CreateGroupSheet onClose={() => setShowCreate(false)} createGroup={createGroup} />}
     </div>
   );
 }

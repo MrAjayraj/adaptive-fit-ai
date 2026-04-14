@@ -172,12 +172,18 @@ export function useFriends(): UseFriendsReturn {
 
   const searchUsers = useCallback(async (query: string): Promise<UserProfileSummary[]> => {
     if (!query.trim()) return [];
-    const { data, error: searchError } = await db('user_profiles')
+    let req = db('user_profiles')
       .select('user_id,name,username,avatar_url,goal,level,rank_tier,rank_division')
       .or(`name.ilike.%${query}%,username.ilike.%${query}%`)
       .limit(20);
+
+    if (user?.id) {
+      req = req.neq('user_id', user.id);
+    }
+
+    const { data, error: searchError } = await req;
     if (searchError) throw new Error(`[${searchError.code}] ${searchError.message}`);
-    return ((data ?? []) as UserProfileSummary[]).filter((p) => p.user_id !== user?.id);
+    return (data ?? []) as UserProfileSummary[];
   }, [user]);
 
   return {
