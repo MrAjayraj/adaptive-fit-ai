@@ -31,9 +31,11 @@ export function useGroups(): UseGroupsReturn {
         .select('group_id')
         .eq('user_id', user.id);
 
+      console.log('[useGroups] load — memberRows:', memberRows, 'error:', memberErr);
       if (memberErr) throw memberErr;
 
       const groupIds: string[] = ((memberRows ?? []) as { group_id: string }[]).map((r) => r.group_id);
+      console.log('[useGroups] load — groupIds:', groupIds);
 
       if (groupIds.length === 0) {
         setMyGroups([]);
@@ -44,6 +46,7 @@ export function useGroups(): UseGroupsReturn {
         .select('*')
         .in('id', groupIds);
 
+      console.log('[useGroups] load — groups:', groups, 'error:', groupsErr);
       if (groupsErr) throw groupsErr;
 
       // Enrich with member_count and is_member flag
