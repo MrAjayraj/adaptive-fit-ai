@@ -71,6 +71,8 @@ const Rank          = lazy(() => import('./pages/Rank'));
 const NotFound      = lazy(() => import('./pages/NotFound'));
 const Social        = lazy(() => import('./pages/Social'));
 const DebugPanel    = lazy(() => import('./pages/DebugPanel'));
+const DMScreen      = lazy(() => import('./components/social/DMScreen'));
+const ConversationsScreen = lazy(() => import('./components/social/ConversationsScreen'));
 
 // ── Suspense fallback ─────────────────────────────────────────────────────────
 function PageLoader() {
@@ -142,6 +144,8 @@ const App = () => (
                   <Route path="/achievements" element={<ProtectedRoute><Achievements /></ProtectedRoute>} />
                   <Route path="/rank"         element={<ProtectedRoute><Rank /></ProtectedRoute>} />
                   <Route path="/social"       element={<ProtectedRoute><Social /></ProtectedRoute>} />
+                  <Route path="/messages"     element={<ProtectedRoute><ConversationsScreen /></ProtectedRoute>} />
+                  <Route path="/chat/:friendId" element={<ProtectedRoute><DMScreen /></ProtectedRoute>} />
                   <Route path="/debug"        element={<ProtectedRoute><DebugPanel /></ProtectedRoute>} />
 
                   {/* 404 */}

@@ -180,9 +180,10 @@ export async function createGroup(
 }
 
 export async function joinGroupByCode(userId: string, inviteCode: string): Promise<void> {
+  const normalized = inviteCode.trim().toUpperCase();
   const { data: group, error: findErr } = await tbl('groups')
     .select('id')
-    .eq('invite_code', inviteCode.toUpperCase().trim())
+    .ilike('invite_code', normalized)
     .single();
 
   if (findErr || !group) throw new Error('Invalid invite code');

@@ -2,6 +2,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, AlarmClock, Star, BarChart2, User, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
+import { useConversations } from '@/hooks/useConversations';
 
 const NAV_ITEMS = [
   { path: '/home',      icon: Home,       label: 'Home'     },
@@ -11,10 +12,38 @@ const NAV_ITEMS = [
   { path: '/profile',   icon: User,       label: 'Profile'  },
 ];
 
+// ── The badge logic is isolated so non-authenticated users don't trigger
+//    extra Supabase queries.
+function SocialBadge({ isActive }: { isActive: boolean }) {
+  const { totalUnread } = useConversations();
+  if (totalUnread === 0) return null;
+  return (
+    <span
+      className={`absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] text-[9px] font-bold rounded-full flex items-center justify-center z-20 border-2 ${
+        isActive ? 'bg-[#111113] text-[#F5C518] border-[#F5C518]' : 'bg-primary text-[#06090D] border-surface-1 md:border-surface-2'
+      }`}
+    >
+      {totalUnread > 9 ? '9+' : totalUnread}
+    </span>
+  );
+}
+
 export default function BottomNav() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { isGuest } = useAuth();
+  const { isGuest, user } = useAuth();
+
+  // Social path includes /messages and /chat/* for active highlight
+  function isNavActive(path: string) {
+    if (path === '/social') {
+      return (
+        location.pathname === '/social' ||
+        location.pathname === '/messages' ||
+        location.pathname.startsWith('/chat/')
+      );
+    }
+    return location.pathname === path || location.pathname.startsWith(path + '/');
+  }
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 md:top-0 md:bottom-0 md:right-auto md:w-[72px] z-40 flex justify-center md:justify-start pb-4 md:pb-0 safe-bottom pointer-events-none md:pointer-events-auto">
@@ -22,7 +51,7 @@ export default function BottomNav() {
         className="pointer-events-auto flex md:flex-col md:justify-center items-center gap-1 md:gap-4 px-3 md:px-0 py-2.5 md:py-8 mx-4 md:mx-0 w-full max-w-sm md:max-w-none md:h-full nav-glass md:bg-surface-1 md:border-r md:border-border-subtle md:backdrop-blur-none rounded-[32px] md:rounded-none shadow-card-lg md:shadow-none"
       >
         {NAV_ITEMS.map(({ path, icon: Icon, label }) => {
-          const isActive = location.pathname === path || location.pathname.startsWith(path + '/');
+          const isActive = isNavActive(path);
 
           return (
             <button
@@ -48,8 +77,13 @@ export default function BottomNav() {
                     isActive ? 'text-[#111113]' : 'text-[#555560] group-hover:text-text-2'
                   }`}
                 />
+                {/* Guest dot on Profile */}
                 {label === 'Profile' && isGuest && (
                   <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-primary-accent rounded-full border border-surface-1 md:border-surface-2 z-20" />
+                )}
+                {/* Unread DM badge on Social (only for logged-in users) */}
+                {label === 'Social' && !!user && !isGuest && (
+                  <SocialBadge isActive={isActive} />
                 )}
               </div>
               <span className={`text-[9px] font-bold relative z-10 mt-0.5 tracking-wide uppercase transition-all duration-300 ${isActive ? 'text-[#111113] opacity-100 h-auto' : 'opacity-0 h-0 overflow-hidden md:group-hover:opacity-100 md:group-hover:text-text-2 md:h-0'}`}>

@@ -3,11 +3,12 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useFriends } from '@/hooks/useFriends';
 import { useFitness } from '@/context/FitnessContext';
+import { useConversations } from '@/hooks/useConversations';
 import FriendsList from '@/components/social/FriendsList';
 import ActivityFeedView from '@/components/social/ActivityFeedView';
 import GroupsView from '@/components/social/GroupsView';
 import BottomNav from '@/components/layout/BottomNav';
-import { Users } from 'lucide-react';
+import { Users, MessageCircle } from 'lucide-react';
 
 // ── Tab definition ────────────────────────────────────────────────────────────
 const TABS = ['Friends', 'Feed', 'Groups'] as const;
@@ -29,6 +30,7 @@ export default function Social() {
 
   const { friends, pendingIncoming } = useFriends();
   const { profile } = useFitness();
+  const { totalUnread } = useConversations();
   const navigate = useNavigate();
   const friendCount = friends.length;
   const pendingCount = pendingIncoming.length;
@@ -56,6 +58,17 @@ export default function Social() {
             <span className="text-sm text-[#6B7280]">
               {friendCount} friend{friendCount !== 1 ? 's' : ''}
             </span>
+            {/* Messages inbox button */}
+            <button
+              onClick={() => navigate('/messages')}
+              className="relative p-2 rounded-full text-[#6B7280] hover:text-[#E5E7EB] hover:bg-white/5 transition-colors"
+              title="Messages"
+            >
+              <MessageCircle size={20} />
+              {totalUnread > 0 && (
+                <span className="absolute top-0.5 right-0.5 w-2 h-2 bg-[#00E676] rounded-full" />
+              )}
+            </button>
           </div>
         </div>
 

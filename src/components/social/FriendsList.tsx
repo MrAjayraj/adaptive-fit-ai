@@ -1,6 +1,7 @@
 // src/components/social/FriendsList.tsx
 import React, { useState, useCallback } from 'react';
-import { Search, UserPlus, Check, X, Clock, UserMinus, Shield, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, UserPlus, Check, X, Clock, UserMinus, Shield, AlertCircle, MessageCircle } from 'lucide-react';
 import { useFriends } from '@/hooks/useFriends';
 import type { UserProfileSummary, Friendship } from '@/types/social';
 import { toast } from 'sonner';
@@ -44,7 +45,15 @@ function RankBadge({ tier, division }: { tier?: string; division?: number }) {
   );
 }
 
-function FriendRow({ friendship, onRemove }: { friendship: Friendship; onRemove: (id: string) => void }) {
+function FriendRow({
+  friendship,
+  onRemove,
+  onMessage,
+}: {
+  friendship: Friendship;
+  onRemove: (id: string) => void;
+  onMessage: (userId: string) => void;
+}) {
   const p = friendship.friend_profile;
   if (!p) return null;
   return (
@@ -55,13 +64,22 @@ function FriendRow({ friendship, onRemove }: { friendship: Friendship; onRemove:
         {p.username && <p className="text-[13px] text-text-2 truncate">@{p.username}</p>}
         <RankBadge tier={p.rank_tier ?? undefined} division={p.rank_division ?? undefined} />
       </div>
-      <button
-        onClick={() => onRemove(friendship.id)}
-        className="p-2 rounded-[10px] text-text-3 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-        title="Remove friend"
-      >
-        <UserMinus size={16} />
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onMessage(p.user_id)}
+          className="p-2 rounded-[10px] text-text-3 hover:text-primary hover:bg-primary/10 transition-colors"
+          title="Send message"
+        >
+          <MessageCircle size={16} />
+        </button>
+        <button
+          onClick={() => onRemove(friendship.id)}
+          className="p-2 rounded-[10px] text-text-3 hover:text-red-400 hover:bg-red-400/10 transition-colors"
+          title="Remove friend"
+        >
+          <UserMinus size={16} />
+        </button>
+      </div>
     </div>
   );
 }
@@ -186,6 +204,7 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
 }
 
 export default function FriendsList() {
+  const navigate = useNavigate();
   const {
     friends,
     pendingIncoming,
@@ -270,6 +289,10 @@ export default function FriendsList() {
 
   void handleBlock; // available but only called from context menus, suppress lint
 
+  const handleMessage = (userId: string) => {
+    navigate(`/chat/${userId}`);
+  };
+
   return (
     <div className="flex flex-col gap-0 bg-surface-1 rounded-[20px] border border-border p-4">
       {/* Search */}
@@ -348,7 +371,7 @@ export default function FriendsList() {
       ) : (
         <div className="divide-y divide-border-subtle">
           {friends.map((f) => (
-            <FriendRow key={f.id} friendship={f} onRemove={handleRemove} />
+            <FriendRow key={f.id} friendship={f} onRemove={handleRemove} onMessage={handleMessage} />
           ))}
         </div>
       )}
