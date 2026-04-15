@@ -74,10 +74,11 @@ function PodiumSpot({
       {/* Medal + Badge float */}
       <div className="flex flex-col items-center gap-1">
         <div
-          className="rounded-full flex items-center justify-center ring-2"
+          className="rounded-full flex items-center justify-center"
           style={{
-            boxShadow: highlight ? `0 0 20px ${meta.glow}` : 'none',
-            ringColor: highlight ? meta.color : 'transparent',
+            boxShadow: highlight
+              ? `0 0 20px ${meta.glow}, 0 0 0 2px ${meta.color}`
+              : '0 0 0 2px rgba(255,255,255,0.08)',
           }}
         >
           <Avatar name={entry.name} size={avatarSize} />
