@@ -21,14 +21,14 @@ const EXERCISE_CARDS = [
   { name: 'Core Crusher',   count: 5, rating: 4.7, gradient: 'from-blue-500/20 to-transparent', bento: 'col-span-1 row-span-1' },
 ];
 
-const containerVariants = {
+const containerVariants: any = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
 
-const itemVariants = {
+const itemVariants: any = {
   hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } },
+  visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } },
 };
 
 // ── Shared Glass Container ──────────────────────────────────────
@@ -51,7 +51,7 @@ function GlassCard({ children, className = '', style = {} }: { children: React.R
 }
 
 // ── Magnetic Button ──────────────────────────────────────────────
-function MagneticButton({ children, onClick, className = '' }: { children: React.ReactNode, onClick?: () => void, className?: string }) {
+function MagneticButton({ children, onClick, className = '', style = {} }: { children: React.ReactNode, onClick?: () => void, className?: string, style?: React.CSSProperties }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [position, setPosition] = useState({ x: 0, y: 0 });
 
@@ -74,8 +74,9 @@ function MagneticButton({ children, onClick, className = '' }: { children: React
       onMouseMove={handleMouse}
       onMouseLeave={reset}
       animate={{ x: position.x, y: position.y }}
-      transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
+      transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 } as any}
       className={className}
+      style={style}
     >
       {children}
     </motion.button>
@@ -148,9 +149,9 @@ function EnhancedRankCard({ gamification, onClick }: { gamification: any, onClic
           </div>
           <div>
             <h3 className="text-white font-black text-lg tracking-tight uppercase" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>
-              {tier.name} Tier
+              {tier.tier} Tier
             </h3>
-            <p className="text-white/50 font-semibold text-[11px] uppercase tracking-widest">{tier.description}</p>
+            <p className="text-white/50 font-semibold text-[11px] uppercase tracking-widest">Elite Status</p>
           </div>
         </div>
         <ChevronRight className="w-5 h-5 text-white/30" />
@@ -355,11 +356,7 @@ export default function Dashboard() {
           <div className="flex gap-4">
             <MagneticButton onClick={() => navigate('/profile')} className="relative">
               <div className="w-14 h-14 rounded-full bg-white/5 border-2 border-[#E2FF31] flex items-center justify-center overflow-hidden shadow-[0_0_15px_rgba(226,255,49,0.3)]">
-                {profile?.avatar_url ? (
-                  <img src={profile.avatar_url} alt="Profile" className="w-full h-full object-cover" />
-                ) : (
-                  <span className="text-xl font-black text-[#E2FF31]">{profile?.name?.charAt(0)?.toUpperCase() || 'A'}</span>
-                )}
+                <span className="text-xl font-black text-[#E2FF31]">{profile?.name?.charAt(0)?.toUpperCase() || 'A'}</span>
               </div>
             </MagneticButton>
             <div>
