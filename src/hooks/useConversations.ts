@@ -1,6 +1,7 @@
 // src/hooks/useConversations.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import {
   getConversations,
   getTotalUnreadCount,
@@ -51,7 +52,9 @@ export function useConversations(): UseConversationsReturn {
     const channel = subscribeToDMs(user.id, () => {
       loadRef.current?.();
     });
-    return () => { channel.unsubscribe(); };
+    // removeChannel fully purges the channel from Supabase's registry,
+    // preventing "cannot add callbacks after subscribe()" on re-mount
+    return () => { supabase.removeChannel(channel); };
   }, [user]);
 
   return { conversations, totalUnread, isLoading, error, refresh: load };

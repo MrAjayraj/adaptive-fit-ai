@@ -1,6 +1,7 @@
 // src/hooks/useDirectMessages.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/integrations/supabase/client';
 import {
   getDirectMessages,
   sendDirectMessage as svcSend,
@@ -61,7 +62,9 @@ export function useDirectMessages(friendId: string): UseDirectMessagesReturn {
     const channel = subscribeToConversation(convId, () => {
       loadRef.current?.();
     });
-    return () => { channel.unsubscribe(); };
+    // removeChannel fully purges the channel from Supabase's registry,
+    // preventing "cannot add callbacks after subscribe()" on re-mount
+    return () => { supabase.removeChannel(channel); };
   }, [user, friendId]);
 
   const loadOlder = useCallback(async () => {

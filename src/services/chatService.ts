@@ -289,8 +289,10 @@ export function subscribeToDMs(
   userId: string,
   onMessage: (msg: DirectMessage) => void
 ): RealtimeChannel {
+  // Use a unique suffix so Supabase never reuses a stale channel object
+  const uid = Math.random().toString(36).slice(2, 8);
   const channel = supabase
-    .channel(`dm-inbox:${userId}`)
+    .channel(`dm-inbox:${userId}:${uid}`)
     .on(
       'postgres_changes' as never,
       {
@@ -324,8 +326,10 @@ export function subscribeToConversation(
   conversationId: string,
   onChange: () => void
 ): RealtimeChannel {
+  // Use a unique suffix so Supabase never reuses a stale channel object
+  const uid = Math.random().toString(36).slice(2, 8);
   const channel = supabase
-    .channel(`dm-conv:${conversationId}`)
+    .channel(`dm-conv:${conversationId}:${uid}`)
     .on(
       'postgres_changes' as never,
       {
