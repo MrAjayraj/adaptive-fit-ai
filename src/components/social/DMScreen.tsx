@@ -1,10 +1,11 @@
-// src/components/social/DMScreen.tsx — WhatsApp-quality DM chat
+// src/components/social/DMScreen.tsx
+// FitPulse DM Chat – Kinetic Obsidian design  (real Supabase data)
 import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Send, Mic, Reply, Copy, Trash2, Trash, X,
-  ChevronDown, MoreVertical, Phone, Video,
+  ChevronDown, MoreVertical, Video,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDirectMessages } from '@/hooks/useDirectMessages';
@@ -14,8 +15,22 @@ import Avatar from '@/components/shared/Avatar';
 import type { UserProfileSummary } from '@/types/social';
 import type { DirectMessage } from '@/services/chatService';
 
-// ─── Accent ───────────────────────────────────────────────────────────────────
-const ACCENT = '#00E676';
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const C = {
+  bg:        '#0E0E13',
+  surface:   '#1F1F24',
+  surfaceHi: '#2A292F',
+  highest:   '#35343A',
+  primary:   '#FF6B35',
+  primaryDim:'#FFB59D',
+  green:     '#4AE176',
+  textPri:   '#E4E1E9',
+  textSec:   '#E1BFB5',
+  textMuted: '#A98A80',
+  outline:   'rgba(89,65,57,0.18)',
+} as const;
+
+const REACTION_EMOJIS = ['❤️', '💪', '🔥', '😂', '👏', '✅'] as const;
 
 // ─── Time helpers ─────────────────────────────────────────────────────────────
 function fmtTime(iso: string) {
@@ -37,12 +52,61 @@ function withinGroup(a: DirectMessage, b: DirectMessage) {
   return Math.abs(new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) < 2 * 60 * 1000;
 }
 
+// ─── Floating reaction bar ────────────────────────────────────────────────────
+function ReactionBar({
+  visible, anchor, onReact, onClose,
+}: {
+  visible: boolean;
+  anchor: { x: number; y: number } | null;
+  onReact: (e: string) => void;
+  onClose: () => void;
+}) {
+  if (!visible || !anchor) return null;
+  return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 48 }} onClick={onClose} />
+      <div
+        style={{
+          position: 'fixed',
+          zIndex: 49,
+          top: Math.max(80, anchor.y - 64),
+          left: '50%',
+          transform: 'translateX(-50%)',
+          display: 'flex',
+          gap: 4,
+          backgroundColor: 'rgba(53,52,58,0.92)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderRadius: 36,
+          padding: '8px 16px',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
+          border: `1px solid ${C.outline}`,
+        }}
+      >
+        {REACTION_EMOJIS.map((e) => (
+          <button
+            key={e}
+            onClick={() => { onReact(e); onClose(); }}
+            style={{
+              background: 'none', border: 'none',
+              fontSize: 26, cursor: 'pointer',
+              padding: '4px 6px', borderRadius: 8, lineHeight: 1,
+            }}
+          >
+            {e}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ─── Context menu ─────────────────────────────────────────────────────────────
 interface MenuItem { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }
 
 function CtxMenu({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
   useEffect(() => {
-    const h = (e: MouseEvent | TouchEvent) => { e.stopPropagation(); onClose(); };
+    const h = () => onClose();
     const t = setTimeout(() => {
       document.addEventListener('mousedown', h);
       document.addEventListener('touchstart', h);
@@ -55,17 +119,32 @@ function CtxMenu({ items, onClose }: { items: MenuItem[]; onClose: () => void })
       initial={{ opacity: 0, scale: 0.92, y: 8 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.92, y: 8 }}
-      transition={{ duration: 0.15 }}
+      transition={{ duration: 0.14 }}
       onClick={(e) => e.stopPropagation()}
-      className="absolute z-50 rounded-[14px] overflow-hidden shadow-2xl py-1 min-w-[170px]"
-      style={{ background: '#1C1C20', border: '1px solid rgba(255,255,255,0.1)', bottom: '100%', marginBottom: 8, right: 0 }}
+      style={{
+        position: 'absolute', zIndex: 50,
+        borderRadius: 14, overflow: 'hidden',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+        padding: '4px 0', minWidth: 176,
+        background: C.highest,
+        border: `1px solid ${C.outline}`,
+        bottom: '100%', marginBottom: 8, right: 0,
+      }}
     >
       {items.map((item, i) => (
         <button
           key={i}
           onClick={() => { item.onClick(); onClose(); }}
-          className="flex items-center gap-3 w-full px-4 py-2.5 text-[14px] font-medium transition-colors hover:bg-white/5"
-          style={{ color: item.danger ? '#EF4444' : '#FAFAFA' }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            width: '100%', padding: '10px 16px',
+            fontSize: 14, fontWeight: 500,
+            background: 'none', border: 'none', cursor: 'pointer',
+            color: item.danger ? '#EF4444' : C.textPri,
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
         >
           {item.icon}
           {item.label}
@@ -75,19 +154,25 @@ function CtxMenu({ items, onClose }: { items: MenuItem[]; onClose: () => void })
   );
 }
 
-// ─── Reply bar ────────────────────────────────────────────────────────────────
+// ─── Reply preview bar ────────────────────────────────────────────────────────
 function ReplyBar({ msg, isMe, onClear }: { msg: DirectMessage; isMe: boolean; onClear: () => void }) {
   return (
-    <div
-      className="flex items-center gap-3 px-4 py-2"
-      style={{ background: 'rgba(0,230,118,0.06)', borderTop: '1px solid rgba(0,230,118,0.12)' }}
-    >
-      <div className="w-0.5 self-stretch rounded-full" style={{ background: ACCENT }} />
-      <div className="flex-1 min-w-0">
-        <p className="text-[11px] font-bold" style={{ color: ACCENT }}>{isMe ? 'You' : 'Them'}</p>
-        <p className="text-[13px] text-white/50 truncate">{msg.content}</p>
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '8px 16px',
+      background: C.surfaceHi,
+      borderTop: `1px solid ${C.outline}`,
+    }}>
+      <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.primary, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: C.primary, marginBottom: 2 }}>
+          {isMe ? 'You' : 'Them'}
+        </p>
+        <p style={{ fontSize: 13, color: C.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>
+          {msg.content}
+        </p>
       </div>
-      <button onClick={onClear} className="p-1 text-white/30 hover:text-white/60 transition-colors flex-shrink-0">
+      <button onClick={onClear} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 20, cursor: 'pointer', padding: 4, lineHeight: 1 }}>
         <X size={16} />
       </button>
     </div>
@@ -98,8 +183,8 @@ function ReplyBar({ msg, isMe, onClear }: { msg: DirectMessage; isMe: boolean; o
 interface BubbleProps {
   msg: DirectMessage;
   isMine: boolean;
-  isFirst: boolean; // first in a consecutive group (show corner radius)
-  isLast: boolean;  // last in a consecutive group (show timestamp)
+  isFirst: boolean;
+  isLast: boolean;
   onReply: (m: DirectMessage) => void;
   onDeleteForMe: (id: string) => void;
   onDeleteForEveryone: (id: string) => void;
@@ -107,10 +192,15 @@ interface BubbleProps {
 
 function Bubble({ msg, isMine, isFirst, isLast, onReply, onDeleteForMe, onDeleteForEveryone }: BubbleProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [reactionAnchor, setReactionAnchor] = useState<{ x: number; y: number } | null>(null);
+  // TODO(persistence): reactions are ephemeral (local state only).
+  // Wire to a backend reactions table (addReaction / removeReaction) so they
+  // survive remounts and are visible to the other participant.
+  const [reactions, setReactions] = useState<string[]>([]);
   const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isDeleted = msg.deleted_for_everyone;
   const ageMs = Date.now() - new Date(msg.created_at).getTime();
-  const canDeleteAll = isMine && ageMs < 3600000;
+  const canDeleteAll = isMine && ageMs < 3_600_000;
 
   const menuItems: MenuItem[] = [
     { icon: <Reply size={15} />, label: 'Reply', onClick: () => onReply(msg) },
@@ -119,110 +209,168 @@ function Bubble({ msg, isMine, isFirst, isLast, onReply, onDeleteForMe, onDelete
     canDeleteAll && !isDeleted && { icon: <Trash size={15} />, label: 'Delete for everyone', onClick: () => onDeleteForEveryone(msg.id), danger: true },
   ].filter(Boolean) as MenuItem[];
 
-  // Border radius: WhatsApp style
-  const myBR = {
-    borderRadius: '18px',
-    borderTopLeftRadius: '18px',
-    borderTopRightRadius: isFirst ? '18px' : '6px',
-    borderBottomRightRadius: isLast ? '4px' : '6px',
-    borderBottomLeftRadius: '18px',
+  // Kinetic Obsidian radius pattern
+  const myBR    = `18px ${isFirst ? '18px' : '6px'} ${isLast ? '4px' : '6px'} 18px`;
+  const theirBR = `${isFirst ? '18px' : '6px'} 18px 18px ${isLast ? '4px' : '6px'}`;
+
+  const bubbleBg = isDeleted
+    ? 'rgba(255,255,255,0.04)'
+    : isMine
+      ? C.primary
+      : C.surface;
+
+  const startLongPress = (e: React.MouseEvent | React.TouchEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    holdRef.current = setTimeout(() => {
+      setReactionAnchor({ x: rect.left + rect.width / 2, y: rect.top });
+    }, 420);
   };
-  const theirBR = {
-    borderRadius: '18px',
-    borderTopLeftRadius: isFirst ? '18px' : '6px',
-    borderTopRightRadius: '18px',
-    borderBottomRightRadius: '18px',
-    borderBottomLeftRadius: isLast ? '4px' : '6px',
+  const cancelLongPress = () => { if (holdRef.current) clearTimeout(holdRef.current); };
+
+  const handleReact = (emoji: string) => {
+    setReactions((prev) =>
+      prev.includes(emoji) ? prev.filter((e) => e !== emoji) : [...prev, emoji]
+    );
   };
 
+  // Deduplicate + count
+  const reactionCounts = reactions.reduce<Record<string, number>>((acc, e) => {
+    acc[e] = (acc[e] ?? 0) + 1; return acc;
+  }, {});
+
   return (
-    <div className={`flex ${isMine ? 'justify-end' : 'justify-start'} group relative`}>
-      <div className="relative max-w-[75%]" style={{ minWidth: 60 }}>
-        {/* Reply preview in bubble */}
-        {msg.reply_message && !isDeleted && (
-          <div
-            className="mb-1 px-3 py-1.5 rounded-[10px] text-[12px]"
-            style={{
-              background: isMine ? 'rgba(0,230,118,0.08)' : 'rgba(255,255,255,0.06)',
-              borderLeft: `2px solid ${ACCENT}`,
-            }}
-          >
-            <p className="font-bold truncate" style={{ color: ACCENT, fontSize: 11 }}>
-              {msg.reply_message.sender_id === msg.sender_id ? 'You' : 'Them'}
+    <div style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', position: 'relative' }}>
+      {/* Floating reaction bar */}
+      <ReactionBar
+        visible={!!reactionAnchor}
+        anchor={reactionAnchor}
+        onReact={handleReact}
+        onClose={() => setReactionAnchor(null)}
+      />
+
+      <div style={{ position: 'relative', maxWidth: '75%', minWidth: 60 }}>
+        {/* Reply preview embedded in bubble */}
+        {(msg as any).reply_message && !isDeleted && (
+          <div style={{
+            marginBottom: 4, padding: '6px 12px',
+            borderRadius: 10, fontSize: 12,
+            background: isMine ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)',
+            borderLeft: `2px solid ${C.primary}`,
+          }}>
+            <p style={{ fontWeight: 700, color: C.primary, fontSize: 11, margin: '0 0 2px' }}>
+              {(msg as any).reply_message.sender_id === msg.sender_id ? 'You' : 'Them'}
             </p>
-            <p className="text-white/50 truncate">{msg.reply_message.content}</p>
+            <p style={{ color: C.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {(msg as any).reply_message.content}
+            </p>
           </div>
         )}
 
         {/* Bubble */}
         <div
-          className="px-3.5 py-2.5 select-none cursor-pointer relative"
+          className="group relative"
           style={{
-            ...(isMine ? myBR : theirBR),
-            background: isDeleted
-              ? 'rgba(255,255,255,0.05)'
-              : isMine
-                ? 'rgba(0,230,118,0.15)'
-                : '#1C1C22',
+            padding: '10px 14px',
+            borderRadius: isMine ? myBR : theirBR,
+            background: bubbleBg,
+            boxShadow: isMine
+              ? '0 2px 12px rgba(255,107,53,0.28)'
+              : '0 2px 8px rgba(0,0,0,0.28)',
+            cursor: 'pointer',
+            userSelect: 'none',
           }}
-          onMouseDown={() => { holdRef.current = setTimeout(() => setMenuOpen(true), 500); }}
-          onMouseUp={() => { if (holdRef.current) clearTimeout(holdRef.current); }}
-          onMouseLeave={() => { if (holdRef.current) clearTimeout(holdRef.current); }}
-          onTouchStart={() => { holdRef.current = setTimeout(() => setMenuOpen(true), 500); }}
-          onTouchEnd={() => { if (holdRef.current) clearTimeout(holdRef.current); }}
+          onMouseDown={startLongPress}
+          onMouseUp={cancelLongPress}
+          onMouseLeave={cancelLongPress}
+          onMouseMove={cancelLongPress}
+          onTouchStart={startLongPress}
+          onTouchEnd={cancelLongPress}
+          onTouchMove={cancelLongPress}
         >
-          <p
-            className="text-[15px] leading-snug whitespace-pre-wrap break-words"
-            style={{ color: isDeleted ? 'rgba(255,255,255,0.3)' : '#FAFAFA', fontStyle: isDeleted ? 'italic' : undefined }}
-          >
+          <p style={{
+            fontSize: 15, lineHeight: '22px',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
+            color: isDeleted
+              ? 'rgba(255,255,255,0.25)'
+              : isMine
+                ? '#FFFFFF'
+                : C.textPri,
+            fontStyle: isDeleted ? 'italic' : undefined,
+          }}>
             {isDeleted ? 'This message was deleted' : msg.content}
           </p>
 
-          {/* Timestamp + read receipt */}
+          {/* Timestamp + read */}
           {isLast && (
-            <div className={`flex items-center gap-1 mt-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
-              <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>{fmtTime(msg.created_at)}</span>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 4, marginTop: 4,
+              justifyContent: isMine ? 'flex-end' : 'flex-start',
+            }}>
+              <span style={{ fontSize: 10, color: isMine ? 'rgba(255,255,255,0.55)' : C.textMuted }}>
+                {fmtTime(msg.created_at)}
+              </span>
               {isMine && !isDeleted && (
-                <span
-                  className="text-[10px] font-bold"
-                  style={{ color: msg.is_read ? ACCENT : 'rgba(255,255,255,0.3)' }}
-                >
+                <span style={{ fontSize: 10, fontWeight: 700, color: msg.is_read ? C.primaryDim : 'rgba(255,255,255,0.35)' }}>
                   {msg.is_read ? '✓✓' : '✓'}
                 </span>
               )}
             </div>
           )}
+
+          {/* Hover menu trigger */}
+          {!isDeleted && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setMenuOpen(true); }}
+              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{
+                position: 'absolute', top: 4,
+                ...(isMine ? { left: -28 } : { right: -28 }),
+                background: C.highest,
+                border: `1px solid ${C.outline}`,
+                borderRadius: '50%', padding: 4, cursor: 'pointer',
+              }}
+            >
+              <MoreVertical size={13} style={{ color: C.textMuted }} />
+            </button>
+          )}
+
+          <AnimatePresence>
+            {menuOpen && <CtxMenu items={menuItems} onClose={() => setMenuOpen(false)} />}
+          </AnimatePresence>
         </div>
 
-        {/* Hover menu trigger */}
-        {!isDeleted && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(true); }}
-            className={`absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full ${isMine ? 'left-[-28px]' : 'right-[-28px]'}`}
-            style={{ background: '#1C1C22', border: '1px solid rgba(255,255,255,0.08)' }}
-          >
-            <MoreVertical size={13} className="text-white/40" />
-          </button>
+        {/* Reaction chips */}
+        {Object.keys(reactionCounts).length > 0 && (
+          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
+            {Object.entries(reactionCounts).map(([emoji, count]) => (
+              <button
+                key={emoji}
+                onClick={() => handleReact(emoji)}
+                style={{
+                  padding: '2px 10px', borderRadius: 12,
+                  backgroundColor: C.primary,
+                  border: 'none', cursor: 'pointer',
+                  fontSize: 12, fontWeight: 700, color: '#FFFFFF',
+                }}
+              >
+                {emoji} {count}
+              </button>
+            ))}
+          </div>
         )}
-
-        {/* Context menu */}
-        <AnimatePresence>
-          {menuOpen && (
-            <CtxMenu items={menuItems} onClose={() => setMenuOpen(false)} />
-          )}
-        </AnimatePresence>
       </div>
     </div>
   );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+// ─── Main DMScreen ─────────────────────────────────────────────────────────────
 export default function DMScreen() {
   const { friendId = '' } = useParams<{ friendId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const { messages, isLoading, hasMore, error, sendMessage, loadOlder, deleteForMe, deleteForEveryone } = useDirectMessages(friendId);
+  const { messages, isLoading, hasMore, error, sendMessage, loadOlder, deleteForMe, deleteForEveryone } =
+    useDirectMessages(friendId);
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<DirectMessage | null>(null);
@@ -230,10 +378,13 @@ export default function DMScreen() {
   const [sending, setSending] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
+  // TODO(presence): wire to Supabase Realtime Presence so isOnline reflects
+  // the friend's actual connection state. Until then, defaults to false.
+  const [isOnline] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const listRef   = useRef<HTMLDivElement>(null);
+  const inputRef  = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (!friendId) return;
@@ -282,96 +433,119 @@ export default function DMScreen() {
   const friendName = friendProfile?.name ?? 'Chat';
 
   return (
-    <div className="flex flex-col h-screen bg-[#0A0A0D]">
-      {/* ── Header ── */}
-      <div
-        className="flex items-center gap-3 px-3 py-3 sticky top-0 z-20"
-        style={{ background: '#111116', borderBottom: '1px solid rgba(255,255,255,0.07)' }}
-      >
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: C.bg, fontFamily: "'Inter','Manrope',sans-serif", color: C.textPri }}>
+
+      {/* ── Header ───────────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        padding: '12px 14px',
+        background: 'rgba(14,14,19,0.88)',
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        borderBottom: `1px solid ${C.outline}`,
+        flexShrink: 0, position: 'sticky', top: 0, zIndex: 20,
+      }}>
         <button
           onClick={() => navigate(-1)}
-          className="p-2 rounded-full text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors flex-shrink-0"
+          style={{ background: 'none', border: 'none', color: C.textSec, cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center' }}
         >
           <ArrowLeft size={22} />
         </button>
 
-        <button className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
-          <Avatar src={friendProfile?.avatar_url} name={friendName} size={38} />
-          <div className="flex-1 min-w-0">
-            <p className="text-[16px] font-semibold text-white truncate leading-tight">{friendName}</p>
-            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
-              {friendProfile?.username ? `@${friendProfile.username}` : 'tap for info'}
-            </p>
-          </div>
-        </button>
-
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button className="p-2 rounded-full text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors">
-            <Video size={20} />
-          </button>
-          <button className="p-2 rounded-full text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors">
-            <Phone size={20} />
-          </button>
+        {/* Avatar + online dot */}
+        <div style={{ position: 'relative', flexShrink: 0 }}>
+          <Avatar src={friendProfile?.avatar_url} name={friendName} size={40} />
+          <div style={{
+            position: 'absolute', bottom: 1, right: 1,
+            width: 11, height: 11, borderRadius: 6,
+            backgroundColor: C.green,
+            border: `2px solid ${C.bg}`,
+            boxShadow: `0 0 5px 1px ${C.green}88`,
+          }} />
         </div>
+
+        {/* Name + status */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 16, fontWeight: 700, color: C.textPri, margin: 0, lineHeight: '20px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {friendName}
+          </p>
+          <p style={{ fontSize: 11, color: isOnline ? C.green : C.textMuted, margin: 0, fontWeight: 500 }}>
+            {isOnline ? '● Online' : '○ Offline'}
+          </p>
+        </div>
+
+        {/* Video call */}
+        <button style={{
+          width: 36, height: 36, borderRadius: 18,
+          background: C.surfaceHi, border: 'none', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: C.textMuted,
+        }}>
+          <Video size={18} />
+        </button>
       </div>
 
-      {/* ── Message list ── */}
+      {/* ── Message list ─────────────────────────────────────────────────────── */}
       <div
         ref={listRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-3"
-        style={{ background: '#0A0A0D' }}
+        style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', minHeight: 0 }}
       >
         {/* Load older */}
         {hasMore && (
-          <div className="flex justify-center mb-4">
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
             <button
               onClick={loadOlder}
               disabled={isLoading}
-              className="text-[12px] font-semibold px-4 py-1.5 rounded-full transition-colors disabled:opacity-50"
-              style={{ background: 'rgba(0,230,118,0.1)', color: ACCENT }}
+              style={{
+                fontSize: 12, fontWeight: 600,
+                padding: '6px 16px', borderRadius: 20,
+                background: `${C.primary}18`, color: C.primary,
+                border: 'none', cursor: 'pointer',
+                opacity: isLoading ? 0.5 : 1,
+              }}
             >
               {isLoading ? 'Loading…' : '↑ Load older'}
             </button>
           </div>
         )}
 
-        {error && <p className="text-center text-[13px] text-red-400 py-4">{error}</p>}
+        {error && <p style={{ textAlign: 'center', fontSize: 13, color: '#EF4444', padding: '16px 0' }}>{error}</p>}
 
         {!isLoading && messages.length === 0 && !error && (
-          <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 12, textAlign: 'center' }}>
             <Avatar src={friendProfile?.avatar_url} name={friendName} size={72} />
             <div>
-              <p className="text-[16px] font-semibold text-white">{friendName}</p>
-              <p className="text-[13px] text-white/35 mt-1">Say hello! 👋</p>
+              <p style={{ fontSize: 16, fontWeight: 600, color: C.textPri, margin: '0 0 4px' }}>{friendName}</p>
+              <p style={{ fontSize: 13, color: C.textMuted, margin: 0 }}>Say hello! 👋</p>
             </div>
           </div>
         )}
 
         {/* Messages */}
-        <div className="space-y-[2px]">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {messages.map((msg, i) => {
             const prev = messages[i - 1];
             const next = messages[i + 1];
             const showDate = !prev || !sameDay(prev.created_at, msg.created_at);
-            const isMine = msg.sender_id === user?.id;
+            const isMine  = msg.sender_id === user?.id;
             const isFirst = !prev || !withinGroup(prev, msg);
-            const isLast = !next || !withinGroup(msg, next);
-            const gap = isFirst && i > 0 ? 'mt-3' : 'mt-0.5';
+            const isLast  = !next || !withinGroup(msg, next);
+            const mt = isFirst && i > 0 ? 12 : 2;
 
             return (
               <React.Fragment key={msg.id}>
                 {showDate && (
-                  <div className="flex justify-center my-4">
-                    <span
-                      className="text-[11px] font-semibold px-3 py-1 rounded-full"
-                      style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.4)' }}
-                    >
+                  <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0 8px' }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600,
+                      padding: '3px 12px', borderRadius: 20,
+                      background: C.surfaceHi, color: C.textMuted,
+                    }}>
                       {fmtDateLabel(msg.created_at)}
                     </span>
                   </div>
                 )}
-                <div className={gap}>
+                <div style={{ marginTop: mt }}>
                   <Bubble
                     msg={msg}
                     isMine={isMine}
@@ -379,7 +553,10 @@ export default function DMScreen() {
                     isLast={isLast}
                     onReply={setReplyTo}
                     onDeleteForMe={async (id) => { try { await deleteForMe(id); } catch { toast.error('Failed'); } }}
-                    onDeleteForEveryone={async (id) => { try { await deleteForEveryone(id); toast.success('Deleted for everyone'); } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); } }}
+                    onDeleteForEveryone={async (id) => {
+                      try { await deleteForEveryone(id); toast.success('Deleted for everyone'); }
+                      catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
+                    }}
                   />
                 </div>
               </React.Fragment>
@@ -398,55 +575,85 @@ export default function DMScreen() {
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
             onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
-            className="absolute right-4 bottom-[80px] w-10 h-10 rounded-full shadow-xl flex items-center justify-center z-10"
-            style={{ background: '#1C1C22', border: '1px solid rgba(255,255,255,0.1)' }}
+            style={{
+              position: 'absolute', right: 16, bottom: 90,
+              width: 40, height: 40, borderRadius: 20,
+              background: C.highest,
+              border: `1px solid ${C.outline}`,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', zIndex: 10,
+            }}
           >
-            <ChevronDown size={18} className="text-white/50" />
+            <ChevronDown size={18} style={{ color: C.textMuted }} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Reply preview */}
+      {/* ── Reply preview ─────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {replyTo && (
-          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}>
+          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} style={{ overflow: 'hidden', flexShrink: 0 }}>
             <ReplyBar msg={replyTo} isMe={replyTo.sender_id === user?.id} onClear={() => setReplyTo(null)} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Input bar ── */}
-      <div
-        className="flex items-end gap-2 px-3 py-2.5 safe-bottom"
-        style={{ background: '#111116', borderTop: '1px solid rgba(255,255,255,0.06)', paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}
-      >
-        <div
-          className="flex-1 flex items-end rounded-3xl overflow-hidden"
-          style={{ background: '#1C1C22', border: '1px solid rgba(255,255,255,0.08)' }}
-        >
+      {/* ── Input bar ────────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-end', gap: 10,
+        padding: '10px 14px',
+        paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
+        background: 'rgba(14,14,19,0.90)',
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        borderTop: `1px solid ${C.outline}`,
+        flexShrink: 0,
+      }}>
+        <div style={{
+          flex: 1, display: 'flex', alignItems: 'flex-end',
+          borderRadius: 24, overflow: 'hidden',
+          background: '#0A0A0F',
+          border: `1px solid ${C.outline}`,
+        }}>
           <textarea
             ref={inputRef}
             value={text}
-            onChange={(e) => { setText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px'; }}
+            onChange={(e) => {
+              setText(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px';
+            }}
             onKeyDown={handleKey}
-            placeholder="Message..."
+            placeholder="Type a message…"
             rows={1}
-            className="flex-1 bg-transparent px-4 py-2.5 text-[15px] text-white placeholder:text-white/25 outline-none leading-snug resize-none"
-            style={{ maxHeight: 110, minHeight: 40 }}
+            style={{
+              flex: 1, background: 'transparent',
+              padding: '10px 16px',
+              fontSize: 15, color: C.textPri,
+              outline: 'none', border: 'none', resize: 'none',
+              fontFamily: 'inherit', maxHeight: 110, minHeight: 40,
+              lineHeight: '22px',
+            }}
           />
         </div>
 
-        {/* Send / Mic */}
         <motion.button
           whileTap={{ scale: 0.88 }}
           onClick={text.trim() ? handleSend : undefined}
           disabled={sending}
-          className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 transition-colors disabled:opacity-50"
-          style={{ background: text.trim() ? ACCENT : 'rgba(255,255,255,0.07)' }}
+          style={{
+            width: 44, height: 44, borderRadius: 22, flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: 'none', cursor: text.trim() ? 'pointer' : 'default',
+            background: text.trim() ? C.primary : C.surfaceHi,
+            boxShadow: text.trim() ? `0 2px 12px ${C.primary}44` : 'none',
+            transition: 'background 0.2s, box-shadow 0.2s',
+            opacity: sending ? 0.5 : 1,
+          }}
         >
           {text.trim()
-            ? <Send size={17} style={{ color: '#06090D' }} />
-            : <Mic size={17} className="text-white/40" />
+            ? <Send size={17} style={{ color: '#FFFFFF' }} />
+            : <Mic size={17} style={{ color: C.textMuted }} />
           }
         </motion.button>
       </div>
