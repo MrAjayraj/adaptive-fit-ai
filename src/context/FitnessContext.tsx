@@ -179,6 +179,28 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
           fetchGamification(),
         ]);
 
+        // ── Auto-populate Google avatar if avatar_url is not set ──
+        if (dbProfile && !dbProfile.avatar_url) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const googleAvatar =
+            session?.user?.user_metadata?.avatar_url ||
+            session?.user?.user_metadata?.picture ||
+            null;
+          if (googleAvatar) {
+            (dbProfile as Record<string, unknown>).avatar_url = googleAvatar;
+            localStorage.setItem('fitai-avatar-url', googleAvatar);
+            // Persist asynchronously — don't block render
+            supabase
+              .from('user_profiles')
+              .update({ avatar_url: googleAvatar } as Record<string, unknown>)
+              .eq('id', (dbProfile as Record<string, unknown>).id as string)
+              .then(({ error }) => {
+                if (error) console.error('[Avatar] auto-populate failed:', error.message);
+                else console.log('[Avatar] Google avatar auto-populated ✓');
+              });
+          }
+        }
+
         setState(prev => {
           let next = { ...prev, weightLogs: logs, isLoading: false };
 
