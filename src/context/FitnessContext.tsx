@@ -187,13 +187,13 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
             session?.user?.user_metadata?.picture ||
             null;
           if (googleAvatar) {
-            (dbProfile as Record<string, unknown>).avatar_url = googleAvatar;
+            (dbProfile as unknown as Record<string, unknown>).avatar_url = googleAvatar;
             localStorage.setItem('fitai-avatar-url', googleAvatar);
             // Persist asynchronously — don't block render
             supabase
               .from('user_profiles')
               .update({ avatar_url: googleAvatar } as Record<string, unknown>)
-              .eq('id', (dbProfile as Record<string, unknown>).id as string)
+              .eq('id', (dbProfile as unknown as Record<string, unknown>).id as string)
               .then(({ error }) => {
                 if (error) console.error('[Avatar] auto-populate failed:', error.message);
                 else console.log('[Avatar] Google avatar auto-populated ✓');
@@ -362,6 +362,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         workout_days: profile.workoutDays,
         preferred_split: profile.preferredSplit,
         onboarding_complete: profile.onboardingComplete,
+        avatar_url: profile.avatarUrl,
       }).catch(err => {
         console.error("Failed to commit profile updates:", err);
         toast.error("Failed to sync profile", { description: err.message || "An error occurred while saving." });

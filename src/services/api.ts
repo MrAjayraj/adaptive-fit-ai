@@ -271,14 +271,20 @@ export async function uploadAvatar(file: File): Promise<string | null> {
   // Fallback: base64 in localStorage (guest mode or if Storage unavailable)
   return new Promise(resolve => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      try {
-        localStorage.setItem(AVATAR_LS_KEY, dataUrl);
-      } catch {
-        console.warn('localStorage quota exceeded, avatar not cached locally.');
+    reader.onload = async () => {
+      const b64 = reader.result as string;
+      localStorage.setItem(AVATAR_LS_KEY, b64);
+      
+      // Save base64 fallback to user_profiles
+      const existing = await fetchProfile();
+      if (existing) {
+        await supabase
+          .from('user_profiles')
+          .update({ avatar_url: b64 } as Record<string, unknown>)
+          .eq('id', existing.id);
       }
-      resolve(dataUrl);
+      
+      resolve(b64);
     };
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
