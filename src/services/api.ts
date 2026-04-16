@@ -229,32 +229,46 @@ export async function uploadAvatar(file: File): Promise<string | null> {
   // Try Supabase Storage first
   if (pathId) {
     try {
-      const ext = file.name.split('.').pop() || 'jpg';
-      const path = `avatars/${pathId}.${ext}`;
-      const { error } = await supabase.storage
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+      // Timestamp in path = unique per upload, busts CDN/browser cache when photo changes
+      const path = `avatars/${pathId}/${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
         .from('user-avatars')
-        .upload(path, file, { upsert: true, contentType: file.type });
+        .upload(path, file, { upsert: false, contentType: file.type });
 
-      if (!error) {
+      if (uploadError) {
+        console.error('[uploadAvatar] Storage error:', uploadError.message);
+      } else {
+        // Always use getPublicUrl — signed URLs expire and break on refresh
         const { data: urlData } = supabase.storage.from('user-avatars').getPublicUrl(path);
         const url = urlData?.publicUrl ?? null;
+        console.log('[uploadAvatar] Public URL:', url);
+
         if (url) {
           localStorage.setItem(AVATAR_LS_KEY, url);
-          // Persist to profile row
+
+          // Save URL to user_profiles row so it loads from DB on every session
           const existing = await fetchProfile();
           if (existing) {
-            await supabase
+            const { error: updateError } = await supabase
               .from('user_profiles')
               .update({ avatar_url: url } as Record<string, unknown>)
               .eq('id', existing.id);
+            if (updateError) {
+              console.error('[uploadAvatar] DB save error:', updateError.message);
+            } else {
+              console.log('[uploadAvatar] avatar_url persisted to user_profiles ✓');
+            }
           }
           return url;
         }
       }
-    } catch { /* fall through to base64 */ }
+    } catch (e) {
+      console.error('[uploadAvatar] Unexpected error:', e);
+    }
   }
 
-  // Fallback: store as base64 data URL in localStorage
+  // Fallback: base64 in localStorage (guest mode or if Storage unavailable)
   return new Promise(resolve => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -262,7 +276,6 @@ export async function uploadAvatar(file: File): Promise<string | null> {
       try {
         localStorage.setItem(AVATAR_LS_KEY, dataUrl);
       } catch {
-        // localStorage quota exceeded — skip caching, return the data URL anyway
         console.warn('localStorage quota exceeded, avatar not cached locally.');
       }
       resolve(dataUrl);

@@ -356,7 +356,10 @@ export default function Dashboard() {
           <div className="flex gap-4">
             <MagneticButton onClick={() => navigate('/profile')} className="relative">
               <div className="w-14 h-14 rounded-full bg-white/5 border-2 border-[#E2FF31] flex items-center justify-center overflow-hidden shadow-[0_0_15px_rgba(226,255,49,0.3)]">
-                <span className="text-xl font-black text-[#E2FF31]">{profile?.name?.charAt(0)?.toUpperCase() || 'A'}</span>
+                {profile?.avatarUrl
+                  ? <img src={profile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                  : <span className="text-xl font-black text-[#E2FF31]">{profile?.name?.charAt(0)?.toUpperCase() || 'A'}</span>
+                }
               </div>
             </MagneticButton>
             <div>

@@ -189,6 +189,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
             next.profile = {
               name: dbProfile.name,
               username: dbProfile.username ?? undefined,
+              avatarUrl: dbProfile.avatar_url ?? undefined,
+              bio: (row.bio as string | undefined) ?? undefined,
               age: dbProfile.age,
               gender: dbProfile.gender as UserProfile['gender'],
               weight: latestWeight ?? 70,
@@ -203,6 +205,10 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
               preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
               onboardingComplete: dbProfile.onboarding_complete,
             };
+            // Keep localStorage cache in sync with DB
+            if (dbProfile.avatar_url) {
+              localStorage.setItem('fitai-avatar-url', dbProfile.avatar_url);
+            }
           } else {
             // No DB profile — clear stale guest profile from localStorage state
             next.profile = null;
@@ -264,6 +270,8 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
       const profile: UserProfile = {
         name: dbProfile.name,
         username: dbProfile.username ?? undefined,
+        avatarUrl: dbProfile.avatar_url ?? undefined,
+        bio: (row.bio as string | undefined) ?? undefined,
         age: dbProfile.age,
         gender: dbProfile.gender as UserProfile['gender'],
         weight: latestWeight ?? 70,
@@ -278,6 +286,9 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         preferredSplit: dbProfile.preferred_split as UserProfile['preferredSplit'],
         onboardingComplete: dbProfile.onboarding_complete,
       };
+      if (dbProfile.avatar_url) {
+        localStorage.setItem('fitai-avatar-url', dbProfile.avatar_url);
+      }
       setState(prev => ({ ...prev, profile, weightLogs: logs }));
     }
   }, []);

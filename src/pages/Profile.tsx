@@ -320,7 +320,10 @@ export default function Profile() {
   const [logBodyFat, setLogBodyFat] = useState('');
   const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [logIdToEdit, setLogIdToEdit] = useState<string | null>(null);
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(getCachedAvatarUrl);
+  // Source of truth: DB profile.avatarUrl, then localStorage cache
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(
+    () => profile?.avatarUrl ?? getCachedAvatarUrl()
+  );
   const [unitPref, setUnitPref] = useState<'metric' | 'imperial'>('metric');
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -443,8 +446,14 @@ export default function Profile() {
     setIsUploadingAvatar(true);
     try {
       const url = await uploadAvatar(file);
-      if (url) { setAvatarUrl(url); toast.success('Avatar updated'); }
-      else toast.error('Failed to upload avatar');
+      if (url) {
+        setAvatarUrl(url);
+        // Propagate to global context so Dashboard + BottomNav update immediately
+        if (profile) setProfile({ ...profile, avatarUrl: url });
+        toast.success('Avatar updated!');
+      } else {
+        toast.error('Upload failed — check that the storage bucket is set to Public');
+      }
     } catch {
       toast.error('Failed to upload avatar');
     } finally {

@@ -8,6 +8,8 @@ export type ActivityLevel = 'sedentary' | 'lightly_active' | 'moderately_active'
 export interface UserProfile {
   name: string;
   username?: string;
+  avatarUrl?: string;   // persisted DB URL — source of truth across all screens
+  bio?: string;
   age: number;
   gender: Gender;
   weight: number; // kg — latest from weight_logs or onboarding
