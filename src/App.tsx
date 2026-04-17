@@ -73,6 +73,7 @@ const Social        = lazy(() => import('./pages/Social'));
 const DebugPanel    = lazy(() => import('./pages/DebugPanel'));
 const DMScreen      = lazy(() => import('./components/social/DMScreen'));
 const ConversationsScreen = lazy(() => import('./components/social/ConversationsScreen'));
+const Notifications = lazy(() => import('./pages/Notifications'));
 
 // ── Suspense fallback ─────────────────────────────────────────────────────────
 function PageLoader() {
@@ -147,6 +148,7 @@ const App = () => (
                   <Route path="/messages"     element={<ProtectedRoute><ConversationsScreen /></ProtectedRoute>} />
                   <Route path="/chat/:friendId" element={<ProtectedRoute><DMScreen /></ProtectedRoute>} />
                   <Route path="/debug"        element={<ProtectedRoute><DebugPanel /></ProtectedRoute>} />
+                  <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />

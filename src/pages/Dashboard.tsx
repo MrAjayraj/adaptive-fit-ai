@@ -12,6 +12,7 @@ import BottomNav from '@/components/layout/BottomNav';
 import DailyMissions from '@/components/gamification/DailyMissions';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { upsertTodaySteps } from '@/services/api';
+import { useNotifications } from '@/hooks/useNotifications';
 
 const CATEGORIES = ['All', 'Chest', 'Arms', 'Back', 'Legs', 'Shoulders', 'Core'];
 
@@ -310,6 +311,8 @@ export default function Dashboard() {
     missionsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const { notifications: notifs, unreadCount } = useNotifications();
+
   const bmr = profile ? calculateBMR(profile.weight, profile.height, profile.age, profile.gender, profile.bodyFat) : 0;
   const calories = profile ? calculateFullCalories(bmr, profile.goal, profile.activityLevel) : null;
 
@@ -376,17 +379,17 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <MagneticButton
-            onClick={scrollToMissions}
+          <button
+            onClick={() => navigate('/notifications')}
             className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center relative shadow-[0_4px_10px_rgba(0,0,0,0.3)] backdrop-blur-md"
           >
             <Bell className="w-5 h-5 text-white/80" strokeWidth={2} />
-            {incompleteMissions > 0 && (
-              <span className="absolute top-0 right-0 w-4 h-4 bg-[#FFB800] rounded-full border-2 border-[#050505] flex items-center justify-center shadow-[0_0_10px_rgba(255,184,0,0.5)]">
-                <span className="text-[8px] font-black text-black leading-none">{incompleteMissions}</span>
+            {unreadCount > 0 && (
+              <span className="absolute top-0 right-0 w-4 h-4 bg-[#F5C518] rounded-full border-2 border-[#050505] flex items-center justify-center shadow-[0_0_10px_rgba(245,197,24,0.5)]">
+                <span className="text-[8px] font-black text-black leading-none">{unreadCount > 9 ? '9+' : unreadCount}</span>
               </span>
             )}
-          </MagneticButton>
+          </button>
         </motion.div>
 
         {/* ── 2. RANK BADGE CARD ────────────────────────────────────── */}

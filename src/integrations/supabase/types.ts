@@ -256,6 +256,72 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          id: string
+          is_read: boolean
+          message: string
+          ref_id: string | null
+          type: string
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message: string
+          ref_id?: string | null
+          type?: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          message?: string
+          ref_id?: string | null
+          type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      personal_records: {
+        Row: {
+          exercise: string
+          id: string
+          notes: string | null
+          set_at: string
+          unit: string
+          user_id: string
+          value: number
+          workout_id: string | null
+        }
+        Insert: {
+          exercise: string
+          id?: string
+          notes?: string | null
+          set_at?: string
+          unit?: string
+          user_id: string
+          value: number
+          workout_id?: string | null
+        }
+        Update: {
+          exercise?: string
+          id?: string
+          notes?: string | null
+          set_at?: string
+          unit?: string
+          user_id?: string
+          value?: number
+          workout_id?: string | null
+        }
+        Relationships: []
+      }
       user_achievements: {
         Row: {
           achievement_id: string
