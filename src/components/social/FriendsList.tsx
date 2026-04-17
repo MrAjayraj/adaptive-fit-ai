@@ -1,7 +1,7 @@
 // src/components/social/FriendsList.tsx
 import React, { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, UserPlus, Check, X, Clock, UserMinus, Shield, AlertCircle, MessageCircle } from 'lucide-react';
+import { Search, UserPlus, Check, X, Clock, UserMinus, Shield, AlertCircle, MessageCircle, MoreVertical } from 'lucide-react';
 import { useFriends } from '@/hooks/useFriends';
 import type { UserProfileSummary, Friendship } from '@/types/social';
 import { toast } from 'sonner';
@@ -12,9 +12,9 @@ function Avatar({ src, name, size = 40 }: { src: string | null; name: string; si
   if (src) {
     return (
       <img
-        src={src}
         alt={name}
         className="rounded-[14px] object-cover flex-shrink-0"
+        style={{ width: size, height: size, aspectRatio: '1/1' }}
       />
     );
   }
@@ -64,16 +64,20 @@ function FriendRow({
 }: {
   friendship: Friendship;
   onRemove: (id: string) => void;
-  onMessage: (userId: string) => void;
+  onMessage: (userId: string, name: string) => void;
 }) {
   const p = friendship.friend_profile;
   if (!p) return null;
+  const [menuOpen, setMenuOpen] = React.useState(false);
+
   return (
     <motion.div 
       initial={{ opacity: 0, y: 5 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
-      className="flex items-center gap-4 py-3 px-2 border-b border-white/5 last:border-b-0"
+      whileHover={{ backgroundColor: 'rgba(255,255,255,0.02)' }}
+      className="flex items-center gap-4 py-3 px-2 border-b border-white/5 last:border-b-0 cursor-pointer relative"
+      onClick={() => onMessage(p.user_id, p.name)}
     >
       <Avatar src={p.avatar_url} name={p.name} size={48} />
       <div className="flex-1 min-w-0 flex flex-col justify-center">
@@ -81,27 +85,50 @@ function FriendRow({
           <p className="text-[16px] font-semibold text-text-1 truncate">{p.name}</p>
           <RankBadge tier={p.rank_tier ?? undefined} division={p.rank_division ?? undefined} />
         </div>
-        {p.username && <p className="text-[13px] text-text-3 font-medium truncate mt-0.5">@{p.username}</p>}
+        <p className="text-[12px] text-text-3 font-medium truncate mt-0.5">Active recently</p>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 relative" onClick={(e) => e.stopPropagation()}>
         <motion.button
           whileHover={{ scale: 1.05, backgroundColor: 'rgba(0,230,118,0.1)' }}
           whileTap={{ scale: 0.9 }}
-          onClick={() => onMessage(p.user_id)}
+          onClick={(e) => { e.stopPropagation(); onMessage(p.user_id, p.name); }}
           className="p-2.5 rounded-full text-text-3 hover:text-[#00E676] transition-colors"
           title="Send message"
         >
           <MessageCircle size={18} />
         </motion.button>
         <motion.button
-          whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,107,107,0.1)' }}
+          whileHover={{ scale: 1.05, backgroundColor: 'rgba(255,255,255,0.1)' }}
           whileTap={{ scale: 0.9 }}
-          onClick={() => onRemove(friendship.id)}
-          className="p-2.5 rounded-full text-text-3 hover:text-red-400 transition-colors"
-          title="Remove friend"
+          onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+          className="p-2.5 rounded-full text-text-3 hover:text-white transition-colors"
+          title="Options"
         >
-          <UserMinus size={18} />
+          <MoreVertical size={18} />
         </motion.button>
+
+        <AnimatePresence>
+          {menuOpen && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: -4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: -4 }}
+              transition={{ duration: 0.15 }}
+              className="absolute top-full right-0 mt-2 bg-[#1C2429] border border-white/10 rounded-xl shadow-2xl z-50 min-w-[150px] overflow-hidden"
+            >
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen(false);
+                  onRemove(friendship.id);
+                }}
+                className="w-full text-left px-4 py-3 text-[13px] font-medium text-[#FF6B6B] hover:bg-white/5 transition-colors"
+              >
+                Remove Friend
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </motion.div>
   );
@@ -130,7 +157,6 @@ function PendingIncomingRow({
       <Avatar src={avatar} name={name} size={48} />
       <div className="flex-1 min-w-0">
         <p className="text-[16px] font-semibold text-text-1 truncate">{name}</p>
-        {username && <p className="text-[13px] text-text-3 font-medium truncate mt-0.5">@{username}</p>}
       </div>
       <div className="flex gap-2">
         <motion.button
@@ -173,7 +199,6 @@ function PendingOutgoingRow({
       <Avatar src={p.avatar_url} name={p.name} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-medium text-text-1 truncate">{p.name}</p>
-        {p.username && <p className="text-[13px] text-text-2 truncate">@{p.username}</p>}
       </div>
       <div className="flex items-center gap-2">
         <span className="text-[11px] text-text-3 flex items-center gap-1">
@@ -210,7 +235,6 @@ function SearchResultRow({
       <Avatar src={profile.avatar_url} name={profile.name} size={48} />
       <div className="flex-1 min-w-0">
         <p className="text-[16px] font-semibold text-text-1 truncate">{profile.name}</p>
-        {profile.username && <p className="text-[13px] text-text-3 font-medium truncate mt-0.5">@{profile.username}</p>}
       </div>
       {alreadyFriend ? (
         <span className="text-[12px] text-[#00E676] flex items-center gap-1 font-semibold">
@@ -328,8 +352,8 @@ export default function FriendsList() {
 
   void handleBlock; // available but only called from context menus, suppress lint
 
-  const handleMessage = (userId: string) => {
-    navigate(`/chat/${userId}`);
+  const handleMessage = (userId: string, name?: string) => {
+    navigate(`/chat/${userId}`, { state: { friendName: name } });
   };
 
   return (

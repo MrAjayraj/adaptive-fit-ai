@@ -1,7 +1,7 @@
 // src/components/social/DMScreen.tsx
 // WhatsApp-quality private chat — Kinetic Pulse design system
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Flame, Dumbbell, MoreVertical, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
@@ -16,6 +16,7 @@ import WorkoutShareCard from './WorkoutShareCard';
 import type { Reaction } from './MessageReactions';
 import { ReactionPicker } from './MessageReactions';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 // ─── Design tokens ─────────────────────────────────────────────────────────────
 const ACCENT       = '#0CFF9C';
@@ -223,8 +224,10 @@ function CtxItem({
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function DMScreen() {
   const { friendId = '' } = useParams<{ friendId: string }>();
-  const navigate           = useNavigate();
-  const { user }           = useAuth();
+  const navigate   = useNavigate();
+  const location   = useLocation();
+  const routeFriendName = location.state?.friendName;
+  const { user }   = useAuth();
   // useFitness available for future workout-share feature
   const _fitness           = useFitness();
 
@@ -346,14 +349,22 @@ export default function DMScreen() {
   }, [text, replyTo, sendMessage]);
 
   // ── Workout share placeholder ──────────────────────────────────────────────
+  const [isSharing, setIsSharing] = useState(false);
   const handleShareWorkout = useCallback(() => {
-    // Toast via browser alert-style; swap for sonner/toast if available
-    const event = new CustomEvent('dm:toast', {
-      detail: { message: 'Workout sharing coming soon' },
+    setIsSharing(true);
+    // Add loading + success state stub
+    const promise = new Promise((resolve) => setTimeout(resolve, 800));
+    toast.promise(promise, {
+      loading: 'Preparing workout data...',
+      success: () => {
+        setIsSharing(false);
+        return 'Workout sharing coming soon!';
+      },
+      error: () => {
+        setIsSharing(false);
+        return 'Failed to share';
+      }
     });
-    window.dispatchEvent(event);
-    // Fallback: console so feature is always visible in dev
-    console.info('[DMScreen] Workout sharing coming soon');
   }, []);
 
   // ── Context menu helpers ───────────────────────────────────────────────────
@@ -372,7 +383,7 @@ export default function DMScreen() {
     Date.now() - new Date(contextMsg.msg.created_at).getTime() < 3_600_000;
 
   // ── Friend display name ────────────────────────────────────────────────────
-  const friendName = friendProfile?.name ?? 'User';
+  const friendName = friendProfile?.name ?? routeFriendName ?? 'User';
 
   // ──────────────────────────────────────────────────────────────────────────
   return (
@@ -646,6 +657,7 @@ export default function DMScreen() {
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={handleShareWorkout}
+          disabled={isSharing}
           style={{
             display:     'flex',
             alignItems:  'center',
@@ -654,9 +666,11 @@ export default function DMScreen() {
             borderRadius: 20,
             background:  SURFACE_UP,
             border:      '1px solid rgba(255,255,255,0.06)',
-            cursor:      'pointer',
+            cursor:      isSharing ? 'default' : 'pointer',
             outline:     'none',
             fontFamily:  'inherit',
+            opacity:     isSharing ? 0.5 : 1,
+            pointerEvents: isSharing ? 'none' : 'auto',
           }}
         >
           <Dumbbell size={14} color={ACCENT} />
@@ -676,6 +690,7 @@ export default function DMScreen() {
         <motion.button
           whileTap={{ scale: 0.96 }}
           onClick={handleShareWorkout}
+          disabled={isSharing}
           style={{
             display:     'flex',
             alignItems:  'center',
@@ -684,9 +699,11 @@ export default function DMScreen() {
             borderRadius: 20,
             background:  SURFACE_UP,
             border:      '1px solid rgba(255,255,255,0.06)',
-            cursor:      'pointer',
+            cursor:      isSharing ? 'default' : 'pointer',
             outline:     'none',
             fontFamily:  'inherit',
+            opacity:     isSharing ? 0.5 : 1,
+            pointerEvents: isSharing ? 'none' : 'auto',
           }}
         >
           <Flame size={14} color={ACCENT} />
@@ -784,6 +801,8 @@ export default function DMScreen() {
         value={text}
         onChange={setText}
         onSend={handleSend}
+        onAttach={handleShareWorkout}
+        disabled={isSharing}
         placeholder="Message…"
       />
 

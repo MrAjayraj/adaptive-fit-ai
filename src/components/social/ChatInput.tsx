@@ -1,6 +1,6 @@
 import React, { useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Send, Mic } from 'lucide-react';
+import { Plus, Send } from 'lucide-react';
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const ACCENT = '#0CFF9C';
@@ -139,12 +139,12 @@ const ChatInput: React.FC<ChatInputProps> = ({
               }}
             />
 
-            {/* ── Send / Mic button (absolute inside textarea container) ── */}
+            {/* ── Send button (absolute inside textarea container) ── */}
             <motion.button
               whileTap={{ scale: 0.88 }}
               onClick={() => { if (hasText && !disabled) triggerSend(); }}
-              disabled={disabled}
-              aria-label={hasText ? 'Send message' : 'Voice input'}
+              disabled={disabled || !hasText}
+              aria-label={'Send message'}
               style={{
                 position: 'absolute',
                 right: 6,
@@ -152,22 +152,18 @@ const ChatInput: React.FC<ChatInputProps> = ({
                 width: 36,
                 height: 36,
                 borderRadius: '50%',
-                background: hasText ? ACCENT : SURFACE_UP,
-                border: hasText ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                background: hasText ? ACCENT : 'rgba(255,255,255,0.02)',
+                border: hasText ? 'none' : '1px solid rgba(255,255,255,0.04)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: disabled ? 'default' : 'pointer',
+                cursor: (disabled || !hasText) ? 'default' : 'pointer',
                 outline: 'none',
-                transition: 'background 200ms ease',
+                transition: 'all 200ms ease',
                 flexShrink: 0,
               }}
             >
-              {hasText ? (
-                <Send size={16} color="#0C1015" />
-              ) : (
-                <Mic size={16} color={T3} />
-              )}
+              <Send size={16} color={hasText ? "#0C1015" : T3} />
             </motion.button>
           </div>
         </div>

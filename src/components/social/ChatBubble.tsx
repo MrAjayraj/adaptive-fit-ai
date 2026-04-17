@@ -124,11 +124,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     : '1px solid rgba(255,255,255,0.06)';
 
   const bubbleStyle: React.CSSProperties = {
-    maxWidth:        '78%',
+    maxWidth:        '100%',
     background:      bubbleBackground,
     border:          bubbleBorder,
     borderRadius:    buildBorderRadius(isMine, isFirst, isLast),
-    padding:         msg.message_type === 'workout_share' ? '6px' : '8px 12px',
+    padding:         msg.message_type === 'workout_share' ? '6px' : '10px 12px',
     color:           T1,
     fontSize:        14,
     lineHeight:      1.45,
@@ -136,14 +136,15 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
     userSelect:      'none',
     WebkitUserSelect:'none',
     position:        'relative',
-    wordBreak:       'break-word',
+    overflowWrap:    'break-word',
+    wordBreak:       'normal',
   };
 
   const columnStyle: React.CSSProperties = {
     display:       'flex',
     flexDirection: 'column',
     alignItems:    isMine ? 'flex-end' : 'flex-start',
-    maxWidth:      '78%',
+    maxWidth:      '70%',
   };
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -238,7 +239,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
             <div
               style={{
                 display:        'flex',
-                justifyContent: isMine ? 'flex-end' : 'flex-start',
+                justifyContent: 'flex-end',
                 alignItems:     'center',
                 gap:            3,
                 marginTop:      4,
