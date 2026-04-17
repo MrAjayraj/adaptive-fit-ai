@@ -208,33 +208,43 @@ export default function Social() {
             marginBottom: 12,
           }}
         >
-          {/* Left: logo + wordmark */}
+          {/* Left: user avatar + name */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div
               style={{
-                width: 28,
-                height: 28,
+                width: 32,
+                height: 32,
                 borderRadius: '50%',
                 background: GREEN_GLOW,
                 border: `1px solid ${GREEN_BORDER}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                overflow: 'hidden',
                 flexShrink: 0,
               }}
             >
-              <Users size={14} color={ACCENT} />
+              {profile?.avatar_url ? (
+                <img 
+                  src={profile.avatar_url} 
+                  alt="avatar" 
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                <span style={{ fontSize: 13, fontWeight: 800, color: ACCENT }}>
+                  {profile?.name?.charAt(0)?.toUpperCase() || 'U'}
+                </span>
+              )}
             </div>
             <span
               style={{
-                fontSize: 15,
+                fontSize: 16,
                 fontWeight: 800,
-                color: ACCENT,
-                letterSpacing: '0.12em',
-                textTransform: 'uppercase',
+                color: T1,
+                letterSpacing: '0.04em',
               }}
             >
-              FIT PULSE
+              {profile?.name || 'User'}
             </span>
           </div>
 
@@ -478,6 +488,35 @@ export default function Social() {
                     ))
                   )}
                 </div>
+
+                {/* FRIENDS section */}
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.1 }}
+                  style={{ padding: '24px 16px 0' }}
+                >
+                  <p
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 700,
+                      color: T1,
+                      marginBottom: 10,
+                    }}
+                  >
+                    Friends
+                  </p>
+                  <div style={{
+                    background: 'rgba(255,255,255,0.02)',
+                    backdropFilter: 'blur(16px)',
+                    WebkitBackdropFilter: 'blur(16px)',
+                    border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: 20,
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                  }}>
+                    <FriendsList />
+                  </div>
+                </motion.div>
 
                 {/* RECENT ACTIVITY section */}
                 <div>

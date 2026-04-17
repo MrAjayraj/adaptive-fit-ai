@@ -5,6 +5,7 @@ import { Search, UserPlus, Check, X, Clock, UserMinus, Shield, AlertCircle, Mess
 import { useFriends } from '@/hooks/useFriends';
 import type { UserProfileSummary, Friendship } from '@/types/social';
 import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
 
 function Avatar({ src, name, size = 40 }: { src: string | null; name: string; size?: number }) {
   const initials = name.split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
@@ -57,7 +58,12 @@ function FriendRow({
   const p = friendship.friend_profile;
   if (!p) return null;
   return (
-    <div className="flex items-center gap-3 py-3 px-1">
+    <motion.div 
+      initial={{ opacity: 0, y: 5 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+      className="flex items-center gap-3 py-3 px-1"
+    >
       <Avatar src={p.avatar_url} name={p.name} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-medium text-text-1 truncate">{p.name}</p>
@@ -65,22 +71,24 @@ function FriendRow({
         <RankBadge tier={p.rank_tier ?? undefined} division={p.rank_division ?? undefined} />
       </div>
       <div className="flex items-center gap-1">
-        <button
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           onClick={() => onMessage(p.user_id)}
           className="p-2 rounded-[10px] text-text-3 hover:text-primary hover:bg-primary/10 transition-colors"
           title="Send message"
         >
           <MessageCircle size={16} />
-        </button>
-        <button
+        </motion.button>
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           onClick={() => onRemove(friendship.id)}
           className="p-2 rounded-[10px] text-text-3 hover:text-red-400 hover:bg-red-400/10 transition-colors"
           title="Remove friend"
         >
           <UserMinus size={16} />
-        </button>
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -98,7 +106,12 @@ function PendingIncomingRow({
   const username = p?.username;
   const avatar = p?.avatar_url ?? null;
   return (
-    <div className="flex items-center gap-3 py-3 px-1">
+    <motion.div 
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="flex items-center gap-3 py-3 px-1"
+    >
       <Avatar src={avatar} name={name} size={44} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-semibold text-text-1 truncate">{name}</p>
@@ -106,22 +119,24 @@ function PendingIncomingRow({
         <p className="text-[11px] text-text-3 mt-0.5">Wants to be your friend</p>
       </div>
       <div className="flex gap-2">
-        <button
+        <motion.button
+          whileTap={{ scale: 0.95 }}
           onClick={() => onAccept(friendship.id)}
-          className="flex items-center gap-1 px-3 py-1.5 rounded-[10px] bg-[#00E676] text-[#06090D] text-[13px] font-bold hover:bg-[#00E676]/90 transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 rounded-[10px] bg-[#00E676] text-[#06090D] text-[13px] font-bold hover:bg-[#00E676]/90 transition-colors shadow-[0_0_12px_rgba(0,230,118,0.3)]"
           title="Accept"
         >
-          <Check size={13} /> Accept
-        </button>
-        <button
+          <Check size={13} strokeWidth={3} /> Accept
+        </motion.button>
+        <motion.button
+          whileTap={{ scale: 0.95 }}
           onClick={() => onDecline(friendship.id)}
           className="flex items-center gap-1 px-3 py-1.5 rounded-[10px] border border-red-400/40 text-red-400 text-[13px] font-semibold hover:bg-red-400/10 transition-colors"
           title="Decline"
         >
           <X size={13} /> Decline
-        </button>
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -135,7 +150,12 @@ function PendingOutgoingRow({
   const p = friendship.friend_profile;
   if (!p) return null;
   return (
-    <div className="flex items-center gap-3 py-3 px-1">
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      className="flex items-center gap-3 py-3 px-1"
+    >
       <Avatar src={p.avatar_url} name={p.name} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-medium text-text-1 truncate">{p.name}</p>
@@ -145,15 +165,16 @@ function PendingOutgoingRow({
         <span className="text-[11px] text-text-3 flex items-center gap-1">
           <Clock size={11} /> Pending
         </span>
-        <button
+        <motion.button
+          whileTap={{ scale: 0.9 }}
           onClick={() => onCancel(friendship.id)}
           className="p-1.5 rounded-[8px] text-text-3 hover:text-red-400 hover:bg-red-400/10 transition-colors"
           title="Cancel request"
         >
           <X size={14} />
-        </button>
+        </motion.button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -167,7 +188,11 @@ function SearchResultRow({
   alreadyFriend: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 py-3 px-1">
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center gap-3 py-3 px-1"
+    >
       <Avatar src={profile.avatar_url} name={profile.name} />
       <div className="flex-1 min-w-0">
         <p className="text-[15px] font-medium text-text-1 truncate">{profile.name}</p>
@@ -179,14 +204,15 @@ function SearchResultRow({
           <Check size={12} /> Friends
         </span>
       ) : (
-        <button
+        <motion.button
+          whileTap={{ scale: 0.95 }}
           onClick={() => onAdd(profile.user_id)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-[10px] bg-primary/15 text-primary text-[13px] font-semibold hover:bg-primary/25 transition-colors"
         >
           <UserPlus size={13} /> Add
-        </button>
+        </motion.button>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -370,9 +396,11 @@ export default function FriendsList() {
         </div>
       ) : (
         <div className="divide-y divide-border-subtle">
-          {friends.map((f) => (
-            <FriendRow key={f.id} friendship={f} onRemove={handleRemove} onMessage={handleMessage} />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {friends.map((f) => (
+              <FriendRow key={f.id} friendship={f} onRemove={handleRemove} onMessage={handleMessage} />
+            ))}
+          </AnimatePresence>
         </div>
       )}
     </div>
