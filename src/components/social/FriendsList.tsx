@@ -392,6 +392,7 @@ export default function FriendsList() {
           </AnimatePresence>
         </div>
       )}
+      </div>
 
       {/* Incoming requests — moved below friends list */}
       {pendingIncoming.length > 0 && (
