@@ -20,6 +20,18 @@ export default {
         body: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
       },
       colors: {
+        // ── Kinetic Pulse Design System ──────────────────────────
+        pulse: {
+          green:        '#0CFF9C',
+          'green-soft': '#5AE0B2',
+          danger:       '#FF4B2B',
+          bg:           '#0C1015',
+          surface:      '#141A1F',
+          'surface-up': '#1C2429',
+          t1:           '#EAEEF2',
+          t2:           '#8899AA',
+          t3:           '#4A5568',
+        },
         // ── Fit Pulse Design System ─────────────────────────────
         canvas:       "#111113",        // True charcoal base
         "surface-1":  "#1C1C1E",        // Primary card surface

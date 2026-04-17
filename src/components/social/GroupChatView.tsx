@@ -1,559 +1,985 @@
-// src/components/social/GroupChatView.tsx — WhatsApp-quality group chat
-import React, { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'react';
+// src/components/social/GroupChatView.tsx — WhatsApp-quality group chat (Kinetic Pulse)
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Pin, Users, X, Info, ChevronDown, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  ArrowLeft, Send, Mic, Reply, Copy, Trash2, X,
-  MoreVertical, Phone, Video, Info, Users, Crown, Shield,
-  User as UserIcon, RefreshCw, Globe, Lock, AlertTriangle,
-  Check, ChevronDown,
-} from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
-import { toast } from 'sonner';
-import type { Group, GroupMember } from '@/types/social';
-import {
-  fetchGroupMessages, sendGroupMessage, fetchGroupMembers,
-  updateGroup, regenerateInviteCode, transferOwnership,
-  removeMemberFromGroup, deleteGroup, leaveGroup as svcLeaveGroup,
-  type GroupMessageRow,
-} from '@/services/socialService';
+import { useGroupChat } from '@/hooks/useGroupChat';
+import { useGroups } from '@/hooks/useGroups';
 import Avatar from '@/components/shared/Avatar';
+import ChatBubble from './ChatBubble';
+import type { BubbleMessage } from './ChatBubble';
+import ChatInput from './ChatInput';
+import type { Reaction } from './MessageReactions';
+import { ReactionPicker } from './MessageReactions';
+import type { Group, GroupMessage } from '@/types/social';
+import { supabase } from '@/integrations/supabase/client';
 
-const ACCENT = '#00E676';
+// ─── Design tokens ─────────────────────────────────────────────────────────────
+const ACCENT     = '#0CFF9C';
+const BG         = '#0C1015';
+const SURFACE    = '#141A1F';
+const SURFACE_UP = '#1C2429';
+const T1         = '#EAEEF2';
+const T2         = '#8899AA';
+const T3         = '#4A5568';
 
-// ─── Time helpers ─────────────────────────────────────────────────────────────
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// ─── Props ─────────────────────────────────────────────────────────────────────
+interface GroupChatViewProps {
+  group: Group;
+  onClose: () => void;
 }
-function fmtDateLabel(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const yest = new Date(now); yest.setDate(now.getDate() - 1);
-  if (d.toDateString() === now.toDateString()) return 'Today';
-  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
-}
-function sameDay(a: string, b: string) { return new Date(a).toDateString() === new Date(b).toDateString(); }
-function withinGroup(a: GroupMessageRow, b: GroupMessageRow) {
-  if (a.sender_id !== b.sender_id) return false;
+
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+function withinGroup(a: GroupMessage, b: GroupMessage) {
+  if (a.user_id !== b.user_id) return false;
   return Math.abs(new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) < 2 * 60 * 1000;
 }
 
-// ─── Context menu ─────────────────────────────────────────────────────────────
-interface MenuItem { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }
-function CtxMenu({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
-  useEffect(() => {
-    const h = () => onClose();
-    const t = setTimeout(() => document.addEventListener('mousedown', h), 10);
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', h); };
-  }, [onClose]);
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.92, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.92, y: 8 }}
-      transition={{ duration: 0.15 }}
-      onClick={(e) => e.stopPropagation()}
-      className="absolute z-50 rounded-[14px] overflow-hidden shadow-2xl py-1 min-w-[170px]"
-      style={{ background: '#1C1C20', border: '1px solid rgba(255,255,255,0.1)', bottom: '100%', marginBottom: 8, right: 0 }}
-    >
-      {items.map((item, i) => (
-        <button key={i} onClick={() => { item.onClick(); onClose(); }}
-          className="flex items-center gap-3 w-full px-4 py-2.5 text-[14px] font-medium hover:bg-white/5"
-          style={{ color: item.danger ? '#EF4444' : '#FAFAFA' }}>
-          {item.icon}{item.label}
-        </button>
-      ))}
-    </motion.div>
-  );
+function sameDay(a: string, b: string) {
+  return new Date(a).toDateString() === new Date(b).toDateString();
 }
 
-// ─── Message bubble ───────────────────────────────────────────────────────────
-function GroupBubble({
-  msg, isMine, isFirst, isLast, onReply,
-}: {
-  msg: GroupMessageRow; isMine: boolean; isFirst: boolean; isLast: boolean; onReply: (m: GroupMessageRow) => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDeleted = msg.is_deleted;
-  const name = msg.sender_profile?.name ?? 'Unknown';
-  const myBR = { borderRadius: '18px', borderTopRightRadius: isFirst ? '18px' : '6px', borderBottomRightRadius: isLast ? '4px' : '6px' };
-  const theirBR = { borderRadius: '18px', borderTopLeftRadius: isFirst ? '18px' : '6px', borderBottomLeftRadius: isLast ? '4px' : '6px' };
+function fmtDateLabel(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return 'TODAY';
+  if (d.toDateString() === yest.toDateString()) return 'YESTERDAY';
+  return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
+}
 
-  const menuItems: MenuItem[] = [
-    { icon: <Reply size={15} />, label: 'Reply', onClick: () => onReply(msg) },
-    !isDeleted && { icon: <Copy size={15} />, label: 'Copy', onClick: () => { navigator.clipboard.writeText(msg.content); toast.success('Copied'); } },
-  ].filter(Boolean) as MenuItem[];
+function toBubble(m: GroupMessage): BubbleMessage {
+  return {
+    id: m.id,
+    content: m.message,
+    message_type: (m as any).message_type ?? 'text',
+    metadata: (m as any).metadata ?? {},
+    created_at: m.created_at,
+    sender_id: m.user_id,
+    sender_profile: m.user_profile
+      ? {
+          user_id: m.user_profile.user_id,
+          name: m.user_profile.name,
+          avatar_url: m.user_profile.avatar_url,
+        }
+      : undefined,
+  };
+}
 
+// ─── Date separator ────────────────────────────────────────────────────────────
+function DateSeparator({ label }: { label: string }) {
   return (
-    <div className={`flex items-end gap-1.5 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-      {/* Avatar (theirs only, last in group) */}
-      {!isMine && (
-        isLast
-          ? <Avatar src={msg.sender_profile?.avatar_url} name={name} size={26} className="mb-0.5 flex-shrink-0" />
-          : <div style={{ width: 26, flexShrink: 0 }} />
-      )}
-
-      <div className="relative max-w-[75%] group">
-        {/* Sender name (first in group, not mine) */}
-        {!isMine && isFirst && (
-          <p className="text-[11px] font-bold mb-1 px-1" style={{ color: ACCENT }}>{name}</p>
-        )}
-
-        <div
-          className="px-3.5 py-2.5 cursor-pointer select-none"
-          style={{
-            ...(isMine ? myBR : theirBR),
-            background: isDeleted ? 'rgba(255,255,255,0.05)' : isMine ? 'rgba(0,230,118,0.15)' : '#1C1C22',
-          }}
-          onMouseDown={() => { holdRef.current = setTimeout(() => setMenuOpen(true), 500); }}
-          onMouseUp={() => { if (holdRef.current) clearTimeout(holdRef.current); }}
-          onMouseLeave={() => { if (holdRef.current) clearTimeout(holdRef.current); }}
-          onTouchStart={() => { holdRef.current = setTimeout(() => setMenuOpen(true), 500); }}
-          onTouchEnd={() => { if (holdRef.current) clearTimeout(holdRef.current); }}
-        >
-          <p
-            className="text-[15px] leading-snug whitespace-pre-wrap break-words"
-            style={{ color: isDeleted ? 'rgba(255,255,255,0.3)' : '#FAFAFA', fontStyle: isDeleted ? 'italic' : undefined }}
-          >
-            {isDeleted ? 'This message was deleted' : msg.content}
-          </p>
-          {isLast && (
-            <p className={`text-[10px] mt-1 ${isMine ? 'text-right' : 'text-left'}`} style={{ color: 'rgba(255,255,255,0.3)' }}>
-              {fmtTime(msg.created_at)}
-            </p>
-          )}
-        </div>
-
-        {/* Hover menu */}
-        {!isDeleted && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(true); }}
-            className={`absolute top-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full ${isMine ? 'left-[-28px]' : 'right-[-28px]'}`}
-            style={{ background: '#1C1C22', border: '1px solid rgba(255,255,255,0.08)' }}
-          >
-            <MoreVertical size={13} className="text-white/40" />
-          </button>
-        )}
-        <AnimatePresence>
-          {menuOpen && <CtxMenu items={menuItems} onClose={() => setMenuOpen(false)} />}
-        </AnimatePresence>
-      </div>
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'center',
+        margin: '12px 0',
+      }}
+    >
+      <span
+        style={{
+          background: SURFACE_UP,
+          color: T3,
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: '0.08em',
+          padding: '4px 12px',
+          borderRadius: 20,
+        }}
+      >
+        {label}
+      </span>
     </div>
   );
 }
 
-// ─── Chat panel ───────────────────────────────────────────────────────────────
-function ChatPanel({ group }: { group: Group }) {
-  const { user } = useAuth();
-  const [messages, setMessages] = useState<GroupMessageRow[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [text, setText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [replyTo, setReplyTo] = useState<GroupMessageRow | null>(null);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const loadRef = useRef<(() => Promise<void>) | null>(null);
-  const isFirstLoad = useRef(true);
+// ─── Group Info Panel ──────────────────────────────────────────────────────────
+interface MemberRow {
+  id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
+  profile?: {
+    user_id: string;
+    name: string;
+    avatar_url: string | null;
+    username?: string | null;
+  };
+}
 
-  const load = useCallback(async () => {
-    try {
-      const msgs = await fetchGroupMessages(group.id);
-      setMessages(msgs);
-    } catch { toast.error('Could not load messages'); }
-    finally { setIsLoading(false); }
+function GroupInfoPanel({
+  group,
+  onClose,
+}: {
+  group: Group;
+  onClose: () => void;
+}) {
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [copied, setCopied] = useState(false);
+  const db = (table: string) => (supabase.from(table as never) as any);
+
+  useEffect(() => {
+    (async () => {
+      const { data: rows } = await db('group_members')
+        .select('id,user_id,role,joined_at')
+        .eq('group_id', group.id);
+
+      if (!rows || rows.length === 0) return;
+
+      const ids = rows.map((r: any) => r.user_id);
+      const { data: profiles } = await db('user_profiles')
+        .select('user_id,name,avatar_url,username')
+        .in('user_id', ids);
+
+      const profileMap = new Map<string, any>();
+      for (const p of profiles ?? []) profileMap.set(p.user_id, p);
+
+      setMembers(
+        rows.map((r: any) => ({
+          ...r,
+          profile: profileMap.get(r.user_id),
+        }))
+      );
+    })();
   }, [group.id]);
 
-  useEffect(() => { loadRef.current = load; }, [load]);
-  useEffect(() => { load(); }, [load]);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(group.invite_code ?? '');
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
-  useLayoutEffect(() => {
+  return (
+    <motion.div
+      initial={{ y: '100%' }}
+      animate={{ y: 0 }}
+      exit={{ y: '100%' }}
+      transition={{ type: 'spring', damping: 28, stiffness: 300 }}
+      style={{
+        position: 'absolute',
+        inset: 0,
+        zIndex: 50,
+        background: BG,
+        overflowY: 'auto',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '16px 16px',
+          borderBottom: `1px solid rgba(255,255,255,0.06)`,
+          background: SURFACE,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ fontSize: 17, fontWeight: 700, color: T1 }}>Group Info</span>
+        <button
+          onClick={onClose}
+          style={{
+            background: SURFACE_UP,
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '50%',
+            width: 32,
+            height: 32,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <X size={16} color={T2} />
+        </button>
+      </div>
+
+      {/* Group avatar + name */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          padding: '28px 16px 20px',
+          gap: 10,
+        }}
+      >
+        <div
+          style={{
+            width: 80,
+            height: 80,
+            borderRadius: 16,
+            background: SURFACE_UP,
+            border: `1px solid rgba(12,255,156,0.2)`,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+            flexShrink: 0,
+          }}
+        >
+          {group.avatar_url ? (
+            <Avatar src={group.avatar_url} name={group.name} size={80} />
+          ) : (
+            <Users size={32} color={ACCENT} />
+          )}
+        </div>
+        <span style={{ fontSize: 18, fontWeight: 700, color: T1 }}>{group.name}</span>
+        <span style={{ fontSize: 13, color: T3 }}>{members.length} members</span>
+      </div>
+
+      {/* Invite code */}
+      <div
+        style={{
+          margin: '0 16px 12px',
+          background: SURFACE,
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 14,
+          padding: '12px 16px',
+        }}
+      >
+        <span style={{ fontSize: 11, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Invite Code
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+          <span
+            style={{
+              flex: 1,
+              fontFamily: 'monospace',
+              fontSize: 16,
+              fontWeight: 700,
+              color: T1,
+              letterSpacing: '0.12em',
+            }}
+          >
+            {group.invite_code ?? '—'}
+          </span>
+          <motion.button
+            whileTap={{ scale: 0.88 }}
+            onClick={handleCopy}
+            style={{
+              background: copied ? `rgba(12,255,156,0.12)` : SURFACE_UP,
+              border: `1px solid ${copied ? 'rgba(12,255,156,0.3)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: 8,
+              padding: '6px 10px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              cursor: 'pointer',
+              color: copied ? ACCENT : T2,
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {copied ? <Check size={14} /> : <Copy size={14} />}
+            {copied ? 'Copied!' : 'Copy'}
+          </motion.button>
+        </div>
+      </div>
+
+      {/* Members */}
+      <div
+        style={{
+          margin: '0 16px 24px',
+          background: SURFACE,
+          border: '1px solid rgba(255,255,255,0.07)',
+          borderRadius: 14,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            padding: '12px 16px',
+            borderBottom: '1px solid rgba(255,255,255,0.05)',
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 700, color: T1 }}>Members</span>
+        </div>
+        {members.map((m, i) => {
+          const name = m.profile?.name ?? 'Unknown';
+          const isOwner = m.role === 'owner';
+          const isAdmin = m.role === 'admin';
+          return (
+            <div
+              key={m.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '10px 16px',
+                borderBottom: i < members.length - 1 ? '1px solid rgba(255,255,255,0.04)' : undefined,
+              }}
+            >
+              <Avatar src={m.profile?.avatar_url ?? undefined} name={name} size={36} />
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 500, color: T1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {name}
+              </span>
+              {(isOwner || isAdmin) && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                    padding: '2px 7px',
+                    borderRadius: 20,
+                    background: isOwner ? 'rgba(255,215,0,0.12)' : 'rgba(56,189,248,0.12)',
+                    color: isOwner ? '#FFD700' : '#38BDF8',
+                    flexShrink: 0,
+                  }}
+                >
+                  {isOwner ? 'OWNER' : 'ADMIN'}
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {members.length === 0 && (
+          <div style={{ padding: '16px', textAlign: 'center', color: T3, fontSize: 13 }}>
+            Loading members…
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// ─── Main component ────────────────────────────────────────────────────────────
+export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
+  // allow useNavigate to not throw if router context is absent (it may already be in one)
+  let navigate: ReturnType<typeof useNavigate> | null = null;
+  try {
+    // eslint-disable-next-line react-hooks/rules-of-hooks
+    navigate = useNavigate();
+  } catch {
+    navigate = null;
+  }
+
+  const { user } = useAuth();
+  const { messages, isLoading, sendMessage } = useGroupChat(group.id);
+  const { myGroups } = useGroups();
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [text, setText] = useState('');
+  const [showInfo, setShowInfo] = useState(false);
+  const [pinnedMessage, setPinnedMessage] = useState<(GroupMessage & { user_profile?: any }) | null>(null);
+  const [showPinned, setShowPinned] = useState(true);
+  const [replyTo, setReplyTo] = useState<BubbleMessage | null>(null);
+  const [contextMsg, setContextMsg] = useState<{ msg: BubbleMessage; rect: DOMRect } | null>(null);
+  const [showScrollFab, setShowScrollFab] = useState(false);
+
+  const listRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const isFirstLoad = useRef(true);
+
+  // ── Fetch pinned message on mount ─────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase.from('group_messages' as never) as any)
+        .select('id,group_id,user_id,message,created_at,is_pinned,pinned_at')
+        .eq('group_id', group.id)
+        .eq('is_pinned', true)
+        .maybeSingle();
+      if (data) setPinnedMessage(data as GroupMessage);
+    })();
+  }, [group.id]);
+
+  // ── Scroll to bottom on new messages ──────────────────────────────────────
+  useEffect(() => {
     if (messages.length === 0) return;
+    const el = listRef.current;
     if (isFirstLoad.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
       isFirstLoad.current = false;
       return;
     }
-    const el = listRef.current;
-    if (!el) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 150) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages.length]);
 
-  useEffect(() => {
-    if (!user) return;
-    const uid = Math.random().toString(36).slice(2, 7);
-    const channel = supabase
-      .channel(`grp-${group.id}-${uid}`)
-      .on('postgres_changes' as never, { event: 'INSERT', schema: 'public', table: 'group_messages', filter: `group_id=eq.${group.id}` }, () => loadRef.current?.())
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [group.id, user]);
+  // ── Scroll FAB visibility ─────────────────────────────────────────────────
+  const handleScroll = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    setShowScrollFab(el.scrollHeight - el.scrollTop - el.clientHeight > 200);
+  }, []);
 
-  const handleSend = async () => {
-    if (!user || !text.trim() || sending) return;
+  // ── Send ──────────────────────────────────────────────────────────────────
+  const handleSend = useCallback(async () => {
+    if (!text.trim()) return;
     const content = text.trim();
     setText('');
-    setSending(true);
-    const opt: GroupMessageRow = { id: `opt-${Date.now()}`, group_id: group.id, sender_id: user.id, content, is_deleted: false, created_at: new Date().toISOString() };
-    setMessages((p) => [...p, opt]);
-    try { await sendGroupMessage(group.id, user.id, content); await load(); setReplyTo(null); }
-    catch { toast.error('Failed to send'); setMessages((p) => p.filter((m) => m.id !== opt.id)); setText(content); }
-    finally { setSending(false); }
-    inputRef.current?.focus();
-  };
+    try {
+      await sendMessage(content);
+      setReplyTo(null);
+    } catch {
+      setText(content);
+    }
+  }, [text, sendMessage]);
 
-  if (isLoading) return <div className="flex-1 flex items-center justify-center"><div className="w-6 h-6 border-2 border-t-[#00E676] border-[#00E676]/20 rounded-full animate-spin" /></div>;
+  // ── Context menu: close on backdrop click ─────────────────────────────────
+  const closeContext = useCallback(() => setContextMsg(null), []);
 
+  // ── Member avatars for header stack ───────────────────────────────────────
+  const currentGroup = myGroups.find((g) => g.id === group.id) ?? group;
+
+  // We'll fetch members for the avatar stack separately (lightweight)
+  const [stackMembers, setStackMembers] = useState<Array<{ user_id: string; avatar_url: string | null; name: string }>>([]);
+  useEffect(() => {
+    (async () => {
+      const db = (t: string) => (supabase.from(t as never) as any);
+      const { data: rows } = await db('group_members')
+        .select('user_id')
+        .eq('group_id', group.id)
+        .limit(5);
+      if (!rows || rows.length === 0) return;
+      const ids = rows.map((r: any) => r.user_id);
+      const { data: profiles } = await db('user_profiles')
+        .select('user_id,name,avatar_url')
+        .in('user_id', ids);
+      setStackMembers((profiles ?? []).slice(0, 3));
+    })();
+  }, [group.id]);
+
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <div ref={listRef} onScroll={() => { const el = listRef.current; if (el) setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 180); }} className="flex-1 overflow-y-auto px-4 py-3 space-y-[2px]" style={{ background: '#0A0A0D' }}>
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-            <p className="text-4xl">💬</p>
-            <p className="text-[14px] text-white/40">Say hello to the group!</p>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100dvh',
+        background: BG,
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 30,
+          background: 'rgba(12,16,21,0.95)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '12px 16px',
+          paddingTop: 'max(12px, env(safe-area-inset-top, 12px))',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        {/* Back */}
+        <motion.button
+          whileTap={{ scale: 0.88 }}
+          onClick={onClose}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 4,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: '4px 6px 4px 0',
+            color: T2,
+            flexShrink: 0,
+          }}
+        >
+          <ArrowLeft size={20} color={T2} />
+          <span style={{ fontSize: 13, color: T2, fontWeight: 500 }}>Back</span>
+        </motion.button>
+
+        {/* Center — group avatar + name */}
+        <button
+          onClick={() => setShowInfo(true)}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            textAlign: 'left',
+            minWidth: 0,
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 10,
+              background: SURFACE_UP,
+              border: '1px solid rgba(12,255,156,0.18)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              overflow: 'hidden',
+            }}
+          >
+            {group.avatar_url ? (
+              <Avatar src={group.avatar_url} name={group.name} size={36} />
+            ) : (
+              <Users size={18} color={ACCENT} />
+            )}
+          </div>
+          <span
+            style={{
+              fontSize: 15,
+              fontWeight: 700,
+              color: T1,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              flex: 1,
+            }}
+          >
+            {group.name}
+          </span>
+        </button>
+
+        {/* Right side: avatar stack + info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          {/* Avatar stack */}
+          {stackMembers.length > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center' }}>
+              {stackMembers.map((m, i) => (
+                <div
+                  key={m.user_id}
+                  style={{
+                    marginLeft: i === 0 ? 0 : -6,
+                    zIndex: stackMembers.length - i,
+                    width: 22,
+                    height: 22,
+                    borderRadius: '50%',
+                    border: '1.5px solid rgba(12,16,21,0.95)',
+                    overflow: 'hidden',
+                    flexShrink: 0,
+                  }}
+                >
+                  <Avatar src={m.avatar_url ?? undefined} name={m.name} size={22} />
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Info button */}
+          <motion.button
+            whileTap={{ scale: 0.88 }}
+            onClick={() => setShowInfo(true)}
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: SURFACE_UP,
+              border: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+            }}
+          >
+            <Info size={16} color={T2} />
+          </motion.button>
+        </div>
+      </div>
+
+      {/* ── STATS RIBBON ────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          background: SURFACE,
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          padding: '8px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0,
+        }}
+      >
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 10, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Total Group Workouts
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T1, marginTop: 1 }}>—</div>
+        </div>
+        <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.06)' }} />
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 10, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Members
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T1, marginTop: 1 }}>
+            {group.member_count ?? stackMembers.length ?? '—'}
+          </div>
+        </div>
+        <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.06)' }} />
+        <div style={{ flex: 1, textAlign: 'center' }}>
+          <div style={{ fontSize: 10, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            Keep It Up 💪
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T1, marginTop: 1 }}>—</div>
+        </div>
+      </div>
+
+      {/* ── PINNED CHALLENGE CARD ────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {pinnedMessage && showPinned && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.2 }}
+            style={{
+              position: 'sticky',
+              top: 0,
+              zIndex: 20,
+              margin: '8px 16px',
+              background: 'rgba(12,255,156,0.06)',
+              border: '1px solid rgba(12,255,156,0.15)',
+              borderRadius: 12,
+              padding: '10px 14px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Pin size={14} color={ACCENT} />
+              <span
+                style={{
+                  flex: 1,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: ACCENT,
+                  letterSpacing: '0.08em',
+                  textTransform: 'uppercase',
+                }}
+              >
+                Pinned Message
+              </span>
+              <button
+                onClick={() => setShowPinned(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <X size={14} color={T3} />
+              </button>
+            </div>
+            <p
+              style={{
+                marginTop: 4,
+                fontSize: 13,
+                color: T1,
+                display: '-webkit-box',
+                WebkitLineClamp: 3,
+                WebkitBoxOrient: 'vertical',
+                overflow: 'hidden',
+              }}
+            >
+              {pinnedMessage.message}
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── MESSAGE LIST ─────────────────────────────────────────────────────── */}
+      <div
+        ref={listRef}
+        onScroll={handleScroll}
+        style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: '12px 0 8px',
+          position: 'relative',
+        }}
+      >
+        {isLoading && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: '40px 0',
+            }}
+          >
+            <div
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: '50%',
+                border: `2px solid ${ACCENT}`,
+                borderTopColor: 'transparent',
+                animation: 'spin 0.75s linear infinite',
+              }}
+            />
           </div>
         )}
+
+        {!isLoading && messages.length === 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '60px 24px',
+              gap: 8,
+              textAlign: 'center',
+            }}
+          >
+            <span style={{ fontSize: 40 }}>💬</span>
+            <span style={{ fontSize: 14, color: T3 }}>Be the first to say hello!</span>
+          </div>
+        )}
+
         {messages.map((msg, i) => {
           const prev = messages[i - 1];
           const next = messages[i + 1];
           const showDate = !prev || !sameDay(prev.created_at, msg.created_at);
-          const isMine = msg.sender_id === user?.id;
+          const isMine = msg.user_id === user?.id;
           const isFirst = !prev || !withinGroup(prev, msg);
           const isLast = !next || !withinGroup(msg, next);
+          const bubble = toBubble(msg);
+
           return (
-            <React.Fragment key={msg.id}>
-              {showDate && (
-                <div className="flex justify-center my-4">
-                  <span className="text-[11px] font-semibold px-3 py-1 rounded-full" style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.4)' }}>
-                    {fmtDateLabel(msg.created_at)}
-                  </span>
-                </div>
-              )}
-              <div className={isFirst && i > 0 ? 'mt-3' : 'mt-0.5'}>
-                <GroupBubble msg={msg} isMine={isMine} isFirst={isFirst} isLast={isLast} onReply={setReplyTo} />
-              </div>
-            </React.Fragment>
+            <div key={msg.id}>
+              {showDate && <DateSeparator label={fmtDateLabel(msg.created_at)} />}
+              <ChatBubble
+                msg={bubble}
+                isMine={isMine}
+                isFirst={isFirst}
+                isLast={isLast}
+                showSenderName={true}
+                onLongPress={(m, rect) => setContextMsg({ msg: m, rect })}
+                onReplyTo={(m) => setReplyTo(m)}
+              />
+            </div>
           );
         })}
+
         <div ref={bottomRef} />
       </div>
 
-      {/* Scroll FAB */}
+      {/* ── SCROLL FAB ───────────────────────────────────────────────────────── */}
       <AnimatePresence>
-        {showScrollBtn && (
-          <motion.button initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.8 }}
+        {showScrollFab && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            whileTap={{ scale: 0.88 }}
             onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
-            className="absolute right-4 bottom-[80px] w-10 h-10 rounded-full shadow-xl flex items-center justify-center z-10"
-            style={{ background: '#1C1C22', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <ChevronDown size={18} className="text-white/50" />
+            style={{
+              position: 'fixed',
+              right: 16,
+              bottom: 90,
+              width: 40,
+              height: 40,
+              borderRadius: '50%',
+              background: SURFACE_UP,
+              border: '1px solid rgba(255,255,255,0.1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 25,
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+            }}
+          >
+            <ChevronDown size={18} color={T2} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* Reply bar */}
+      {/* ── REPLY BAR ────────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {replyTo && (
-          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} style={{ overflow: 'hidden' }}>
-            <div className="flex items-center gap-3 px-4 py-2" style={{ background: 'rgba(0,230,118,0.06)', borderTop: '1px solid rgba(0,230,118,0.12)' }}>
-              <div className="w-0.5 self-stretch rounded-full" style={{ background: ACCENT }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-bold" style={{ color: ACCENT }}>{replyTo.sender_profile?.name ?? 'Them'}</p>
-                <p className="text-[13px] text-white/50 truncate">{replyTo.content}</p>
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 16px',
+                background: SURFACE,
+                borderLeft: `3px solid ${ACCENT}`,
+                borderTop: '1px solid rgba(255,255,255,0.06)',
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: ACCENT, marginBottom: 2 }}>
+                  {replyTo.sender_profile?.name ?? 'Someone'}
+                </div>
+                <div
+                  style={{
+                    fontSize: 13,
+                    color: T2,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {replyTo.content}
+                </div>
               </div>
-              <button onClick={() => setReplyTo(null)} className="p-1 text-white/30 hover:text-white/60"><X size={16} /></button>
+              <button
+                onClick={() => setReplyTo(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: 4,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <X size={16} color={T3} />
+              </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Input */}
-      <div className="flex items-end gap-2 px-3 py-2.5" style={{ background: '#111116', borderTop: '1px solid rgba(255,255,255,0.06)', paddingBottom: 'max(10px, env(safe-area-inset-bottom))' }}>
-        <div className="flex-1 flex items-end rounded-3xl overflow-hidden" style={{ background: '#1C1C22', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <textarea ref={inputRef} value={text} onChange={(e) => { setText(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px'; }}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-            placeholder="Message..." rows={1}
-            className="flex-1 bg-transparent px-4 py-2.5 text-[15px] text-white placeholder:text-white/25 outline-none leading-snug resize-none"
-            style={{ maxHeight: 110, minHeight: 40 }} />
-        </div>
-        <motion.button whileTap={{ scale: 0.88 }} onClick={text.trim() ? handleSend : undefined} disabled={sending}
-          className="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-50"
-          style={{ background: text.trim() ? ACCENT : 'rgba(255,255,255,0.07)' }}>
-          {text.trim() ? <Send size={17} style={{ color: '#06090D' }} /> : <Mic size={17} className="text-white/40" />}
-        </motion.button>
-      </div>
-    </div>
-  );
-}
-
-// ─── Group Info panel ─────────────────────────────────────────────────────────
-function GroupInfoPanel({
-  group, members, isOwner,
-  onGroupUpdated, onGroupDeleted, onLeft, onClose,
-}: {
-  group: Group; members: GroupMember[]; isOwner: boolean;
-  onGroupUpdated: (f: Partial<Group>) => void; onGroupDeleted: () => void; onLeft: () => void; onClose: () => void;
-}) {
-  const { user } = useAuth();
-  const [name, setName] = useState(group.name);
-  const [description, setDescription] = useState(group.description ?? '');
-  const [isPublic, setIsPublic] = useState(group.is_public);
-  const [inviteCode, setInviteCode] = useState(group.invite_code);
-  const [saving, setSaving] = useState(false);
-  const [transferTo, setTransferTo] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  const handleSave = async () => {
-    if (!name.trim()) { toast.error('Name required'); return; }
-    setSaving(true);
-    try {
-      await updateGroup(group.id, { name: name.trim(), description: description.trim(), is_public: isPublic });
-      onGroupUpdated({ name: name.trim(), description: description.trim(), is_public: isPublic });
-      toast.success('Group updated');
-    } catch (err) { toast.error(err instanceof Error ? err.message : 'Failed'); }
-    finally { setSaving(false); }
-  };
-
-  const roleIcon = (role: GroupMember['role']) =>
-    role === 'owner' ? <Crown size={11} className="text-yellow-400" /> :
-    role === 'admin' ? <Shield size={11} className="text-blue-400" /> :
-    <UserIcon size={11} className="text-white/30" />;
-
-  const nonOwners = members.filter((m) => m.role !== 'owner' && m.user_id !== user?.id);
-
-  return (
-    <div className="flex flex-col h-full bg-[#0A0A0D]">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-4 flex-shrink-0" style={{ background: '#111116', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-        <button onClick={onClose} className="p-2 -ml-2 rounded-full text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors">
-          <ArrowLeft size={20} />
-        </button>
-        <p className="text-[17px] font-bold text-white flex-1">Group Info</p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        {/* Hero */}
-        <div className="flex flex-col items-center py-6 px-4">
-          <div className="w-24 h-24 rounded-full flex items-center justify-center mb-4" style={{ background: 'rgba(0,230,118,0.12)', border: '2px solid rgba(0,230,118,0.2)' }}>
-            {group.avatar_url
-              ? <Avatar src={group.avatar_url} name={group.name} size={96} />
-              : <Users size={36} className="text-[#00E676]" />
-            }
-          </div>
-          <p className="text-[22px] font-bold text-white">{group.name}</p>
-          <p className="text-[14px] mt-1" style={{ color: 'rgba(255,255,255,0.4)' }}>
-            Group · {members.length} members
-          </p>
-          {group.description && (
-            <p className="text-[13px] text-center mt-2 max-w-xs" style={{ color: 'rgba(255,255,255,0.45)' }}>{group.description}</p>
-          )}
-        </div>
-
-        {/* Invite code */}
-        <div className="mx-4 mb-3 rounded-[16px] p-4 space-y-2" style={{ background: '#111116', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.3)' }}>Invite Code</p>
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-[20px] font-bold tracking-widest flex-1" style={{ color: ACCENT }}>{inviteCode}</span>
-            <button onClick={() => { navigator.clipboard.writeText(inviteCode); toast.success('Copied'); }}
-              className="p-2 rounded-full hover:bg-white/5 transition-colors" title="Copy">
-              <Copy size={16} className="text-white/40" />
-            </button>
-            {isOwner && (
-              <button onClick={async () => { try { const c = await regenerateInviteCode(group.id); setInviteCode(c); onGroupUpdated({ invite_code: c }); toast.success('New code generated'); } catch { toast.error('Failed'); } }}
-                className="p-2 rounded-full hover:bg-white/5 transition-colors" title="Regenerate">
-                <RefreshCw size={16} className="text-white/40" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Members list */}
-        <div className="mx-4 mb-3 rounded-[16px] overflow-hidden" style={{ background: '#111116', border: '1px solid rgba(255,255,255,0.07)' }}>
-          <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-            <p className="text-[14px] font-bold text-white">{members.length} Members</p>
-          </div>
-          {members.map((member, i) => {
-            const p = member.profile;
-            const mName = p?.name ?? 'Unknown';
-            const isMe = member.user_id === user?.id;
-            return (
-              <div key={member.id} className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: i < members.length - 1 ? '1px solid rgba(255,255,255,0.04)' : undefined }}>
-                <Avatar src={p?.avatar_url} name={mName} size={40} />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <p className="text-[14px] font-semibold text-white truncate">{mName}</p>
-                    {isMe && <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>You</span>}
-                  </div>
-                  {p?.username && <p className="text-[12px]" style={{ color: 'rgba(255,255,255,0.3)' }}>@{p.username}</p>}
-                </div>
-                <div className="flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-bold capitalize"
+      {/* ── CONTEXT MENU ─────────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {contextMsg && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeContext}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 40,
+                background: 'rgba(0,0,0,0.5)',
+              }}
+            />
+            {/* Picker + actions */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.88, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.88, y: 12 }}
+              transition={{ duration: 0.18 }}
+              style={{
+                position: 'fixed',
+                zIndex: 41,
+                bottom: '50%',
+                left: '50%',
+                transform: 'translateX(-50%) translateY(50%)',
+                background: SURFACE_UP,
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 16,
+                padding: '12px 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 12,
+                minWidth: 220,
+                boxShadow: '0 8px 40px rgba(0,0,0,0.6)',
+              }}
+            >
+              {/* Reaction picker */}
+              <ReactionPicker
+                onPick={(r: Reaction) => {
+                  // Reactions are cosmetic here — close menu after pick
+                  closeContext();
+                }}
+              />
+              {/* Actions */}
+              <div
+                style={{
+                  borderTop: '1px solid rgba(255,255,255,0.06)',
+                  paddingTop: 10,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 2,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setReplyTo(contextMsg.msg);
+                    closeContext();
+                  }}
                   style={{
-                    background: member.role === 'owner' ? 'rgba(255,215,0,0.12)' : member.role === 'admin' ? 'rgba(56,189,248,0.12)' : 'rgba(255,255,255,0.06)',
-                    color: member.role === 'owner' ? '#FFD700' : member.role === 'admin' ? '#38BDF8' : 'rgba(255,255,255,0.3)',
-                  }}>
-                  {roleIcon(member.role)} {member.role}
-                </div>
-                {isOwner && !isMe && member.role !== 'owner' && (
-                  <button onClick={async () => {
-                    if (!window.confirm(`Remove ${mName}?`)) return;
-                    try { await removeMemberFromGroup(group.id, member.user_id); toast.success('Removed'); onGroupUpdated({}); }
-                    catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
-                  }} className="p-1.5 rounded-full text-white/20 hover:text-red-400 hover:bg-red-400/10 transition-colors">
-                    <Trash2 size={14} />
-                  </button>
-                )}
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    background: 'none',
+                    border: 'none',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    color: T1,
+                    fontSize: 14,
+                    fontWeight: 500,
+                    textAlign: 'left',
+                    width: '100%',
+                  }}
+                >
+                  <ChevronDown size={15} color={T2} style={{ transform: 'rotate(180deg)' }} />
+                  Reply
+                </button>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(contextMsg.msg.content);
+                    closeContext();
+                  }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    background: 'none',
+                    border: 'none',
+                    borderRadius: 10,
+                    cursor: 'pointer',
+                    color: T1,
+                    fontSize: 14,
+                    fontWeight: 500,
+                    textAlign: 'left',
+                    width: '100%',
+                  }}
+                >
+                  <Copy size={15} color={T2} />
+                  Copy
+                </button>
               </div>
-            );
-          })}
-        </div>
-
-        {/* Owner settings */}
-        {isOwner && (
-          <div className="mx-4 mb-3 rounded-[16px] p-4 space-y-3" style={{ background: '#111116', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <p className="text-[11px] font-bold uppercase tracking-widest mb-1" style={{ color: 'rgba(255,255,255,0.3)' }}>Edit Group</p>
-            <input value={name} onChange={(e) => setName(e.target.value)} maxLength={50} placeholder="Group name"
-              className="w-full bg-transparent rounded-xl px-3 py-2.5 text-[14px] text-white outline-none"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }} />
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={200} placeholder="Description (optional)"
-              className="w-full rounded-xl px-3 py-2.5 text-[14px] text-white outline-none resize-none"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }} />
-            <button onClick={() => setIsPublic((p) => !p)} className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              {isPublic ? <Globe size={14} className="text-[#00E676]" /> : <Lock size={14} className="text-yellow-400" />}
-              <span className="flex-1 text-left text-[13px] text-white">{isPublic ? 'Public' : 'Private'}</span>
-              <div className="w-10 h-5 rounded-full transition-colors relative" style={{ background: isPublic ? ACCENT : 'rgba(255,255,255,0.15)' }}>
-                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${isPublic ? 'translate-x-5' : 'translate-x-0.5'}`} />
-              </div>
-            </button>
-            <button onClick={handleSave} disabled={saving}
-              className="w-full py-2.5 rounded-xl font-bold text-[13px] transition-colors disabled:opacity-50"
-              style={{ background: ACCENT, color: '#06090D' }}>
-              {saving ? 'Saving…' : 'Save Changes'}
-            </button>
-          </div>
+            </motion.div>
+          </>
         )}
+      </AnimatePresence>
 
-        {/* Transfer ownership */}
-        {isOwner && nonOwners.length > 0 && (
-          <div className="mx-4 mb-3 rounded-[16px] p-4 space-y-3" style={{ background: '#111116', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'rgba(255,255,255,0.3)' }}>Transfer Ownership</p>
-            <select value={transferTo} onChange={(e) => setTransferTo(e.target.value)}
-              className="w-full rounded-xl px-3 py-2.5 text-[14px] text-white outline-none"
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <option value="">Select member…</option>
-              {nonOwners.map((m) => <option key={m.user_id} value={m.user_id}>{m.profile?.name ?? m.user_id}</option>)}
-            </select>
-            <button onClick={async () => {
-              if (!transferTo || !user || !window.confirm('Transfer ownership?')) return;
-              try { await transferOwnership(group.id, user.id, transferTo); toast.success('Ownership transferred'); onLeft(); }
-              catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
-            }} disabled={!transferTo}
-              className="w-full py-2.5 rounded-xl font-bold text-[13px] disabled:opacity-40 transition-colors"
-              style={{ border: '1px solid rgba(245,158,11,0.4)', color: '#F59E0B' }}>
-              Transfer Ownership
-            </button>
-          </div>
-        )}
-
-        {/* Danger zone */}
-        <div className="mx-4 mb-8 rounded-[16px] p-4 space-y-2" style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.15)' }}>
-          {isOwner ? (
-            !showDeleteConfirm ? (
-              <button onClick={() => setShowDeleteConfirm(true)} className="w-full py-2.5 rounded-xl font-bold text-[13px] text-red-400 border border-red-500/30 hover:bg-red-500/10 transition-colors">
-                Delete Group
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-start gap-2 p-3 rounded-xl bg-red-500/10">
-                  <AlertTriangle size={14} className="text-red-400 mt-0.5 flex-shrink-0" />
-                  <p className="text-[12px] text-red-300 leading-relaxed">This will permanently delete the group and all messages.</p>
-                </div>
-                <div className="flex gap-2">
-                  <button onClick={() => setShowDeleteConfirm(false)} className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold" style={{ background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)' }}>Cancel</button>
-                  <button onClick={async () => { try { await deleteGroup(group.id); toast.success('Group deleted'); onGroupDeleted(); } catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); } }}
-                    className="flex-1 py-2.5 rounded-xl font-bold text-[13px] bg-red-500 text-white hover:bg-red-600 transition-colors">
-                    Delete Forever
-                  </button>
-                </div>
-              </div>
-            )
-          ) : (
-            <button onClick={async () => {
-              if (!user || !window.confirm('Leave this group?')) return;
-              try { await svcLeaveGroup(user.id, group.id); toast.success('Left group'); onLeft(); }
-              catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
-            }} className="w-full py-2.5 rounded-xl font-bold text-[13px] text-red-400 border border-red-500/30 hover:bg-red-500/10 transition-colors">
-              Leave Group
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
-interface GroupChatViewProps { group: Group; onBack: () => void; onLeave: () => void; }
-
-export default function GroupChatView({ group: initialGroup, onBack, onLeave }: GroupChatViewProps) {
-  const { user } = useAuth();
-  const [group, setGroup] = useState<Group>(initialGroup);
-  const [members, setMembers] = useState<GroupMember[]>([]);
-  const [showInfo, setShowInfo] = useState(false);
-  const isOwner = group.created_by === user?.id;
-
-  useEffect(() => {
-    fetchGroupMembers(group.id).then(setMembers).catch(console.error);
-  }, [group.id]);
-
-  const handleGroupUpdated = (fields: Partial<Group>) => {
-    setGroup((p) => ({ ...p, ...fields }));
-    // Refresh members if needed
-    fetchGroupMembers(group.id).then(setMembers).catch(console.error);
-  };
-
-  if (showInfo) {
-    return (
-      <GroupInfoPanel
-        group={group} members={members} isOwner={isOwner}
-        onGroupUpdated={handleGroupUpdated}
-        onGroupDeleted={onLeave}
-        onLeft={onLeave}
-        onClose={() => setShowInfo(false)}
+      {/* ── CHAT INPUT ───────────────────────────────────────────────────────── */}
+      <ChatInput
+        value={text}
+        onChange={setText}
+        onSend={handleSend}
+        placeholder="Message group…"
       />
-    );
-  }
 
-  return (
-    <div className="flex flex-col h-screen bg-[#0A0A0D]">
-      {/* Header */}
-      <div className="flex items-center gap-3 px-3 py-3 sticky top-0 z-20 flex-shrink-0" style={{ background: '#111116', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <button onClick={onBack} className="p-2 rounded-full text-white/50 hover:text-white/80 hover:bg-white/5 transition-colors flex-shrink-0">
-          <ArrowLeft size={22} />
-        </button>
+      {/* ── GROUP INFO PANEL ─────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showInfo && (
+          <GroupInfoPanel group={group} onClose={() => setShowInfo(false)} />
+        )}
+      </AnimatePresence>
 
-        <button onClick={() => setShowInfo(true)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
-          <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(0,230,118,0.12)' }}>
-            {group.avatar_url ? <Avatar src={group.avatar_url} name={group.name} size={36} /> : <Users size={16} className="text-[#00E676]" />}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[16px] font-semibold text-white truncate leading-tight">{group.name}</p>
-            <p className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>{group.member_count ?? members.length} members</p>
-          </div>
-        </button>
-
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button className="p-2 rounded-full text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"><Video size={20} /></button>
-          <button onClick={() => setShowInfo(true)} className="p-2 rounded-full text-white/30 hover:text-white/60 hover:bg-white/5 transition-colors"><Info size={20} /></button>
-        </div>
-      </div>
-
-      {/* Chat */}
-      <ChatPanel group={group} />
+      {/* Spin animation for loading spinner */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

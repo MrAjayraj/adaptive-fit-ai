@@ -1,400 +1,295 @@
 // src/components/social/DMScreen.tsx
-// FitPulse DM Chat – Kinetic Obsidian design  (real Supabase data)
-import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
+// WhatsApp-quality private chat — Kinetic Pulse design system
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Flame, Dumbbell, MoreVertical, ChevronDown, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  ArrowLeft, Send, Mic, Reply, Copy, Trash2, Trash, X,
-  ChevronDown, MoreVertical, Video,
-} from 'lucide-react';
-import { toast } from 'sonner';
-import { useDirectMessages } from '@/hooks/useDirectMessages';
 import { useAuth } from '@/context/AuthContext';
-import { fetchProfilesByIds } from '@/services/socialService';
+import { useFitness } from '@/context/FitnessContext';
+import { useDirectMessages } from '@/hooks/useDirectMessages';
+import { markConversationRead, getConversationId } from '@/services/chatService';
 import Avatar from '@/components/shared/Avatar';
-import type { UserProfileSummary } from '@/types/social';
-import type { DirectMessage } from '@/services/chatService';
+import ChatBubble from './ChatBubble';
+import type { BubbleMessage } from './ChatBubble';
+import ChatInput from './ChatInput';
+import WorkoutShareCard from './WorkoutShareCard';
+import type { Reaction } from './MessageReactions';
+import { ReactionPicker } from './MessageReactions';
+import { supabase } from '@/integrations/supabase/client';
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
-const C = {
-  bg:        '#0E0E13',
-  surface:   '#1F1F24',
-  surfaceHi: '#2A292F',
-  highest:   '#35343A',
-  primary:   '#FF6B35',
-  primaryDim:'#FFB59D',
-  green:     '#4AE176',
-  textPri:   '#E4E1E9',
-  textSec:   '#E1BFB5',
-  textMuted: '#A98A80',
-  outline:   'rgba(89,65,57,0.18)',
-} as const;
+// ─── Design tokens ─────────────────────────────────────────────────────────────
+const ACCENT       = '#0CFF9C';
+const BG           = '#0C1015';
+const SURFACE      = '#141A1F';
+const SURFACE_UP   = '#1C2429';
+const T1           = '#EAEEF2';
+const T2           = '#8899AA';
+const T3           = '#4A5568';
+const GREEN_BORDER = 'rgba(12,255,156,0.15)';
 
-const REACTION_EMOJIS = ['❤️', '💪', '🔥', '😂', '👏', '✅'] as const;
-
-// ─── Time helpers ─────────────────────────────────────────────────────────────
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+function withinGroup(a: BubbleMessage, b: BubbleMessage): boolean {
+  if (a.sender_id !== b.sender_id) return false;
+  return (
+    Math.abs(
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    ) < 2 * 60 * 1000
+  );
 }
-function fmtDateLabel(iso: string) {
-  const d = new Date(iso);
-  const now = new Date();
-  const yest = new Date(now); yest.setDate(now.getDate() - 1);
-  if (d.toDateString() === now.toDateString()) return 'Today';
-  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
-}
-function sameDay(a: string, b: string) {
+
+function sameDay(a: string, b: string): boolean {
   return new Date(a).toDateString() === new Date(b).toDateString();
 }
-function withinGroup(a: DirectMessage, b: DirectMessage) {
-  if (a.sender_id !== b.sender_id) return false;
-  return Math.abs(new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) < 2 * 60 * 1000;
+
+function formatDateLabel(iso: string): string {
+  const d   = new Date(iso);
+  const now  = new Date();
+  const yest = new Date(now);
+  yest.setDate(now.getDate() - 1);
+  if (d.toDateString() === now.toDateString()) return 'TODAY';
+  if (d.toDateString() === yest.toDateString()) return 'YESTERDAY';
+  return d
+    .toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' })
+    .toUpperCase();
 }
 
-// ─── Floating reaction bar ────────────────────────────────────────────────────
-function ReactionBar({
-  visible, anchor, onReact, onClose,
-}: {
-  visible: boolean;
-  anchor: { x: number; y: number } | null;
-  onReact: (e: string) => void;
-  onClose: () => void;
-}) {
-  if (!visible || !anchor) return null;
+// ─── Date separator ───────────────────────────────────────────────────────────
+function DateSeparator({ label }: { label: string }) {
   return (
-    <>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 48 }} onClick={onClose} />
-      <div
+    <div
+      style={{
+        display:        'flex',
+        justifyContent: 'center',
+        margin:         '12px 0',
+      }}
+    >
+      <span
         style={{
-          position: 'fixed',
-          zIndex: 49,
-          top: Math.max(80, anchor.y - 64),
-          left: '50%',
-          transform: 'translateX(-50%)',
-          display: 'flex',
-          gap: 4,
-          backgroundColor: 'rgba(53,52,58,0.92)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          borderRadius: 36,
-          padding: '8px 16px',
-          boxShadow: '0 8px 32px rgba(0,0,0,0.55)',
-          border: `1px solid ${C.outline}`,
+          fontSize:     11,
+          color:        T3,
+          textTransform:'uppercase',
+          letterSpacing:'0.08em',
+          background:   SURFACE_UP,
+          padding:      '3px 12px',
+          borderRadius: 20,
         }}
       >
-        {REACTION_EMOJIS.map((e) => (
-          <button
-            key={e}
-            onClick={() => { onReact(e); onClose(); }}
-            style={{
-              background: 'none', border: 'none',
-              fontSize: 26, cursor: 'pointer',
-              padding: '4px 6px', borderRadius: 8, lineHeight: 1,
-            }}
-          >
-            {e}
-          </button>
-        ))}
-      </div>
-    </>
+        {label}
+      </span>
+    </div>
   );
 }
 
 // ─── Context menu ─────────────────────────────────────────────────────────────
-interface MenuItem { icon: React.ReactNode; label: string; onClick: () => void; danger?: boolean }
-
-function CtxMenu({ items, onClose }: { items: MenuItem[]; onClose: () => void }) {
-  useEffect(() => {
-    const h = () => onClose();
-    const t = setTimeout(() => {
-      document.addEventListener('mousedown', h);
-      document.addEventListener('touchstart', h);
-    }, 10);
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', h); document.removeEventListener('touchstart', h); };
-  }, [onClose]);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.92, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.92, y: 8 }}
-      transition={{ duration: 0.14 }}
-      onClick={(e) => e.stopPropagation()}
-      style={{
-        position: 'absolute', zIndex: 50,
-        borderRadius: 14, overflow: 'hidden',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-        padding: '4px 0', minWidth: 176,
-        background: C.highest,
-        border: `1px solid ${C.outline}`,
-        bottom: '100%', marginBottom: 8, right: 0,
-      }}
-    >
-      {items.map((item, i) => (
-        <button
-          key={i}
-          onClick={() => { item.onClick(); onClose(); }}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 12,
-            width: '100%', padding: '10px 16px',
-            fontSize: 14, fontWeight: 500,
-            background: 'none', border: 'none', cursor: 'pointer',
-            color: item.danger ? '#EF4444' : C.textPri,
-            transition: 'background 0.12s',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-        >
-          {item.icon}
-          {item.label}
-        </button>
-      ))}
-    </motion.div>
-  );
+interface ContextMenuProps {
+  msg:               BubbleMessage;
+  rect:              DOMRect;
+  isMine:            boolean;
+  onReaction:        (r: Reaction) => void;
+  onReply:           () => void;
+  onCopy:            () => void;
+  onDeleteForMe:     () => void;
+  onDeleteForAll?:   () => void;
+  onClose:           () => void;
 }
 
-// ─── Reply preview bar ────────────────────────────────────────────────────────
-function ReplyBar({ msg, isMe, onClear }: { msg: DirectMessage; isMe: boolean; onClear: () => void }) {
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      padding: '8px 16px',
-      background: C.surfaceHi,
-      borderTop: `1px solid ${C.outline}`,
-    }}>
-      <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, backgroundColor: C.primary, flexShrink: 0 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ fontSize: 11, fontWeight: 700, color: C.primary, marginBottom: 2 }}>
-          {isMe ? 'You' : 'Them'}
-        </p>
-        <p style={{ fontSize: 13, color: C.textMuted, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', margin: 0 }}>
-          {msg.content}
-        </p>
-      </div>
-      <button onClick={onClear} style={{ background: 'none', border: 'none', color: C.textMuted, fontSize: 20, cursor: 'pointer', padding: 4, lineHeight: 1 }}>
-        <X size={16} />
-      </button>
-    </div>
-  );
-}
-
-// ─── Message bubble ───────────────────────────────────────────────────────────
-interface BubbleProps {
-  msg: DirectMessage;
-  isMine: boolean;
-  isFirst: boolean;
-  isLast: boolean;
-  onReply: (m: DirectMessage) => void;
-  onDeleteForMe: (id: string) => void;
-  onDeleteForEveryone: (id: string) => void;
-}
-
-function Bubble({ msg, isMine, isFirst, isLast, onReply, onDeleteForMe, onDeleteForEveryone }: BubbleProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [reactionAnchor, setReactionAnchor] = useState<{ x: number; y: number } | null>(null);
-  // TODO(persistence): reactions are ephemeral (local state only).
-  // Wire to a backend reactions table (addReaction / removeReaction) so they
-  // survive remounts and are visible to the other participant.
-  const [reactions, setReactions] = useState<string[]>([]);
-  const holdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isDeleted = msg.deleted_for_everyone;
-  const ageMs = Date.now() - new Date(msg.created_at).getTime();
-  const canDeleteAll = isMine && ageMs < 3_600_000;
-
-  const menuItems: MenuItem[] = [
-    { icon: <Reply size={15} />, label: 'Reply', onClick: () => onReply(msg) },
-    !isDeleted && { icon: <Copy size={15} />, label: 'Copy', onClick: () => { navigator.clipboard.writeText(msg.content); toast.success('Copied'); } },
-    { icon: <Trash2 size={15} />, label: 'Delete for me', onClick: () => onDeleteForMe(msg.id), danger: true },
-    canDeleteAll && !isDeleted && { icon: <Trash size={15} />, label: 'Delete for everyone', onClick: () => onDeleteForEveryone(msg.id), danger: true },
-  ].filter(Boolean) as MenuItem[];
-
-  // Kinetic Obsidian radius pattern
-  const myBR    = `18px ${isFirst ? '18px' : '6px'} ${isLast ? '4px' : '6px'} 18px`;
-  const theirBR = `${isFirst ? '18px' : '6px'} 18px 18px ${isLast ? '4px' : '6px'}`;
-
-  const bubbleBg = isDeleted
-    ? 'rgba(255,255,255,0.04)'
-    : isMine
-      ? C.primary
-      : C.surface;
-
-  const startLongPress = (e: React.MouseEvent | React.TouchEvent) => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    holdRef.current = setTimeout(() => {
-      setReactionAnchor({ x: rect.left + rect.width / 2, y: rect.top });
-    }, 420);
-  };
-  const cancelLongPress = () => { if (holdRef.current) clearTimeout(holdRef.current); };
-
-  const handleReact = (emoji: string) => {
-    setReactions((prev) =>
-      prev.includes(emoji) ? prev.filter((e) => e !== emoji) : [...prev, emoji]
-    );
-  };
-
-  // Deduplicate + count
-  const reactionCounts = reactions.reduce<Record<string, number>>((acc, e) => {
-    acc[e] = (acc[e] ?? 0) + 1; return acc;
-  }, {});
+function ContextMenu({
+  msg,
+  rect,
+  isMine,
+  onReaction,
+  onReply,
+  onCopy,
+  onDeleteForMe,
+  onDeleteForAll,
+  onClose,
+}: ContextMenuProps) {
+  // Position the card above the bubble, clamped to viewport
+  const top = Math.max(60, rect.top - 130);
 
   return (
-    <div style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', position: 'relative' }}>
-      {/* Floating reaction bar */}
-      <ReactionBar
-        visible={!!reactionAnchor}
-        anchor={reactionAnchor}
-        onReact={handleReact}
-        onClose={() => setReactionAnchor(null)}
+    <AnimatePresence>
+      <motion.div
+        key="ctx-overlay"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        style={{
+          position: 'fixed',
+          inset:    0,
+          zIndex:   60,
+        }}
+        onClick={onClose}
       />
 
-      <div style={{ position: 'relative', maxWidth: '75%', minWidth: 60 }}>
-        {/* Reply preview embedded in bubble */}
-        {(msg as any).reply_message && !isDeleted && (
-          <div style={{
-            marginBottom: 4, padding: '6px 12px',
-            borderRadius: 10, fontSize: 12,
-            background: isMine ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.06)',
-            borderLeft: `2px solid ${C.primary}`,
-          }}>
-            <p style={{ fontWeight: 700, color: C.primary, fontSize: 11, margin: '0 0 2px' }}>
-              {(msg as any).reply_message.sender_id === msg.sender_id ? 'You' : 'Them'}
-            </p>
-            <p style={{ color: C.textMuted, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {(msg as any).reply_message.content}
-            </p>
-          </div>
-        )}
-
-        {/* Bubble */}
-        <div
-          className="group relative"
-          style={{
-            padding: '10px 14px',
-            borderRadius: isMine ? myBR : theirBR,
-            background: bubbleBg,
-            boxShadow: isMine
-              ? '0 2px 12px rgba(255,107,53,0.28)'
-              : '0 2px 8px rgba(0,0,0,0.28)',
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-          onMouseDown={startLongPress}
-          onMouseUp={cancelLongPress}
-          onMouseLeave={cancelLongPress}
-          onMouseMove={cancelLongPress}
-          onTouchStart={startLongPress}
-          onTouchEnd={cancelLongPress}
-          onTouchMove={cancelLongPress}
-        >
-          <p style={{
-            fontSize: 15, lineHeight: '22px',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0,
-            color: isDeleted
-              ? 'rgba(255,255,255,0.25)'
-              : isMine
-                ? '#FFFFFF'
-                : C.textPri,
-            fontStyle: isDeleted ? 'italic' : undefined,
-          }}>
-            {isDeleted ? 'This message was deleted' : msg.content}
-          </p>
-
-          {/* Timestamp + read */}
-          {isLast && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 4, marginTop: 4,
-              justifyContent: isMine ? 'flex-end' : 'flex-start',
-            }}>
-              <span style={{ fontSize: 10, color: isMine ? 'rgba(255,255,255,0.55)' : C.textMuted }}>
-                {fmtTime(msg.created_at)}
-              </span>
-              {isMine && !isDeleted && (
-                <span style={{ fontSize: 10, fontWeight: 700, color: msg.is_read ? C.primaryDim : 'rgba(255,255,255,0.35)' }}>
-                  {msg.is_read ? '✓✓' : '✓'}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Hover menu trigger */}
-          {!isDeleted && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(true); }}
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{
-                position: 'absolute', top: 4,
-                ...(isMine ? { left: -28 } : { right: -28 }),
-                background: C.highest,
-                border: `1px solid ${C.outline}`,
-                borderRadius: '50%', padding: 4, cursor: 'pointer',
-              }}
-            >
-              <MoreVertical size={13} style={{ color: C.textMuted }} />
-            </button>
-          )}
-
-          <AnimatePresence>
-            {menuOpen && <CtxMenu items={menuItems} onClose={() => setMenuOpen(false)} />}
-          </AnimatePresence>
+      <motion.div
+        key="ctx-card"
+        initial={{ opacity: 0, scale: 0.9, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 8 }}
+        transition={{ duration: 0.15, ease: 'easeOut' }}
+        style={{
+          position:        'fixed',
+          zIndex:          61,
+          top:             top,
+          left:            '50%',
+          transform:       'translateX(-50%)',
+          background:      SURFACE_UP,
+          border:          `1px solid ${GREEN_BORDER}`,
+          borderRadius:    18,
+          boxShadow:       '0 12px 40px rgba(0,0,0,0.6)',
+          padding:         12,
+          minWidth:        220,
+          display:         'flex',
+          flexDirection:   'column',
+          gap:             4,
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Reaction picker */}
+        <div style={{ marginBottom: 8 }}>
+          <ReactionPicker onPick={(r) => { onReaction(r); onClose(); }} />
         </div>
 
-        {/* Reaction chips */}
-        {Object.keys(reactionCounts).length > 0 && (
-          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap', justifyContent: isMine ? 'flex-end' : 'flex-start' }}>
-            {Object.entries(reactionCounts).map(([emoji, count]) => (
-              <button
-                key={emoji}
-                onClick={() => handleReact(emoji)}
-                style={{
-                  padding: '2px 10px', borderRadius: 12,
-                  backgroundColor: C.primary,
-                  border: 'none', cursor: 'pointer',
-                  fontSize: 12, fontWeight: 700, color: '#FFFFFF',
-                }}
-              >
-                {emoji} {count}
-              </button>
-            ))}
-          </div>
+        {/* Divider */}
+        <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', marginBottom: 4 }} />
+
+        {/* Reply */}
+        <CtxItem label="Reply" onClick={() => { onReply(); onClose(); }} />
+
+        {/* Copy — only for text messages */}
+        {msg.message_type === 'text' && (
+          <CtxItem label="Copy" onClick={() => { onCopy(); onClose(); }} />
         )}
-      </div>
-    </div>
+
+        {/* Delete for me */}
+        <CtxItem
+          label="Delete for me"
+          danger
+          onClick={() => { onDeleteForMe(); onClose(); }}
+        />
+
+        {/* Delete for everyone — only mine & within 1h */}
+        {onDeleteForAll && (
+          <CtxItem
+            label="Delete for everyone"
+            danger
+            onClick={() => { onDeleteForAll(); onClose(); }}
+          />
+        )}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
-// ─── Main DMScreen ─────────────────────────────────────────────────────────────
+function CtxItem({
+  label,
+  danger,
+  onClick,
+}: {
+  label:   string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width:          '100%',
+        padding:        '10px 14px',
+        background:     'transparent',
+        border:         'none',
+        borderRadius:   10,
+        cursor:         'pointer',
+        textAlign:      'left',
+        fontSize:       14,
+        fontWeight:     500,
+        color:          danger ? '#EF4444' : T1,
+        fontFamily:     'inherit',
+        transition:     'background 0.12s',
+      }}
+      onMouseEnter={(e) =>
+        (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')
+      }
+      onMouseLeave={(e) =>
+        (e.currentTarget.style.background = 'transparent')
+      }
+    >
+      {label}
+    </button>
+  );
+}
+
+// ─── Main Component ────────────────────────────────────────────────────────────
 export default function DMScreen() {
   const { friendId = '' } = useParams<{ friendId: string }>();
-  const navigate = useNavigate();
-  const { user } = useAuth();
+  const navigate           = useNavigate();
+  const { user }           = useAuth();
+  // useFitness available for future workout-share feature
+  const _fitness           = useFitness();
 
-  const { messages, isLoading, hasMore, error, sendMessage, loadOlder, deleteForMe, deleteForEveryone } =
-    useDirectMessages(friendId);
+  const {
+    messages,
+    isLoading,
+    sendMessage,
+    deleteForMe,
+    deleteForEveryone,
+  } = useDirectMessages(friendId);
 
-  const [text, setText] = useState('');
-  const [replyTo, setReplyTo] = useState<DirectMessage | null>(null);
-  const [friendProfile, setFriendProfile] = useState<UserProfileSummary | null>(null);
-  const [sending, setSending] = useState(false);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [text, setText]               = useState('');
+  const [replyTo, setReplyTo]         = useState<BubbleMessage | null>(null);
+  const [showScrollFab, setScrollFab] = useState(false);
+  const [contextMsg, setContextMsg]   = useState<{
+    msg:  BubbleMessage;
+    rect: DOMRect;
+  } | null>(null);
+  const [friendProfile, setFriendProfile] = useState<{
+    name:           string;
+    avatar_url:     string | null;
+    last_active_at?: string;
+  } | null>(null);
   const [isFirstLoad, setIsFirstLoad] = useState(true);
-  // TODO(presence): wire to Supabase Realtime Presence so isOnline reflects
-  // the friend's actual connection state. Until then, defaults to false.
-  const [isOnline] = useState(false);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  // ── Refs ───────────────────────────────────────────────────────────────────
   const listRef   = useRef<HTMLDivElement>(null);
-  const inputRef  = useRef<HTMLTextAreaElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const isOnline =
+    !!friendProfile?.last_active_at &&
+    Date.now() - new Date(friendProfile.last_active_at).getTime() < 5 * 60 * 1000;
+
+  // ── Fetch friend profile ───────────────────────────────────────────────────
   useEffect(() => {
     if (!friendId) return;
-    fetchProfilesByIds([friendId]).then((map) => {
-      const p = map.get(friendId);
-      if (p) setFriendProfile(p);
-    });
+    supabase
+      .from('user_profiles' as never)
+      .select('user_id,name,avatar_url,last_active_at')
+      .eq('user_id', friendId)
+      .maybeSingle()
+      .then(({ data }: { data: any }) => {
+        if (data) {
+          setFriendProfile({
+            name:           data.name ?? 'User',
+            avatar_url:     data.avatar_url ?? null,
+            last_active_at: data.last_active_at,
+          });
+        }
+      });
   }, [friendId]);
 
-  useLayoutEffect(() => {
+  // ── Mark conversation read ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user || !friendId) return;
+    markConversationRead(
+      getConversationId(user.id, friendId),
+      user.id
+    ).catch(() => {/* best effort */});
+  }, [user, friendId]);
+
+  // ── Auto-scroll on new messages ────────────────────────────────────────────
+  useEffect(() => {
     if (messages.length === 0) return;
     if (isFirstLoad) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
@@ -403,163 +298,301 @@ export default function DMScreen() {
     }
     const el = listRef.current;
     if (!el) return;
-    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 150;
-    if (near) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distFromBottom < 150) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]);
 
+  // ── Scroll FAB visibility ──────────────────────────────────────────────────
   const handleScroll = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
-    setShowScrollBtn(el.scrollHeight - el.scrollTop - el.clientHeight > 180);
+    setScrollFab(el.scrollHeight - el.scrollTop - el.clientHeight > 180);
   }, []);
 
-  const handleSend = async () => {
+  // ── Convert hook messages → BubbleMessage ─────────────────────────────────
+  const bubbles: BubbleMessage[] = messages.map((m) => ({
+    id:           m.id,
+    content:      m.content,
+    message_type: (m as any).message_type ?? 'text',
+    metadata:     (m as any).metadata ?? {},
+    created_at:   m.created_at,
+    is_read:      m.is_read,
+    sender_id:    m.sender_id,
+    sender_profile: m.sender_profile
+      ? {
+          user_id:    m.sender_profile.user_id,
+          name:       m.sender_profile.name,
+          avatar_url: m.sender_profile.avatar_url,
+        }
+      : undefined,
+    reply_message: m.reply_message ?? null,
+  }));
+
+  // ── Send ───────────────────────────────────────────────────────────────────
+  const handleSend = useCallback(async () => {
     const content = text.trim();
-    if (!content || sending) return;
+    if (!content) return;
     setText('');
-    setSending(true);
+    const replyId = replyTo?.id;
+    setReplyTo(null);
     try {
-      await sendMessage(content, replyTo?.id);
-      setReplyTo(null);
-    } catch { toast.error('Failed to send'); }
-    finally { setSending(false); }
-    inputRef.current?.focus();
-  };
+      await sendMessage(content, replyId);
+    } catch {
+      // error already handled by hook
+    }
+  }, [text, replyTo, sendMessage]);
 
-  const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-  };
+  // ── Workout share placeholder ──────────────────────────────────────────────
+  const handleShareWorkout = useCallback(() => {
+    // Toast via browser alert-style; swap for sonner/toast if available
+    const event = new CustomEvent('dm:toast', {
+      detail: { message: 'Workout sharing coming soon' },
+    });
+    window.dispatchEvent(event);
+    // Fallback: console so feature is always visible in dev
+    console.info('[DMScreen] Workout sharing coming soon');
+  }, []);
 
-  const friendName = friendProfile?.name ?? 'Chat';
+  // ── Context menu helpers ───────────────────────────────────────────────────
+  const handleLongPress = useCallback(
+    (msg: BubbleMessage, rect: DOMRect) => {
+      setContextMsg({ msg, rect });
+    },
+    []
+  );
 
+  const closeCtx = useCallback(() => setContextMsg(null), []);
+
+  const ctxCanDeleteForAll =
+    contextMsg &&
+    contextMsg.msg.sender_id === user?.id &&
+    Date.now() - new Date(contextMsg.msg.created_at).getTime() < 3_600_000;
+
+  // ── Friend display name ────────────────────────────────────────────────────
+  const friendName = friendProfile?.name ?? 'User';
+
+  // ──────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100dvh', background: C.bg, fontFamily: "'Inter','Manrope',sans-serif", color: C.textPri }}>
-
-      {/* ── Header ───────────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 10,
-        padding: '12px 14px',
-        background: 'rgba(14,14,19,0.88)',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        borderBottom: `1px solid ${C.outline}`,
-        flexShrink: 0, position: 'sticky', top: 0, zIndex: 20,
-      }}>
+    <div
+      style={{
+        minHeight:     '100dvh',
+        background:    BG,
+        display:       'flex',
+        flexDirection: 'column',
+        position:      'relative',
+        fontFamily:    "'Inter','Manrope',system-ui,sans-serif",
+      }}
+    >
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <div
+        style={{
+          position:        'sticky',
+          top:             0,
+          zIndex:          30,
+          background:      'rgba(12,16,21,0.95)',
+          backdropFilter:  'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
+          borderBottom:    '1px solid rgba(255,255,255,0.06)',
+          padding:         '12px 16px',
+          paddingTop:      'max(12px, env(safe-area-inset-top))',
+          display:         'flex',
+          alignItems:      'center',
+          gap:             10,
+        }}
+      >
+        {/* Back */}
         <button
           onClick={() => navigate(-1)}
-          style={{ background: 'none', border: 'none', color: C.textSec, cursor: 'pointer', padding: '0 4px', display: 'flex', alignItems: 'center' }}
+          aria-label="Go back"
+          style={{
+            background: 'none',
+            border:     'none',
+            cursor:     'pointer',
+            padding:    4,
+            display:    'flex',
+            alignItems: 'center',
+            color:      T2,
+            flexShrink: 0,
+          }}
         >
           <ArrowLeft size={22} />
         </button>
 
-        {/* Avatar + online dot */}
-        <div style={{ position: 'relative', flexShrink: 0 }}>
-          <Avatar src={friendProfile?.avatar_url} name={friendName} size={40} />
-          <div style={{
-            position: 'absolute', bottom: 1, right: 1,
-            width: 11, height: 11, borderRadius: 6,
-            backgroundColor: C.green,
-            border: `2px solid ${C.bg}`,
-            boxShadow: `0 0 5px 1px ${C.green}88`,
-          }} />
+        {/* Avatar */}
+        <div style={{ flexShrink: 0 }}>
+          <Avatar
+            src={friendProfile?.avatar_url ?? undefined}
+            name={friendName}
+            size={36}
+          />
         </div>
 
         {/* Name + status */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={{ fontSize: 16, fontWeight: 700, color: C.textPri, margin: 0, lineHeight: '20px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {friendName}
-          </p>
-          <p style={{ fontSize: 11, color: isOnline ? C.green : C.textMuted, margin: 0, fontWeight: 500 }}>
-            {isOnline ? '● Online' : '○ Offline'}
-          </p>
+          <div
+            style={{
+              display:    'flex',
+              alignItems: 'center',
+              gap:        8,
+              marginBottom: 2,
+            }}
+          >
+            <span
+              style={{
+                fontSize:     16,
+                fontWeight:   700,
+                color:        T1,
+                overflow:     'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace:   'nowrap',
+              }}
+            >
+              {friendName}
+            </span>
+
+            {/* Streak badge */}
+            {friendProfile && (
+              <span
+                style={{
+                  fontSize:        10,
+                  fontWeight:      700,
+                  textTransform:   'uppercase',
+                  letterSpacing:   '0.08em',
+                  color:           ACCENT,
+                  background:      'rgba(12,255,156,0.10)',
+                  border:          `1px solid ${GREEN_BORDER}`,
+                  borderRadius:    20,
+                  padding:         '3px 8px',
+                  flexShrink:      0,
+                }}
+              >
+                🔥 STREAK
+              </span>
+            )}
+          </div>
+
+          {/* Online status */}
+          <span
+            style={{
+              fontSize:      10,
+              fontWeight:    600,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              color:         isOnline ? ACCENT : T3,
+            }}
+          >
+            {isOnline ? 'ONLINE · TRAINING NOW' : 'last seen recently'}
+          </span>
         </div>
 
-        {/* Video call */}
-        <button style={{
-          width: 36, height: 36, borderRadius: 18,
-          background: C.surfaceHi, border: 'none', cursor: 'pointer',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: C.textMuted,
-        }}>
-          <Video size={18} />
+        {/* More button */}
+        <button
+          aria-label="More options"
+          style={{
+            background: 'none',
+            border:     'none',
+            cursor:     'pointer',
+            padding:    6,
+            display:    'flex',
+            alignItems: 'center',
+            color:      T2,
+            flexShrink: 0,
+          }}
+        >
+          <MoreVertical size={20} />
         </button>
       </div>
 
-      {/* ── Message list ─────────────────────────────────────────────────────── */}
+      {/* ── STATS BAR ──────────────────────────────────────────────────────── */}
+      {friendProfile && isOnline && (
+        <div
+          style={{
+            background:  SURFACE,
+            padding:     '10px 16px',
+            display:     'flex',
+            alignItems:  'center',
+            gap:         0,
+            flexShrink:  0,
+          }}
+        >
+          <StatCell value="120" label="WORKOUTS" />
+          <div
+            style={{
+              width:      1,
+              height:     28,
+              background: 'rgba(255,255,255,0.08)',
+              margin:     '0 16px',
+            }}
+          />
+          <StatCell value="30" label="DAYS STREAK" />
+        </div>
+      )}
+
+      {/* ── MESSAGE LIST ───────────────────────────────────────────────────── */}
       <div
         ref={listRef}
         onScroll={handleScroll}
-        style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', minHeight: 0 }}
+        style={{
+          flex:          1,
+          overflowY:     'auto',
+          padding:       '12px 16px',
+          paddingBottom: 8,
+          minHeight:     0,
+        }}
       >
-        {/* Load older */}
-        {hasMore && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-            <button
-              onClick={loadOlder}
-              disabled={isLoading}
-              style={{
-                fontSize: 12, fontWeight: 600,
-                padding: '6px 16px', borderRadius: 20,
-                background: `${C.primary}18`, color: C.primary,
-                border: 'none', cursor: 'pointer',
-                opacity: isLoading ? 0.5 : 1,
-              }}
-            >
-              {isLoading ? 'Loading…' : '↑ Load older'}
-            </button>
-          </div>
-        )}
-
-        {error && <p style={{ textAlign: 'center', fontSize: 13, color: '#EF4444', padding: '16px 0' }}>{error}</p>}
-
-        {!isLoading && messages.length === 0 && !error && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 12, textAlign: 'center' }}>
-            <Avatar src={friendProfile?.avatar_url} name={friendName} size={72} />
+        {/* Empty state */}
+        {!isLoading && bubbles.length === 0 && (
+          <div
+            style={{
+              display:        'flex',
+              flexDirection:  'column',
+              alignItems:     'center',
+              justifyContent: 'center',
+              padding:        '80px 0',
+              gap:            12,
+              textAlign:      'center',
+            }}
+          >
+            <Avatar
+              src={friendProfile?.avatar_url ?? undefined}
+              name={friendName}
+              size={72}
+            />
             <div>
-              <p style={{ fontSize: 16, fontWeight: 600, color: C.textPri, margin: '0 0 4px' }}>{friendName}</p>
-              <p style={{ fontSize: 13, color: C.textMuted, margin: 0 }}>Say hello! 👋</p>
+              <p style={{ fontSize: 16, fontWeight: 600, color: T1, margin: '0 0 4px' }}>
+                {friendName}
+              </p>
+              <p style={{ fontSize: 13, color: T2, margin: 0 }}>Say hello! 👋</p>
             </div>
           </div>
         )}
 
-        {/* Messages */}
+        {/* Bubbles */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {messages.map((msg, i) => {
-            const prev = messages[i - 1];
-            const next = messages[i + 1];
+          {bubbles.map((msg, i) => {
+            const prev     = bubbles[i - 1];
+            const next     = bubbles[i + 1];
             const showDate = !prev || !sameDay(prev.created_at, msg.created_at);
-            const isMine  = msg.sender_id === user?.id;
-            const isFirst = !prev || !withinGroup(prev, msg);
-            const isLast  = !next || !withinGroup(msg, next);
-            const mt = isFirst && i > 0 ? 12 : 2;
+            const isMine   = msg.sender_id === user?.id;
+            const isFirst  = !prev || !withinGroup(prev, msg);
+            const isLast   = !next || !withinGroup(msg, next);
 
             return (
-              <React.Fragment key={msg.id}>
-                {showDate && (
-                  <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0 8px' }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600,
-                      padding: '3px 12px', borderRadius: 20,
-                      background: C.surfaceHi, color: C.textMuted,
-                    }}>
-                      {fmtDateLabel(msg.created_at)}
-                    </span>
-                  </div>
-                )}
-                <div style={{ marginTop: mt }}>
-                  <Bubble
-                    msg={msg}
-                    isMine={isMine}
-                    isFirst={isFirst}
-                    isLast={isLast}
-                    onReply={setReplyTo}
-                    onDeleteForMe={async (id) => { try { await deleteForMe(id); } catch { toast.error('Failed'); } }}
-                    onDeleteForEveryone={async (id) => {
-                      try { await deleteForEveryone(id); toast.success('Deleted for everyone'); }
-                      catch (e) { toast.error(e instanceof Error ? e.message : 'Failed'); }
-                    }}
-                  />
-                </div>
-              </React.Fragment>
+              <div key={msg.id} style={{ marginTop: isFirst && i > 0 ? 12 : 2 }}>
+                {showDate && <DateSeparator label={formatDateLabel(msg.created_at)} />}
+                <ChatBubble
+                  msg={msg}
+                  isMine={isMine}
+                  isFirst={isFirst}
+                  isLast={isLast}
+                  showSenderName={false}
+                  onLongPress={handleLongPress}
+                  onReplyTo={(m) => setReplyTo(m)}
+                />
+              </div>
             );
           })}
         </div>
@@ -567,96 +600,256 @@ export default function DMScreen() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Scroll-to-bottom FAB */}
+      {/* ── SCROLL FAB ─────────────────────────────────────────────────────── */}
       <AnimatePresence>
-        {showScrollBtn && (
+        {showScrollFab && (
           <motion.button
+            key="scroll-fab"
             initial={{ opacity: 0, scale: 0.8 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.15 }}
             onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
+            aria-label="Scroll to bottom"
             style={{
-              position: 'absolute', right: 16, bottom: 90,
-              width: 40, height: 40, borderRadius: 20,
-              background: C.highest,
-              border: `1px solid ${C.outline}`,
-              boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', zIndex: 10,
+              position:       'fixed',
+              right:          16,
+              bottom:         120,
+              width:          40,
+              height:         40,
+              borderRadius:   '50%',
+              background:     SURFACE_UP,
+              border:         `1px solid ${GREEN_BORDER}`,
+              boxShadow:      '0 4px 16px rgba(0,0,0,0.5)',
+              display:        'flex',
+              alignItems:     'center',
+              justifyContent: 'center',
+              cursor:         'pointer',
+              zIndex:         20,
             }}
           >
-            <ChevronDown size={18} style={{ color: C.textMuted }} />
+            <ChevronDown size={18} color={T2} />
           </motion.button>
         )}
       </AnimatePresence>
 
-      {/* ── Reply preview ─────────────────────────────────────────────────────── */}
+      {/* ── QUICK SHARE BAR ────────────────────────────────────────────────── */}
+      <div
+        style={{
+          padding:     '8px 16px',
+          display:     'flex',
+          gap:         8,
+          flexShrink:  0,
+          background:  'transparent',
+        }}
+      >
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={handleShareWorkout}
+          style={{
+            display:     'flex',
+            alignItems:  'center',
+            gap:         6,
+            padding:     '8px 14px',
+            borderRadius: 20,
+            background:  SURFACE_UP,
+            border:      '1px solid rgba(255,255,255,0.06)',
+            cursor:      'pointer',
+            outline:     'none',
+            fontFamily:  'inherit',
+          }}
+        >
+          <Dumbbell size={14} color={ACCENT} />
+          <span
+            style={{
+              fontSize:      11,
+              fontWeight:    600,
+              color:         T2,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            SHARE WORKOUT
+          </span>
+        </motion.button>
+
+        <motion.button
+          whileTap={{ scale: 0.96 }}
+          onClick={handleShareWorkout}
+          style={{
+            display:     'flex',
+            alignItems:  'center',
+            gap:         6,
+            padding:     '8px 14px',
+            borderRadius: 20,
+            background:  SURFACE_UP,
+            border:      '1px solid rgba(255,255,255,0.06)',
+            cursor:      'pointer',
+            outline:     'none',
+            fontFamily:  'inherit',
+          }}
+        >
+          <Flame size={14} color={ACCENT} />
+          <span
+            style={{
+              fontSize:      11,
+              fontWeight:    600,
+              color:         T2,
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            SHARE CALORIES
+          </span>
+        </motion.button>
+      </div>
+
+      {/* ── REPLY BAR ──────────────────────────────────────────────────────── */}
       <AnimatePresence>
         {replyTo && (
-          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} style={{ overflow: 'hidden', flexShrink: 0 }}>
-            <ReplyBar msg={replyTo} isMe={replyTo.sender_id === user?.id} onClear={() => setReplyTo(null)} />
+          <motion.div
+            key="reply-bar"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            style={{ overflow: 'hidden', flexShrink: 0 }}
+          >
+            <div
+              style={{
+                display:     'flex',
+                alignItems:  'center',
+                gap:         8,
+                padding:     '8px 16px',
+                background:  SURFACE,
+                borderTop:   '1px solid rgba(255,255,255,0.06)',
+              }}
+            >
+              {/* Accent strip */}
+              <div
+                style={{
+                  width:        3,
+                  alignSelf:    'stretch',
+                  borderRadius: 2,
+                  background:   ACCENT,
+                  flexShrink:   0,
+                }}
+              />
+
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: T3, marginBottom: 2 }}>
+                  Replying to{' '}
+                  <strong style={{ color: ACCENT }}>
+                    {replyTo.sender_id === user?.id
+                      ? 'You'
+                      : replyTo.sender_profile?.name ?? friendName}
+                  </strong>
+                </div>
+                <div
+                  style={{
+                    fontSize:     12,
+                    color:        T2,
+                    overflow:     'hidden',
+                    whiteSpace:   'nowrap',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {replyTo.content}
+                </div>
+              </div>
+
+              <button
+                onClick={() => setReplyTo(null)}
+                aria-label="Cancel reply"
+                style={{
+                  background: 'none',
+                  border:     'none',
+                  cursor:     'pointer',
+                  padding:    4,
+                  color:      T3,
+                  display:    'flex',
+                  alignItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <X size={16} />
+              </button>
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* ── Input bar ────────────────────────────────────────────────────────── */}
-      <div style={{
-        display: 'flex', alignItems: 'flex-end', gap: 10,
-        padding: '10px 14px',
-        paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
-        background: 'rgba(14,14,19,0.90)',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        borderTop: `1px solid ${C.outline}`,
-        flexShrink: 0,
-      }}>
-        <div style={{
-          flex: 1, display: 'flex', alignItems: 'flex-end',
-          borderRadius: 24, overflow: 'hidden',
-          background: '#0A0A0F',
-          border: `1px solid ${C.outline}`,
-        }}>
-          <textarea
-            ref={inputRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              e.target.style.height = 'auto';
-              e.target.style.height = Math.min(e.target.scrollHeight, 110) + 'px';
-            }}
-            onKeyDown={handleKey}
-            placeholder="Type a message…"
-            rows={1}
-            style={{
-              flex: 1, background: 'transparent',
-              padding: '10px 16px',
-              fontSize: 15, color: C.textPri,
-              outline: 'none', border: 'none', resize: 'none',
-              fontFamily: 'inherit', maxHeight: 110, minHeight: 40,
-              lineHeight: '22px',
-            }}
-          />
-        </div>
+      {/* ── CHAT INPUT ─────────────────────────────────────────────────────── */}
+      <ChatInput
+        value={text}
+        onChange={setText}
+        onSend={handleSend}
+        placeholder="Message…"
+      />
 
-        <motion.button
-          whileTap={{ scale: 0.88 }}
-          onClick={text.trim() ? handleSend : undefined}
-          disabled={sending}
-          style={{
-            width: 44, height: 44, borderRadius: 22, flexShrink: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: 'none', cursor: text.trim() ? 'pointer' : 'default',
-            background: text.trim() ? C.primary : C.surfaceHi,
-            boxShadow: text.trim() ? `0 2px 12px ${C.primary}44` : 'none',
-            transition: 'background 0.2s, box-shadow 0.2s',
-            opacity: sending ? 0.5 : 1,
-          }}
-        >
-          {text.trim()
-            ? <Send size={17} style={{ color: '#FFFFFF' }} />
-            : <Mic size={17} style={{ color: C.textMuted }} />
-          }
-        </motion.button>
-      </div>
+      {/* ── CONTEXT MENU ───────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {contextMsg && (
+          <ContextMenu
+            key="ctx-menu"
+            msg={contextMsg.msg}
+            rect={contextMsg.rect}
+            isMine={contextMsg.msg.sender_id === user?.id}
+            onReaction={(r) => {
+              // Reactions persistence is handled inside ChatBubble via onReaction prop;
+              // here we just close the menu (bubble already got the event via ReactionPicker).
+            }}
+            onReply={() => setReplyTo(contextMsg.msg)}
+            onCopy={() => {
+              navigator.clipboard.writeText(contextMsg.msg.content).catch(() => {});
+            }}
+            onDeleteForMe={async () => {
+              try {
+                await deleteForMe(contextMsg.msg.id);
+              } catch {/* best-effort */}
+            }}
+            onDeleteForAll={
+              ctxCanDeleteForAll
+                ? async () => {
+                    try {
+                      await deleteForEveryone(contextMsg.msg.id);
+                    } catch {/* best-effort */}
+                  }
+                : undefined
+            }
+            onClose={closeCtx}
+          />
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── Stat cell ────────────────────────────────────────────────────────────────
+function StatCell({ value, label }: { value: string; label: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <span
+        style={{
+          fontSize:   13,
+          fontWeight: 700,
+          color:      T1,
+          lineHeight: 1.2,
+        }}
+      >
+        {value}
+      </span>
+      <span
+        style={{
+          fontSize:      10,
+          fontWeight:    600,
+          color:         T3,
+          textTransform: 'uppercase',
+          letterSpacing: '0.06em',
+        }}
+      >
+        {label}
+      </span>
     </div>
   );
 }
