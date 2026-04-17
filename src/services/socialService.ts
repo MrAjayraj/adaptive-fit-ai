@@ -23,7 +23,7 @@ export async function searchProfiles(
   query: string,
   excludeUserId: string
 ): Promise<UserProfileSummary[]> {
-  if (!query.trim()) return [];
+  if (query.trim().length < 3) return []; // PRIVACY FIX: require at least 3 characters
   const { data, error } = await supabase
     .from('user_profiles' as never)
     .select('user_id, name, username, avatar_url, goal')

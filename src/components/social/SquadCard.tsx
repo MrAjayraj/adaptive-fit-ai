@@ -3,12 +3,11 @@ import { Users, MoreVertical, MessageCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Group } from '@/types/social';
 
-const ACCENT = '#0CFF9C';
-const SURFACE = '#141A1F';
+const ACCENT = '#00E676';
 const SURFACE_UP = '#1C2429';
 const T1 = '#EAEEF2';
 const T2 = '#8899AA';
-const T3 = '#4A5568';
+const T3 = 'rgba(234, 238, 242, 0.6)';
 
 interface SquadCardProps {
   group: Group;
@@ -28,25 +27,31 @@ export default function SquadCard({
   rankPosition,
 }: SquadCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const count = group.member_count ?? 0;
 
   return (
-    <div
+    <motion.div
+      whileHover={{ scale: 0.98, translateY: -2 }}
       style={{
-        background: SURFACE,
-        borderRadius: 14,
+        background: 'linear-gradient(180deg, #1A1A1A 0%, #111111 100%)',
+        borderRadius: 16,
         padding: 16,
-        marginBottom: 10,
-        border: '1px solid rgba(255,255,255,0.06)',
+        marginBottom: 12,
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.4)',
         position: 'relative',
+        transition: 'box-shadow 0.2s',
       }}
     >
       {/* Three-dots menu button */}
       <div style={{ position: 'absolute', top: 12, right: 12 }}>
-        <button
+        <motion.button
+          whileHover={{ scale: 1.1, backgroundColor: 'rgba(255,255,255,0.05)' }}
+          whileTap={{ scale: 0.9 }}
           onClick={() => setMenuOpen((prev) => !prev)}
           style={{
-            width: 28,
-            height: 28,
+            width: 32,
+            height: 32,
             borderRadius: '50%',
             background: 'transparent',
             border: 'none',
@@ -55,11 +60,12 @@ export default function SquadCard({
             alignItems: 'center',
             justifyContent: 'center',
             padding: 0,
+            transition: 'background-color 0.2s',
           }}
           aria-label="Squad options"
         >
           <MoreVertical size={16} color={T2} />
-        </button>
+        </motion.button>
 
         <AnimatePresence>
           {menuOpen && (
@@ -74,11 +80,12 @@ export default function SquadCard({
                 right: 0,
                 marginTop: 4,
                 background: SURFACE_UP,
-                borderRadius: 10,
+                borderRadius: 12,
                 border: '1px solid rgba(255,255,255,0.08)',
                 zIndex: 10,
                 minWidth: 140,
                 overflow: 'hidden',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
               }}
             >
               {onLeave && (
@@ -92,14 +99,16 @@ export default function SquadCard({
                     width: '100%',
                     background: 'transparent',
                     border: 'none',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
                     cursor: 'pointer',
-                    padding: '10px 14px',
+                    padding: '12px 14px',
                     textAlign: 'left',
                     fontSize: 13,
-                    color: T1,
+                    fontWeight: 500,
+                    color: '#FF6B6B',
                   }}
                 >
-                  Leave Group
+                  Leave Squad
                 </button>
               )}
               {onSettings && (
@@ -114,13 +123,14 @@ export default function SquadCard({
                     background: 'transparent',
                     border: 'none',
                     cursor: 'pointer',
-                    padding: '10px 14px',
+                    padding: '12px 14px',
                     textAlign: 'left',
                     fontSize: 13,
+                    fontWeight: 500,
                     color: T1,
                   }}
                 >
-                  Settings
+                  Squad Settings
                 </button>
               )}
             </motion.div>
@@ -129,14 +139,15 @@ export default function SquadCard({
       </div>
 
       {/* Row layout */}
-      <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
+      <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
         {/* Left: group avatar */}
         <div
           style={{
-            width: 48,
-            height: 48,
-            borderRadius: 12,
-            background: SURFACE_UP,
+            width: 52,
+            height: 52,
+            borderRadius: 14,
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.06)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -148,10 +159,10 @@ export default function SquadCard({
             <img
               src={group.avatar_url}
               alt={group.name}
-              style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover' }}
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
-            <Users size={24} color={T2} />
+            <Users size={20} color={T2} />
           )}
         </div>
 
@@ -159,30 +170,37 @@ export default function SquadCard({
         <div style={{ flex: 1, minWidth: 0 }}>
           <p
             style={{
-              fontSize: 15,
-              fontWeight: 700,
+              fontSize: 16,
+              fontWeight: 600, // Semi-bold per specs
               color: T1,
-              marginBottom: 2,
-              margin: '0 0 2px',
+              marginBottom: 4,
+              margin: '0 0 4px',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
-              // Reserve space for the three-dots button on the right
               paddingRight: 32,
             }}
           >
             {group.name}
           </p>
 
-          <p style={{ fontSize: 12, color: T3, margin: 0 }}>
-            {group.member_count ?? '?'} Members
-          </p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex' }}>
+              {/* Decorative small avatars preview (requested by user) */}
+              <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#333', border: '1px solid #1A1A1A' }} />
+              <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#444', border: '1px solid #1A1A1A', marginLeft: -6 }} />
+              <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#555', border: '1px solid #1A1A1A', marginLeft: -6 }} />
+            </div>
+            <p style={{ fontSize: 13, color: T3, margin: 0, fontWeight: 500 }}>
+              {count} {count === 1 ? 'member' : 'members'} <span style={{ opacity: 0.5, marginLeft: 4 }}>• Active recently</span>
+            </p>
+          </div>
 
           {/* Pill row */}
           {((workoutsThisWeek ?? 0) > 0 || rankPosition) && (
             <div
               style={{
-                marginTop: 6,
+                marginTop: 8,
                 display: 'flex',
                 gap: 6,
                 flexWrap: 'wrap',
@@ -191,7 +209,7 @@ export default function SquadCard({
               {(workoutsThisWeek ?? 0) > 0 && (
                 <span
                   style={{
-                    background: 'rgba(12,255,156,0.1)',
+                    background: 'rgba(0,230,118,0.1)',
                     color: ACCENT,
                     fontSize: 10,
                     textTransform: 'uppercase',
@@ -201,13 +219,13 @@ export default function SquadCard({
                     fontWeight: 600,
                   }}
                 >
-                  {workoutsThisWeek} Workouts This Week
+                  {workoutsThisWeek} Workouts
                 </span>
               )}
               {rankPosition && (
                 <span
                   style={{
-                    background: 'rgba(12,255,156,0.1)',
+                    background: 'rgba(0,230,118,0.1)',
                     color: ACCENT,
                     fontSize: 10,
                     textTransform: 'uppercase',
@@ -225,18 +243,21 @@ export default function SquadCard({
         </div>
       </div>
 
-      {/* Message button */}
-      <button
+      {/* Message button (Primary CTA) */}
+      <motion.button
+        whileHover={{ filter: 'brightness(1.1)' }}
+        whileTap={{ scale: 0.98 }}
         onClick={() => onMessage(group)}
         style={{
-          marginTop: 12,
+          marginTop: 16,
           width: '100%',
-          height: 36,
-          borderRadius: 10,
-          border: '1px solid rgba(12,255,156,0.25)',
-          color: ACCENT,
-          background: 'transparent',
-          fontSize: 13,
+          height: 48,
+          borderRadius: 12,
+          border: 'none',
+          color: '#06090D', // Dark text on neon green for high contrast
+          background: ACCENT,
+          boxShadow: `0 0 16px rgba(0, 230, 118, 0.4)`,
+          fontSize: 14,
           fontWeight: 700,
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
@@ -244,12 +265,12 @@ export default function SquadCard({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 6,
+          gap: 8,
         }}
       >
-        <MessageCircle size={14} />
-        Message
-      </button>
-    </div>
+        <MessageCircle size={16} strokeWidth={2.5} />
+        Chat With Squad
+      </motion.button>
+    </motion.div>
   );
 }
