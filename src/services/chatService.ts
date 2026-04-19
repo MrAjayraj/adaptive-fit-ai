@@ -41,12 +41,16 @@ const tbl = (name: string) => supabase.from(name as never) as any;
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
+export type MessageType = 'text' | 'workout_share' | 'calorie_share' | 'system';
+
 export interface DirectMessage {
   id: string;
   conversation_id: string;
   sender_id: string;
   receiver_id: string;
   content: string;
+  message_type: MessageType;
+  metadata: Record<string, unknown>;
   reply_to: string | null;
   is_read: boolean;
   deleted_for_sender: boolean;
@@ -148,7 +152,7 @@ export async function getDirectMessages(
   const conversationId = getConversationId(userId, friendId);
 
   let query = tbl('direct_messages')
-    .select('id, conversation_id, sender_id, receiver_id, content, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at')
+    .select('id, conversation_id, sender_id, receiver_id, content, message_type, metadata, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -204,7 +208,9 @@ export async function sendDirectMessage(
   senderId: string,
   receiverId: string,
   content: string,
-  replyTo?: string
+  replyTo?: string,
+  messageType: MessageType = 'text',
+  metadata: Record<string, unknown> = {}
 ): Promise<DirectMessage> {
   const conversationId = getConversationId(senderId, receiverId);
 
@@ -214,7 +220,9 @@ export async function sendDirectMessage(
     receiver_id: receiverId,
     content: content.trim(),
     reply_to: replyTo ?? null,
-  }).select('id, conversation_id, sender_id, receiver_id, content, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at').single();
+    message_type: messageType,
+    metadata,
+  }).select('id, conversation_id, sender_id, receiver_id, content, message_type, metadata, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at').single();
 
   if (error) {
     console.error('[chatService] sendDirectMessage error:', JSON.stringify(error));

@@ -3,11 +3,12 @@ import { Users, MoreVertical, MessageCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { Group } from '@/types/social';
 
-const ACCENT = '#00E676';
+const ACCENT    = '#0CFF9C';
+const SURFACE   = '#141A1F';
 const SURFACE_UP = '#1C2429';
 const T1 = '#EAEEF2';
 const T2 = '#8899AA';
-const T3 = 'rgba(234, 238, 242, 0.6)';
+const T3 = '#4A5568';
 
 interface SquadCardProps {
   group: Group;
@@ -33,7 +34,7 @@ export default function SquadCard({
     <motion.div
       whileHover={{ scale: 0.98, translateY: -2 }}
       style={{
-        background: 'linear-gradient(180deg, #1A1A1A 0%, #111111 100%)',
+        background: SURFACE,
         borderRadius: 16,
         padding: 16,
         marginBottom: 12,
@@ -209,7 +210,7 @@ export default function SquadCard({
               {(workoutsThisWeek ?? 0) > 0 && (
                 <span
                   style={{
-                    background: 'rgba(0,230,118,0.1)',
+                    background: 'rgba(12,255,156,0.1)',
                     color: ACCENT,
                     fontSize: 10,
                     textTransform: 'uppercase',
@@ -225,7 +226,7 @@ export default function SquadCard({
               {rankPosition && (
                 <span
                   style={{
-                    background: 'rgba(0,230,118,0.1)',
+                    background: 'rgba(12,255,156,0.1)',
                     color: ACCENT,
                     fontSize: 10,
                     textTransform: 'uppercase',
@@ -256,7 +257,7 @@ export default function SquadCard({
           border: 'none',
           color: '#06090D', // Dark text on neon green for high contrast
           background: ACCENT,
-          boxShadow: `0 0 16px rgba(0, 230, 118, 0.4)`,
+          boxShadow: `0 0 16px rgba(12,255,156,0.3)`,
           fontSize: 14,
           fontWeight: 700,
           textTransform: 'uppercase',

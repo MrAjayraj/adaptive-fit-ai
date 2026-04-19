@@ -73,7 +73,12 @@ const Social        = lazy(() => import('./pages/Social'));
 const DebugPanel    = lazy(() => import('./pages/DebugPanel'));
 const DMScreen      = lazy(() => import('./components/social/DMScreen'));
 const ConversationsScreen = lazy(() => import('./components/social/ConversationsScreen'));
-const Notifications = lazy(() => import('./pages/Notifications'));
+const ChatsScreen   = lazy(() => import('./pages/ChatsScreen'));
+const Notifications       = lazy(() => import('./pages/Notifications'));
+const WorkoutHub          = lazy(() => import('./pages/WorkoutHub'));
+const CreateWorkout       = lazy(() => import('./pages/CreateWorkout'));
+const SkillWorkoutTimer   = lazy(() => import('./pages/SkillWorkoutTimer'));
+const WorkoutSummary      = lazy(() => import('./pages/WorkoutSummary'));
 
 // ── Suspense fallback ─────────────────────────────────────────────────────────
 function PageLoader() {
@@ -146,9 +151,14 @@ const App = () => (
                   <Route path="/rank"         element={<ProtectedRoute><Rank /></ProtectedRoute>} />
                   <Route path="/social"       element={<ProtectedRoute><Social /></ProtectedRoute>} />
                   <Route path="/messages"     element={<ProtectedRoute><ConversationsScreen /></ProtectedRoute>} />
+                  <Route path="/chats"        element={<ProtectedRoute><ChatsScreen /></ProtectedRoute>} />
                   <Route path="/chat/:friendId" element={<ProtectedRoute><DMScreen /></ProtectedRoute>} />
                   <Route path="/debug"        element={<ProtectedRoute><DebugPanel /></ProtectedRoute>} />
-                  <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+                  <Route path="/notifications"   element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+                  <Route path="/workout-hub"    element={<ProtectedRoute><WorkoutHub /></ProtectedRoute>} />
+                  <Route path="/create-workout" element={<ProtectedRoute><CreateWorkout /></ProtectedRoute>} />
+                  <Route path="/skill-workout"  element={<ProtectedRoute><SkillWorkoutTimer /></ProtectedRoute>} />
+                  <Route path="/workout-summary" element={<ProtectedRoute><WorkoutSummary /></ProtectedRoute>} />
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />

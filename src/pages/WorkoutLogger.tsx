@@ -572,12 +572,24 @@ export default function WorkoutLogger() {
   const [currentExIndex, setCurrentExIndex] = useState(0);
   const [showSummary, setShowSummary] = useState(false);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
+  const [search, setSearch] = useState('');
   const [rating, setRating] = useState(3);
   const [activeRestTimer, setActiveRestTimer] = useState<string | null>(null); // set.id
   const [elapsedSec, setElapsedSec] = useState(0);
   const startTimeRef = useRef<number>(Date.now());
 
   const workout = currentPlan.find(w => w.id === activeWorkoutId) || null;
+
+  // ── Clamp currentExIndex to valid bounds whenever exercises array changes ────
+  // This prevents blank screens when exercises are added/removed
+  useEffect(() => {
+    if (!workout) return;
+    const maxIdx = workout.exercises.length - 1;
+    if (currentExIndex > maxIdx) {
+      setCurrentExIndex(Math.max(0, maxIdx));
+    }
+  }, [workout?.exercises.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Set mutation helpers ─────────────────────────────────────────────────────
   const mutateExercise = useCallback(
@@ -593,13 +605,45 @@ export default function WorkoutLogger() {
     [workout, currentExIndex, updateWorkout]
   );
 
+  const addExerciseToActiveWorkout = (ex: typeof EXERCISE_DATABASE[0]) => {
+    if (!workout) return;
+    const newExercise = {
+      id: v4(),
+      exerciseId: ex.id,
+      exerciseName: ex.name,
+      muscleGroup: ex.muscleGroup as import('@/types/fitness').MuscleGroup,
+      restSeconds: 90,
+      sets: Array.from({ length: 3 }, () => ({
+        id: v4(),
+        weight: ex.isCompound ? 40 : 10,
+        reps: ex.isCompound ? 8 : 12,
+        completed: false,
+      })),
+    };
+    // Capture the new index BEFORE updating state to avoid stale-closure races
+    const newIndex = workout.exercises.length;
+    const updatedWorkout = {
+      ...workout,
+      exercises: [...workout.exercises, newExercise],
+    };
+    console.log('[WorkoutLogger] Adding exercise:', ex.name, '→ index', newIndex,
+                'total exercises after:', updatedWorkout.exercises.length);
+    updateWorkout(updatedWorkout);
+    setShowPicker(false);
+    setSearch('');
+    // Switch to the newly added exercise — use the captured index
+    setCurrentExIndex(newIndex);
+  };
+
   // Live workout timer
   useEffect(() => {
     const interval = setInterval(() => {
-      setElapsedSec(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      if (!showPicker && !showSummary && !showCancelConfirm) {
+        setElapsedSec(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }
     }, 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [showPicker, showSummary, showCancelConfirm]);
 
   // ── No active workout — enhanced landing ────────────────────────────────────
   if (!workout) {
@@ -733,11 +777,22 @@ export default function WorkoutLogger() {
     );
   }
 
-  const exercise = workout.exercises[currentExIndex];
-  if (!exercise) return null;
+  // ── Safe exercise access — clamp to avoid out-of-bounds ────────────────────
+  // Use a safe index so showPicker/showSummary can still render if index drifts
+  const safeExIndex = Math.min(
+    Math.max(0, currentExIndex),
+    Math.max(0, workout.exercises.length - 1)
+  );
+  const exercise = workout.exercises[safeExIndex] ?? null;
 
-  const updateSet = (si: number, changes: Partial<WorkoutSet>) =>
+  // ── Early returns for overlay screens (BEFORE exercise null check) ──────────
+  // If !exercise and neither picker nor summary is shown — nothing to render
+  if (!exercise && !showSummary && !showPicker) return null;
+
+  const updateSet = (si: number, changes: Partial<WorkoutSet>) => {
+    if (!exercise) return;
     mutateExercise(sets => sets.map((s, i) => (i === si ? { ...s, ...changes } : s)));
+  };
 
   const addSet = () => {
     const last = exercise.sets[exercise.sets.length - 1];
@@ -821,6 +876,57 @@ export default function WorkoutLogger() {
           navigate('/');
         }}
       />
+    );
+  }
+
+  // ── Exercise Picker UI ────────────────────────────────────────────────────────
+  if (showPicker) {
+    const filteredExercises = EXERCISE_DATABASE.filter(
+      e => e.name.toLowerCase().includes(search.toLowerCase()) ||
+           e.muscleGroup.toLowerCase().includes(search.toLowerCase())
+    );
+    return (
+      <div className="min-h-screen bg-canvas pb-24 font-sans flex flex-col z-50">
+        <div className="flex items-center gap-3 px-4 pt-6 pb-3 bg-surface-1 border-b border-border-subtle sticky top-0 z-10">
+          <button
+            onClick={() => { setShowPicker(false); setSearch(''); }}
+            className="w-9 h-9 rounded-full flex items-center justify-center"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
+          >
+            <ChevronLeft className="w-4 h-4 text-text-1" />
+          </button>
+          <div className="flex-1">
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search exercises..."
+              className="w-full bg-transparent text-[15px] font-medium text-text-1 focus:outline-none placeholder:text-text-3"
+              autoFocus
+            />
+          </div>
+        </div>
+        <div className="px-4 flex flex-col gap-2 pt-4 overflow-y-auto">
+          {filteredExercises.map(ex => (
+            <button
+              key={ex.id}
+              onClick={() => addExerciseToActiveWorkout(ex)}
+              className="flex items-center gap-3 p-4 rounded-[20px] text-left transition-all active:scale-[0.98]"
+              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
+            >
+              <div className="w-11 h-11 rounded-2xl bg-primary-accent/10 flex items-center justify-center shrink-0">
+                <Dumbbell className="w-5 h-5 text-primary-accent" />
+              </div>
+              <div>
+                <p className="text-[14px] font-bold text-text-1">{ex.name}</p>
+                <p className="text-[11px] text-text-3 font-medium capitalize mt-0.5">
+                  {ex.muscleGroup} · {ex.equipment}
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
     );
   }
 
@@ -932,6 +1038,17 @@ export default function WorkoutLogger() {
             </button>
           );
         })}
+        <button
+          onClick={() => setShowPicker(true)}
+          className="shrink-0 px-4 py-1.5 rounded-full text-[12px] font-bold transition-all duration-200 flex items-center gap-1.5"
+          style={{
+            background: 'rgba(255,255,255,0.04)',
+            color: '#F5C518',
+            border: '1px dashed rgba(245,197,24,0.3)',
+          }}
+        >
+          <Plus className="w-3.5 h-3.5" /> Add
+        </button>
       </div>
 
       {/* ─── Current exercise ─── */}

@@ -366,26 +366,51 @@ export async function upsertWorkout(workout: {
   rating?: number;
   splitType?: string;
   exercises: unknown;
+  workoutType?: string;
+  totalRounds?: number;
+  roundDurationSeconds?: number;
+  restBetweenRoundsSeconds?: number;
+  intensity?: string;
+  notes?: string;
+  caloriesBurned?: number;
 }): Promise<void> {
   const { userId } = await getIdentity();
   if (!userId) return;
-  await supabase
+
+  const payload: Record<string, unknown> = {
+    id: workout.id,
+    user_id: userId,
+    name: workout.name,
+    date: workout.date,
+    completed: workout.completed,
+    duration: workout.duration ?? null,
+    rating: workout.rating ?? null,
+    split_type: workout.splitType ?? null,
+    exercises: workout.exercises,
+    updated_at: new Date().toISOString(),
+  };
+
+  // Optional new columns (added by migration) — only include if set
+  if (workout.workoutType)               payload.workout_type = workout.workoutType;
+  if (workout.totalRounds != null)       payload.total_rounds = workout.totalRounds;
+  if (workout.roundDurationSeconds != null) payload.round_duration_seconds = workout.roundDurationSeconds;
+  if (workout.restBetweenRoundsSeconds != null) payload.rest_between_rounds_seconds = workout.restBetweenRoundsSeconds;
+  if (workout.intensity)                 payload.intensity = workout.intensity;
+  if (workout.notes)                     payload.notes = workout.notes;
+  if (workout.caloriesBurned != null)    payload.calories_burned = workout.caloriesBurned;
+
+  console.log('[upsertWorkout] saving workout:', workout.name,
+              '| exercises:', Array.isArray(workout.exercises) ? (workout.exercises as unknown[]).length : '?');
+
+  const { error } = await supabase
     .from('workouts' as any)
-    .upsert(
-      {
-        id: workout.id,
-        user_id: userId,
-        name: workout.name,
-        date: workout.date,
-        completed: workout.completed,
-        duration: workout.duration ?? null,
-        rating: workout.rating ?? null,
-        split_type: workout.splitType ?? null,
-        exercises: workout.exercises,
-        updated_at: new Date().toISOString(),
-      } as Record<string, unknown>,
-      { onConflict: 'id' }
-    );
+    .upsert(payload, { onConflict: 'id' });
+
+  if (error) {
+    console.error('[upsertWorkout] Supabase error:', JSON.stringify(error));
+    throw new Error(error.message);
+  }
+  console.log('[upsertWorkout] ✓ saved:', workout.id);
 }
 
 /** Fetch all workouts for the current user, newest first. */

@@ -19,9 +19,26 @@ function SocialBadge({ isActive }: { isActive: boolean }) {
   if (totalUnread === 0) return null;
   return (
     <span
-      className={`absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-[3px] text-[9px] font-bold rounded-full flex items-center justify-center z-20 border-2 ${
-        isActive ? 'bg-[#111113] text-[#F5C518] border-[#F5C518]' : 'bg-primary text-[#06090D] border-surface-1 md:border-surface-2'
-      }`}
+      style={{
+        position: 'absolute',
+        top: -2,
+        right: -2,
+        minWidth: 14,
+        height: 14,
+        paddingLeft: 3,
+        paddingRight: 3,
+        fontSize: 9,
+        fontWeight: 700,
+        borderRadius: 999,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 20,
+        border: '2px solid',
+        background: isActive ? '#0C1015' : '#0CFF9C',
+        color: isActive ? '#0CFF9C' : '#0C1015',
+        borderColor: isActive ? '#0CFF9C' : '#1C1C1E',
+      }}
     >
       {totalUnread > 9 ? '9+' : totalUnread}
     </span>

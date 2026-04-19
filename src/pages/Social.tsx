@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Settings, UserPlus, Trophy, Users } from 'lucide-react';
+import { Bell, Settings, UserPlus, Trophy, Users, Dumbbell, ChevronRight, Flame, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useFriends } from '@/hooks/useFriends';
 import { useFitness } from '@/context/FitnessContext';
@@ -9,7 +9,6 @@ import { useGroups } from '@/hooks/useGroups';
 import { useAuth } from '@/context/AuthContext';
 import FriendsList from '@/components/social/FriendsList';
 import ActivityFeedView from '@/components/social/ActivityFeedView';
-import GroupsView from '@/components/social/GroupsView';
 import ActiveNowStrip from '@/components/social/ActiveNowStrip';
 import SquadCard from '@/components/social/SquadCard';
 import BottomNav from '@/components/layout/BottomNav';
@@ -537,7 +536,78 @@ export default function Social() {
             )}
 
             {/* ── WORKOUTS TAB ───────────────────────────────────────────── */}
-            {activeTab === 'WORKOUTS' && <GroupsView />}
+            {activeTab === 'WORKOUTS' && (
+              <div style={{ padding: '16px 16px 100px' }}>
+                {/* Hero CTA */}
+                <motion.button
+                  initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                  onClick={() => navigate('/workout-hub')}
+                  style={{
+                    width: '100%', borderRadius: 16, padding: '20px 20px',
+                    background: `linear-gradient(135deg, rgba(12,255,156,0.15) 0%, rgba(12,255,156,0.04) 100%)`,
+                    border: '1px solid rgba(12,255,156,0.25)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    marginBottom: 16, cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{
+                      width: 48, height: 48, borderRadius: 12,
+                      background: 'rgba(12,255,156,0.12)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Dumbbell size={22} color="#0CFF9C" />
+                    </div>
+                    <div style={{ textAlign: 'left' }}>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#EAEEF2', letterSpacing: 0.3 }}>
+                        Browse Workout Templates
+                      </div>
+                      <div style={{ fontSize: 12, color: '#8899AA', marginTop: 2 }}>
+                        Strength · Cardio · Skill training
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight size={18} color="#0CFF9C" />
+                </motion.button>
+
+                {/* Quick-start cards */}
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#4A5568', letterSpacing: 1.5, marginBottom: 12 }}>
+                  QUICK START
+                </div>
+                {[
+                  { label: 'Strength', icon: <Dumbbell size={16} color="#0CFF9C" />, mins: '45–60', kcal: '320', path: '/workout-hub' },
+                  { label: 'Cardio / HIIT', icon: <Flame size={16} color="#FF6B35" />, mins: '20–30', kcal: '280', path: '/workout-hub' },
+                  { label: 'Skill / Boxing', icon: <Clock size={16} color="#A78BFA" />, mins: '30', kcal: '240', path: '/create-workout?type=skill' },
+                ].map((item, i) => (
+                  <motion.button
+                    key={item.label}
+                    initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
+                    onClick={() => navigate(item.path)}
+                    style={{
+                      width: '100%', background: '#141A1F', border: '1px solid #1C2429',
+                      borderRadius: 12, padding: '14px 16px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      marginBottom: 10, cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: 8,
+                        background: '#1C2429',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {item.icon}
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: '#EAEEF2' }}>{item.label}</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 12, color: '#8899AA' }}>{item.mins} min · {item.kcal} kcal</span>
+                      <ChevronRight size={14} color="#4A5568" />
+                    </div>
+                  </motion.button>
+                ))}
+              </div>
+            )}
 
             {/* ── FEED TAB ───────────────────────────────────────────────── */}
             {activeTab === 'FEED' && <ActivityFeedView />}
