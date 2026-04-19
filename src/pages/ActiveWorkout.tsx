@@ -990,14 +990,14 @@ export default function ActiveWorkout() {
         rpEarned: summary.rpEarned,
       });
     } else {
-      navigate('/workout-hub');
+      navigate('/workouts');
     }
   }, [hook, navigate]);
 
   const handleCancel = useCallback(async () => {
     setShowCancelConfirm(false);
     await hook.cancel();
-    navigate('/workout-hub');
+    navigate('/workouts');
   }, [hook, navigate]);
 
   const handleClearSets = useCallback((exIdx: number) => {
@@ -1016,7 +1016,7 @@ export default function ActiveWorkout() {
     return (
       <WorkoutCompleteScreen
         summary={completedSummary}
-        onBack={() => navigate('/workout-hub')}
+        onBack={() => navigate('/workouts')}
       />
     );
   }

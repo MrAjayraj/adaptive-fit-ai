@@ -86,15 +86,7 @@ async function importFromFile(filePath: string) {
 
   const raw       = fs.readFileSync(resolved, 'utf-8');
   const exercises = JSON.parse(raw) as KaggleExercise[];
-  console.log(`✅  Parsed ${exercises.length} exercises\n`);
-
-  let imported = 0;
-  let skipped  = 0;
-
-  for (let i = 0; i < exercises.length; i += BATCH_SIZE) {
-    const batch = exercises.slice(i, i + BATCH_SIZE);
-
-    const rows = batch.map(ex => ({
+  const deduped = exercises.map(ex => ({
       exercise_id:       ex.id,
       name:              toTitleCase(ex.name),
       body_part:         ex.bodyPart.toLowerCase(),
@@ -105,36 +97,43 @@ async function importFromFile(filePath: string) {
       instructions:      ex.instructions ?? [],
       exercise_type:     mapExerciseType(ex.equipment, ex.bodyPart),
       is_custom:         false,
-    }));
+  }));
 
-    const { error } = await supabase
-      .from('exercises')
-      .upsert(rows, { onConflict: 'exercise_id' });
+  let totalInserted = 0;
+  let totalErrors = 0;
+  const batches = Math.ceil(deduped.length / BATCH_SIZE);
 
-    if (error) {
-      console.error(`  ⚠️  Batch ${Math.floor(i / BATCH_SIZE) + 1} error: ${error.message}`);
-      skipped += batch.length;
+  for (let b = 0; b < batches; b++) {
+    const batch = deduped.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+    process.stdout.write(`  🔄 Batch ${b + 1}/${batches} (${batch.length} exercises)… `);
+
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/bulk_insert_exercises`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_KEY,
+      },
+      body: JSON.stringify({ payload: batch }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error(`❌ Batch RPC failed: ${response.status} ${error}`);
+      totalErrors += batch.length;
     } else {
-      imported += batch.length;
-      const pct = Math.round((imported / exercises.length) * 100);
-      process.stdout.write(`\r  ⬆️  Progress: ${imported}/${exercises.length} (${pct}%)`);
+      process.stdout.write(`✅\n`);
+      totalInserted += batch.length;
     }
 
-    // Small delay to stay within rate limits
-    await sleep(80);
+    // Small delay to avoid rate limiting
+    if (b < batches - 1) await new Promise((r) => setTimeout(r, 200));
   }
 
-  console.log('\n');
-
-  // Verify
-  const { count } = await supabase
-    .from('exercises')
-    .select('*', { count: 'exact', head: true });
-
-  console.log(`✅  Import complete!`);
-  console.log(`   Imported : ${imported}`);
-  console.log(`   Skipped  : ${skipped}`);
-  console.log(`   DB total : ${count}`);
+  console.log('\n══════════════════════════════════════════');
+  console.log(`✅ Import complete!`);
+  console.log(`   Imported : ${totalInserted}`);
+  console.log(`   Errors   : ${totalErrors}`);
 }
 
 // ── Alternative: fetch from exercisedb.io API (requires RapidAPI key) ──────

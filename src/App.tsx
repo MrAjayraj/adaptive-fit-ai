@@ -79,6 +79,11 @@ const WorkoutHub          = lazy(() => import('./pages/WorkoutHub'));
 const CreateWorkout       = lazy(() => import('./pages/CreateWorkout'));
 const SkillWorkoutTimer   = lazy(() => import('./pages/SkillWorkoutTimer'));
 const WorkoutSummary      = lazy(() => import('./pages/WorkoutSummary'));
+const WorkoutTab          = lazy(() => import('./pages/WorkoutTab'));
+const ActiveWorkout       = lazy(() => import('./pages/ActiveWorkout'));
+const CreateRoutine       = lazy(() => import('./pages/CreateRoutine'));
+const ExplorePrograms     = lazy(() => import('./pages/ExplorePrograms'));
+const CreateCustomExercise = lazy(() => import('./pages/CreateCustomExercise'));
 
 // ── Suspense fallback ─────────────────────────────────────────────────────────
 function PageLoader() {
@@ -159,6 +164,13 @@ const App = () => (
                   <Route path="/create-workout" element={<ProtectedRoute><CreateWorkout /></ProtectedRoute>} />
                   <Route path="/skill-workout"  element={<ProtectedRoute><SkillWorkoutTimer /></ProtectedRoute>} />
                   <Route path="/workout-summary" element={<ProtectedRoute><WorkoutSummary /></ProtectedRoute>} />
+                  {/* Hevy-style workout routes */}
+                  <Route path="/workouts"        element={<ProtectedRoute><WorkoutTab /></ProtectedRoute>} />
+                  <Route path="/workout/active"  element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
+                  <Route path="/routine/new"     element={<ProtectedRoute><CreateRoutine /></ProtectedRoute>} />
+                  <Route path="/routine/:id"     element={<ProtectedRoute><CreateRoutine /></ProtectedRoute>} />
+                  <Route path="/programs"        element={<ProtectedRoute><ExplorePrograms /></ProtectedRoute>} />
+                  <Route path="/exercise/create" element={<ProtectedRoute><CreateCustomExercise /></ProtectedRoute>} />
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />

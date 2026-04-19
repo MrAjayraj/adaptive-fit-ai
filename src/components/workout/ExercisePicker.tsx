@@ -3,6 +3,7 @@
 // Inline styles only (no Tailwind).
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { X, Search, ChevronDown, Check, Plus, ArrowLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { searchExercises, getPopularExercises } from '@/services/workoutService';
@@ -407,6 +408,7 @@ export default function ExercisePicker({
   const [equipment, setEquipment]             = useState('all');
   const [openDropdown, setOpenDropdown]       = useState<'bodyPart' | 'equipment' | null>(null);
 
+  const navigate = useNavigate();
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -587,7 +589,7 @@ export default function ExercisePicker({
 
         {/* Right: Create */}
         <button
-          onClick={() => console.log('[ExercisePicker] Navigate to /exercise/create')}
+          onClick={() => { onClose(); navigate('/exercise/create'); }}
           style={{
             background: 'none',
             border: 'none',

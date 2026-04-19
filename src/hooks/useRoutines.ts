@@ -146,8 +146,12 @@ export function useRoutines() {
 
   const duplicate = useCallback(
     async (routineId: string): Promise<Routine | null> => {
+      if (!userId) {
+        console.error('[useRoutines] duplicate: no authenticated user');
+        return null;
+      }
       try {
-        const copy = await duplicateRoutine(routineId);
+        const copy = await duplicateRoutine(routineId, userId);
         if (!copy) return null;
 
         // Optimistic: append copy to list
@@ -158,7 +162,7 @@ export function useRoutines() {
         return null;
       }
     },
-    []
+    [userId]
   );
 
   // ── Return ─────────────────────────────────────────────────────────────────

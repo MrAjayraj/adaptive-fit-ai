@@ -259,11 +259,15 @@ export function useActiveWorkout() {
       const lastSet = prevSets[prevSets.length - 1];
 
       const newSet: WorkoutSet = {
-        id: crypto.randomUUID(),
         set_number: (lastSet?.set_number ?? prevSets.length) + 1,
-        weight: lastSet?.weight ?? 0,
+        weight_kg: lastSet?.weight_kg ?? 0,
         reps: lastSet?.reps ?? 10,
+        duration_sec: null,
+        distance_km: null,
         is_completed: false,
+        is_pr: false,
+        pr_type: null,
+        rest_seconds: lastSet?.rest_seconds ?? 90,
       };
 
       // Optimistic update
@@ -282,7 +286,7 @@ export function useActiveWorkout() {
           if (!prev) return prev;
           const reverted = prev.exercises.map((ex, i) =>
             i === exerciseIndex
-              ? { ...ex, sets: ex.sets.filter((s) => s.id !== newSet.id) }
+              ? { ...ex, sets: ex.sets.slice(0, -1) }
               : ex
           );
           return { ...prev, exercises: reverted };
@@ -368,7 +372,7 @@ export function useActiveWorkout() {
 
       setSaving(true);
       try {
-        await completeSet(workoutId, exerciseIndex, setIndex, !wasCompleted);
+        await completeSet(workoutId, exerciseIndex, setIndex);
       } catch (e) {
         // Revert
         console.error('[useActiveWorkout] toggleSetComplete failed:', e);

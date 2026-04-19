@@ -6,7 +6,7 @@ import { useConversations } from '@/hooks/useConversations';
 
 const NAV_ITEMS = [
   { path: '/home',      icon: Home,       label: 'Home'     },
-  { path: '/workout-hub', icon: Dumbbell, label: 'Workouts' },
+  { path: '/workouts',    icon: Dumbbell, label: 'Workouts' },
   { path: '/social',    icon: Users,      label: 'Social'   },
   { path: '/progress',  icon: BarChart2,  label: 'Progress' },
   { path: '/profile',   icon: User,       label: 'Profile'  },
@@ -59,12 +59,18 @@ export default function BottomNav() {
         location.pathname.startsWith('/chat/')
       );
     }
-    if (path === '/workout-hub') {
-      return location.pathname === '/workout-hub' ||
+    if (path === '/workouts') {
+      return location.pathname === '/workouts' ||
+             location.pathname === '/workout-hub' ||
              location.pathname === '/workout' ||
+             location.pathname === '/workout/active' ||
              location.pathname === '/create-workout' ||
              location.pathname === '/skill-workout' ||
-             location.pathname === '/workout-summary';
+             location.pathname === '/workout-summary' ||
+             location.pathname === '/routine/new' ||
+             location.pathname.startsWith('/routine/') ||
+             location.pathname === '/programs' ||
+             location.pathname === '/exercise/create';
     }
     return location.pathname === path || location.pathname.startsWith(path + '/');
   }
