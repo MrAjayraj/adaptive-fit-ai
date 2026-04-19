@@ -1,12 +1,12 @@
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, AlarmClock, Star, BarChart2, User, Users } from 'lucide-react';
+import { Home, Dumbbell, BarChart2, User, Users } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { useConversations } from '@/hooks/useConversations';
 
 const NAV_ITEMS = [
   { path: '/home',      icon: Home,       label: 'Home'     },
-  { path: '/workout',   icon: Star,       label: 'Workout'  },
+  { path: '/workout-hub', icon: Dumbbell, label: 'Workouts' },
   { path: '/social',    icon: Users,      label: 'Social'   },
   { path: '/progress',  icon: BarChart2,  label: 'Progress' },
   { path: '/profile',   icon: User,       label: 'Profile'  },
@@ -58,6 +58,13 @@ export default function BottomNav() {
         location.pathname === '/messages' ||
         location.pathname.startsWith('/chat/')
       );
+    }
+    if (path === '/workout-hub') {
+      return location.pathname === '/workout-hub' ||
+             location.pathname === '/workout' ||
+             location.pathname === '/create-workout' ||
+             location.pathname === '/skill-workout' ||
+             location.pathname === '/workout-summary';
     }
     return location.pathname === path || location.pathname.startsWith(path + '/');
   }

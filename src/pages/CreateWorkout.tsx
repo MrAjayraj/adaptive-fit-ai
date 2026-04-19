@@ -6,7 +6,8 @@ import { useFitness } from '@/context/FitnessContext';
 import { useAuth } from '@/context/AuthContext';
 import { getWorkoutTemplates } from '@/services/workoutService';
 import type { WorkoutTemplate } from '@/services/workoutService';
-import { EXERCISE_DATABASE } from '@/types/fitness';
+import { EXERCISE_DATABASE, MuscleGroup } from '@/types/fitness';
+import type { TemplateExercise } from '@/types/workout-templates';
 import { v4 } from '@/lib/id';
 import BottomNav from '@/components/layout/BottomNav';
 
@@ -298,24 +299,31 @@ export default function CreateWorkout() {
       return;
     }
 
-    // Build a WorkoutTemplate-like object for strength/cardio/custom
-    const exercises = selectedTemplate
-      ? selectedTemplate.exercises
-      : selectedExercises.map((name) => ({ name, sets: 3, reps: 10, rest_seconds: 90 }));
+    // Collect raw exercise data from template or manual selection
+    const rawExercises: Array<{ name: string; sets?: number; reps?: number }> = selectedTemplate
+      ? selectedTemplate.exercises.map(ex => ({ name: ex.name, sets: ex.sets, reps: ex.reps }))
+      : selectedExercises.map(name => ({ name, sets: 3, reps: 10 }));
 
-    const template: WorkoutTemplate = {
-      id:                   v4(),
-      name:                 workoutName || 'My Workout',
-      description:          null,
-      workout_type:         workoutType,
-      difficulty:           'intermediate',
-      category:             null,
-      duration_estimate_min: 45,
-      image_url:            null,
-      exercises,
-      is_featured:          false,
-      is_system:            false,
-      created_at:           new Date().toISOString(),
+    // Map to TemplateExercise format (required by startCustomWorkout / FitnessContext)
+    const mappedExercises: TemplateExercise[] = rawExercises.map(ex => {
+      const dbEx = EXERCISE_DATABASE.find(
+        e => e.name.toLowerCase() === (ex.name ?? '').toLowerCase()
+      );
+      return {
+        exerciseId:   dbEx?.id ?? (ex.name ?? 'exercise').toLowerCase().replace(/\s+/g, '-'),
+        exerciseName: ex.name ?? 'Exercise',
+        muscleGroup:  (dbEx?.muscleGroup ?? 'chest') as MuscleGroup,
+        sets:         ex.sets ?? 3,
+        reps:         ex.reps ?? 10,
+        weight:       dbEx ? (dbEx.isCompound ? 40 : 10) : 0,
+      };
+    });
+
+    const template = {
+      id:          v4(),
+      name:        workoutName || 'My Workout',
+      exercises:   mappedExercises,
+      createdAt:   new Date().toISOString(),
     };
 
     startCustomWorkout(template);

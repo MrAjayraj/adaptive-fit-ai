@@ -254,11 +254,11 @@ export default function SquadCard({
           width: '100%',
           height: 48,
           borderRadius: 12,
-          border: 'none',
-          color: '#06090D', // Dark text on neon green for high contrast
-          background: ACCENT,
-          boxShadow: `0 0 16px rgba(12,255,156,0.3)`,
-          fontSize: 14,
+          border: '1px solid rgba(255,255,255,0.12)',
+          color: T1,
+          background: 'rgba(255,255,255,0.04)',
+          boxShadow: 'none',
+          fontSize: 13,
           fontWeight: 700,
           textTransform: 'uppercase',
           letterSpacing: '0.06em',
@@ -269,7 +269,7 @@ export default function SquadCard({
           gap: 8,
         }}
       >
-        <MessageCircle size={16} strokeWidth={2.5} />
+        <MessageCircle size={16} strokeWidth={2.5} color={T2} />
         Chat With Squad
       </motion.button>
     </motion.div>
