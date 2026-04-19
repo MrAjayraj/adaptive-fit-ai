@@ -1,340 +1,769 @@
-// src/services/workoutService.ts
-// Workout templates, skill sessions, summaries, and analytics.
-// Two-query pattern throughout — no embedded PostgREST joins.
+// src/services/workoutService.ts — Hevy-style JSONB-based workout storage
+// ALL workout state lives in workouts.exercises (JSONB). No separate set tables.
+// Two-query pattern throughout: fetch exercises → mutate in JS → update row.
 
 import { supabase } from '@/integrations/supabase/client';
-import { getIdentity } from './api';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = (table: string) => supabase.from(table as never) as any;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export interface WorkoutTemplate {
+export interface Exercise {
   id: string;
+  exercise_id: string | null;
   name: string;
-  description: string | null;
-  workout_type: 'strength' | 'cardio' | 'skill' | 'custom';
-  difficulty: 'beginner' | 'intermediate' | 'advanced';
-  category: string | null;
-  duration_estimate_min: number | null;
+  body_part: string;
+  equipment: string;
+  target_muscle: string;
+  secondary_muscles: string[];
+  gif_url: string | null;
   image_url: string | null;
-  exercises: TemplateExerciseJSON[];
-  is_featured: boolean;
-  is_system: boolean;
+  instructions: string[];
+  exercise_type:
+    | 'weight_reps'
+    | 'bodyweight_reps'
+    | 'weighted_bodyweight'
+    | 'assisted_bodyweight'
+    | 'duration'
+    | 'duration_weight'
+    | 'distance_duration'
+    | 'weight_distance';
+  is_custom: boolean;
   created_at: string;
 }
 
-export interface TemplateExerciseJSON {
-  name: string;
-  sets?: number;
-  reps?: number;
-  rest_seconds?: number;
-  notes?: string;
-  // Skill/round fields
-  rounds?: number;
-  round_duration?: number;
-  rest_duration?: number;
+export interface WorkoutSet {
+  set_number: number;
+  weight_kg: number;
+  reps: number;
+  duration_sec: number | null;
+  distance_km: number | null;
+  is_completed: boolean;
+  is_pr: boolean;
+  pr_type: 'weight' | 'reps' | 'volume' | null;
+  rest_seconds: number;
 }
 
-export interface SkillWorkoutConfig {
+export interface WorkoutExerciseEntry {
+  exercise_id: string;
   name: string;
-  totalRounds: number;
-  roundDurationSeconds: number;
-  restBetweenRoundsSeconds: number;
-  intensity: 'low' | 'medium' | 'high';
-  notes?: string;
+  gif_url: string | null;
+  body_part: string;
+  target_muscle: string;
+  exercise_type: string;
+  notes: string;
+  rest_timer_seconds: number;
+  sets: WorkoutSet[];
+}
+
+export interface ActiveWorkout {
+  id: string;
+  user_id: string;
+  name: string;
+  date: string;
+  status: 'active' | 'completed' | 'cancelled';
+  exercises: WorkoutExerciseEntry[];
+  routine_id: string | null;
+  started_at?: string;
+  duration: number | null;
+}
+
+export interface Routine {
+  id: string;
+  user_id: string;
+  name: string;
+  notes: string | null;
+  exercises: RoutineExercise[];
+  times_performed: number;
+  last_performed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RoutineExercise {
+  exercise_id: string;
+  exercise_name: string;
+  gif_url: string | null;
+  body_part: string;
+  target_muscle: string;
+  exercise_type: string;
+  notes: string;
+  rest_timer_seconds: number;
+  sets: { reps: number; weight_kg: number; duration_sec?: number }[];
+}
+
+export interface WorkoutProgram {
+  id: string;
+  name: string;
+  description: string | null;
+  difficulty: 'beginner' | 'intermediate' | 'advanced' | null;
+  split_type: string | null;
+  duration_weeks: number | null;
+  days_per_week: number | null;
+  goal: string | null;
+  routines: unknown[];
+  image_url: string | null;
+  is_system: boolean;
+  created_at: string;
 }
 
 export interface WorkoutSummaryData {
   id: string;
   name: string;
-  workout_type: string;
   duration: number;
   totalVolume: number;
   totalSets: number;
   totalReps: number;
+  exerciseCount: number;
   caloriesBurned: number;
   prCount: number;
-  totalRounds?: number;
   xpEarned: number;
   rpEarned: number;
 }
 
-export interface WeeklyProgress {
-  workoutCount: number;
-  totalCalories: number;
-  totalMinutes: number;
-  consistencyPct: number;
-  byDay: { date: string; count: number }[];
-}
+// ─── JSONB Helpers (private) ──────────────────────────────────────────────────
 
-export interface ActivityBreakdown {
-  strength: number;
-  cardio: number;
-  skill: number;
-  other: number;
-  totalMinutes: number;
-}
-
-// ─── Template Queries ─────────────────────────────────────────────────────────
-
-export async function getWorkoutTemplates(
-  type?: string,
-  category?: string
-): Promise<WorkoutTemplate[]> {
-  let query = db('workout_templates')
-    .select('id,name,description,workout_type,difficulty,category,duration_estimate_min,image_url,exercises,is_featured,is_system,created_at')
-    .order('is_featured', { ascending: false })
-    .order('name', { ascending: true });
-
-  if (type && type !== 'all') {
-    query = query.eq('workout_type', type);
-  }
-  if (category) {
-    query = query.eq('category', category);
-  }
-
-  const { data, error } = await query;
-  if (error) {
-    console.error('[workoutService] getWorkoutTemplates error:', error.message);
-    return [];
-  }
-  return (data ?? []) as WorkoutTemplate[];
-}
-
-export async function getPopularWorkouts(): Promise<WorkoutTemplate[]> {
-  const { data, error } = await db('workout_templates')
-    .select('id,name,description,workout_type,difficulty,category,duration_estimate_min,image_url,exercises,is_featured,is_system,created_at')
-    .eq('is_featured', true)
-    .order('name', { ascending: true });
-
-  if (error) {
-    console.error('[workoutService] getPopularWorkouts error:', error.message);
-    return [];
-  }
-  return (data ?? []) as WorkoutTemplate[];
-}
-
-// ─── Start Workout from Template ──────────────────────────────────────────────
-
-export async function startWorkoutFromTemplate(
-  userId: string,
-  templateId: string
-): Promise<string | null> {
-  // 1. Fetch the template
-  const { data: tmpl, error: tmplErr } = await db('workout_templates')
-    .select('*')
-    .eq('id', templateId)
-    .single();
-
-  if (tmplErr || !tmpl) {
-    console.error('[workoutService] startWorkoutFromTemplate: template not found', tmplErr);
-    return null;
-  }
-
-  const template = tmpl as WorkoutTemplate;
-  const today = new Date().toISOString().split('T')[0];
-
-  // 2. Build exercises JSON from template exercises
-  const exercises = template.exercises.map((ex, i) => ({
-    id: crypto.randomUUID(),
-    exerciseId: `template-${templateId}-${i}`,
-    exerciseName: ex.name,
-    muscleGroup: 'chest' as const,
-    restSeconds: ex.rest_seconds ?? 90,
-    sets: Array.from({ length: ex.sets ?? 3 }, () => ({
-      id: crypto.randomUUID(),
-      weight: 0,
-      reps: ex.reps ?? 10,
-      completed: false,
-    })),
-  }));
-
-  // 3. Create the workout row
-  const { data: newWorkout, error: insertErr } = await db('workouts').insert({
-    user_id: userId,
-    name: template.name,
-    date: today,
-    completed: false,
-    workout_type: template.workout_type,
-    exercises: exercises,
-  }).select('id').single();
-
-  if (insertErr || !newWorkout) {
-    console.error('[workoutService] startWorkoutFromTemplate: insert failed', insertErr);
-    return null;
-  }
-
-  return (newWorkout as { id: string }).id;
-}
-
-// ─── Skill Workout ────────────────────────────────────────────────────────────
-
-export async function startSkillWorkout(
-  userId: string,
-  config: SkillWorkoutConfig
-): Promise<string | null> {
-  const today = new Date().toISOString().split('T')[0];
-
-  const { data, error } = await db('workouts').insert({
-    user_id: userId,
-    name: config.name,
-    date: today,
-    completed: false,
-    workout_type: 'skill',
-    total_rounds: config.totalRounds,
-    round_duration_seconds: config.roundDurationSeconds,
-    rest_between_rounds_seconds: config.restBetweenRoundsSeconds,
-    intensity: config.intensity,
-    notes: config.notes ?? null,
-    current_round: 0,
-    exercises: [],
-  }).select('id').single();
-
-  if (error || !data) {
-    console.error('[workoutService] startSkillWorkout error:', error?.message);
-    return null;
-  }
-  return (data as { id: string }).id;
-}
-
-export async function completeRound(
-  workoutId: string,
-  roundNumber: number,
-  totalRounds: number
-): Promise<boolean> {
-  const isComplete = roundNumber >= totalRounds;
-  const { error } = await db('workouts').update({
-    current_round: roundNumber,
-    ...(isComplete ? { completed: true } : {}),
-  }).eq('id', workoutId);
-
-  if (error) {
-    console.error('[workoutService] completeRound error:', error.message);
-    return false;
-  }
-  return isComplete;
-}
-
-// ─── Summary ──────────────────────────────────────────────────────────────────
-
-export async function getWorkoutSummary(workoutId: string): Promise<WorkoutSummaryData | null> {
+async function fetchWorkoutExercises(workoutId: string): Promise<WorkoutExerciseEntry[]> {
   const { data, error } = await db('workouts')
-    .select('id,name,workout_type,duration,exercises,total_rounds,current_round,calories_burned,total_volume_kg,total_sets,total_reps,pr_count')
+    .select('exercises')
     .eq('id', workoutId)
     .single();
 
   if (error || !data) {
-    console.error('[workoutService] getWorkoutSummary error:', error?.message);
+    console.error('[workoutService] fetchWorkoutExercises error:', error?.message);
+    return [];
+  }
+
+  return (data.exercises ?? []) as WorkoutExerciseEntry[];
+}
+
+async function saveWorkoutExercises(
+  workoutId: string,
+  exercises: WorkoutExerciseEntry[]
+): Promise<boolean> {
+  const { error } = await db('workouts')
+    .update({ exercises })
+    .eq('id', workoutId);
+
+  if (error) {
+    console.error('[workoutService] saveWorkoutExercises error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+// ─── Exercise Library ─────────────────────────────────────────────────────────
+
+export async function searchExercises(
+  query: string,
+  filters?: { bodyPart?: string; equipment?: string; targetMuscle?: string }
+): Promise<Exercise[]> {
+  let q = db('exercises')
+    .select('*')
+    .ilike('name', `%${query}%`)
+    .limit(50);
+
+  if (filters?.bodyPart) q = q.eq('body_part', filters.bodyPart);
+  if (filters?.equipment) q = q.eq('equipment', filters.equipment);
+  if (filters?.targetMuscle) q = q.eq('target_muscle', filters.targetMuscle);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[workoutService] searchExercises error:', error.message);
+    return [];
+  }
+  return (data ?? []) as Exercise[];
+}
+
+export async function getExercisesByBodyPart(bodyPart: string): Promise<Exercise[]> {
+  const { data, error } = await db('exercises')
+    .select('*')
+    .eq('body_part', bodyPart)
+    .limit(30);
+
+  if (error) {
+    console.error('[workoutService] getExercisesByBodyPart error:', error.message);
+    return [];
+  }
+  return (data ?? []) as Exercise[];
+}
+
+export async function getPopularExercises(): Promise<Exercise[]> {
+  const { data, error } = await db('exercises')
+    .select('*')
+    .in('name', [
+      'Barbell Bench Press',
+      'Barbell Squat',
+      'Barbell Deadlift',
+      'Barbell Row',
+      'Overhead Press',
+      'Pull Up',
+      'Dumbbell Bench Press',
+      'Lat Pulldown',
+      'Romanian Deadlift',
+      'Leg Press',
+      'Barbell Curl',
+      'Tricep Pushdown',
+      'Dumbbell Shoulder Press',
+      'Lateral Raise',
+      'Leg Curl',
+      'Hip Thrust',
+      'Bulgarian Split Squat',
+      'Cable Crossover',
+      'Face Pull',
+      'Plank',
+    ])
+    .limit(20);
+
+  if (error) {
+    console.error('[workoutService] getPopularExercises error:', error.message);
+    return [];
+  }
+  return (data ?? []) as Exercise[];
+}
+
+export async function getExerciseById(id: string): Promise<Exercise | null> {
+  const { data, error } = await db('exercises')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] getExerciseById error:', error?.message);
+    return null;
+  }
+  return data as Exercise;
+}
+
+export async function createCustomExercise(
+  data: Partial<Exercise>,
+  userId: string
+): Promise<Exercise | null> {
+  const payload = {
+    ...data,
+    is_custom: true,
+    user_id: userId,
+    secondary_muscles: data.secondary_muscles ?? [],
+    instructions: data.instructions ?? [],
+  };
+
+  const { data: result, error } = await db('exercises')
+    .insert(payload)
+    .select('*')
+    .single();
+
+  if (error || !result) {
+    console.error('[workoutService] createCustomExercise error:', error?.message);
+    return null;
+  }
+  return result as Exercise;
+}
+
+// ─── Routines ─────────────────────────────────────────────────────────────────
+
+export async function getUserRoutines(userId: string): Promise<Routine[]> {
+  const { data, error } = await db('routines')
+    .select('*')
+    .eq('user_id', userId)
+    .order('updated_at', { ascending: false });
+
+  if (error) {
+    console.error('[workoutService] getUserRoutines error:', error.message);
+    return [];
+  }
+  return (data ?? []) as Routine[];
+}
+
+export async function createRoutine(
+  userId: string,
+  name: string,
+  exercises: RoutineExercise[],
+  notes?: string
+): Promise<Routine | null> {
+  const { data, error } = await db('routines')
+    .insert({
+      user_id: userId,
+      name,
+      exercises,
+      notes: notes ?? null,
+      times_performed: 0,
+      last_performed_at: null,
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] createRoutine error:', error?.message);
+    return null;
+  }
+  return data as Routine;
+}
+
+export async function updateRoutine(
+  routineId: string,
+  data: Partial<Pick<Routine, 'name' | 'notes' | 'exercises'>>
+): Promise<boolean> {
+  const { error } = await db('routines')
+    .update({ ...data, updated_at: new Date().toISOString() })
+    .eq('id', routineId);
+
+  if (error) {
+    console.error('[workoutService] updateRoutine error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+export async function deleteRoutine(routineId: string): Promise<boolean> {
+  const { error } = await db('routines').delete().eq('id', routineId);
+
+  if (error) {
+    console.error('[workoutService] deleteRoutine error:', error.message);
+    return false;
+  }
+  return true;
+}
+
+export async function duplicateRoutine(
+  routineId: string,
+  userId: string
+): Promise<Routine | null> {
+  const { data: original, error: fetchErr } = await db('routines')
+    .select('*')
+    .eq('id', routineId)
+    .single();
+
+  if (fetchErr || !original) {
+    console.error('[workoutService] duplicateRoutine fetch error:', fetchErr?.message);
     return null;
   }
 
-  const w = data as {
-    id: string; name: string; workout_type: string; duration: number | null;
-    exercises: unknown[]; total_rounds: number | null;
-    calories_burned: number | null; total_volume_kg: number | null;
-    total_sets: number | null; total_reps: number | null; pr_count: number | null;
+  const routine = original as Routine;
+  const { data, error } = await db('routines')
+    .insert({
+      user_id: userId,
+      name: `${routine.name} (Copy)`,
+      exercises: routine.exercises,
+      notes: routine.notes,
+      times_performed: 0,
+      last_performed_at: null,
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] duplicateRoutine insert error:', error?.message);
+    return null;
+  }
+  return data as Routine;
+}
+
+// ─── Workout Sessions (JSONB-based) ───────────────────────────────────────────
+
+export async function startEmptyWorkout(
+  userId: string,
+  name?: string
+): Promise<string | null> {
+  const today = new Date().toISOString().split('T')[0];
+  const workoutName = name ?? `Workout — ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+
+  const { data, error } = await db('workouts')
+    .insert({
+      user_id: userId,
+      name: workoutName,
+      date: today,
+      status: 'active',
+      exercises: [],
+      routine_id: null,
+      started_at: new Date().toISOString(),
+      duration: null,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] startEmptyWorkout error:', error?.message);
+    return null;
+  }
+  console.log('[workoutService] startEmptyWorkout: created workout', (data as { id: string }).id);
+  return (data as { id: string }).id;
+}
+
+export async function startFromRoutine(
+  userId: string,
+  routineId: string
+): Promise<string | null> {
+  const { data: routineData, error: routineErr } = await db('routines')
+    .select('*')
+    .eq('id', routineId)
+    .single();
+
+  if (routineErr || !routineData) {
+    console.error('[workoutService] startFromRoutine: routine not found', routineErr?.message);
+    return null;
+  }
+
+  const routine = routineData as Routine;
+  const today = new Date().toISOString().split('T')[0];
+
+  const exercises: WorkoutExerciseEntry[] = routine.exercises.map((re) => ({
+    exercise_id: re.exercise_id,
+    name: re.exercise_name,
+    gif_url: re.gif_url ?? null,
+    body_part: re.body_part,
+    target_muscle: re.target_muscle,
+    exercise_type: re.exercise_type,
+    notes: re.notes ?? '',
+    rest_timer_seconds: re.rest_timer_seconds ?? 90,
+    sets: re.sets.map((s, idx) => ({
+      set_number: idx + 1,
+      weight_kg: s.weight_kg ?? 0,
+      reps: s.reps ?? 10,
+      duration_sec: s.duration_sec ?? null,
+      distance_km: null,
+      is_completed: false,
+      is_pr: false,
+      pr_type: null,
+      rest_seconds: re.rest_timer_seconds ?? 90,
+    })),
+  }));
+
+  const { data, error } = await db('workouts')
+    .insert({
+      user_id: userId,
+      name: routine.name,
+      date: today,
+      status: 'active',
+      exercises,
+      routine_id: routineId,
+      started_at: new Date().toISOString(),
+      duration: null,
+    })
+    .select('id')
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] startFromRoutine insert error:', error?.message);
+    return null;
+  }
+
+  // Increment times_performed on the routine
+  await db('routines')
+    .update({
+      times_performed: (routine.times_performed ?? 0) + 1,
+      last_performed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', routineId);
+
+  console.log('[workoutService] startFromRoutine: created workout', (data as { id: string }).id, 'from routine', routineId);
+  return (data as { id: string }).id;
+}
+
+export async function addExerciseToWorkout(
+  workoutId: string,
+  exercise: WorkoutExerciseEntry
+): Promise<boolean> {
+  console.log('[workoutService] addExerciseToWorkout: workoutId=', workoutId, 'exercise=', exercise.name);
+
+  const exercises = await fetchWorkoutExercises(workoutId);
+  console.log('[workoutService] addExerciseToWorkout: current exercise count=', exercises.length);
+
+  exercises.push(exercise);
+
+  const ok = await saveWorkoutExercises(workoutId, exercises);
+  console.log('[workoutService] addExerciseToWorkout: save result=', ok, 'new count=', exercises.length);
+  return ok;
+}
+
+export async function removeExerciseFromWorkout(
+  workoutId: string,
+  exerciseIndex: number
+): Promise<boolean> {
+  const exercises = await fetchWorkoutExercises(workoutId);
+
+  if (exerciseIndex < 0 || exerciseIndex >= exercises.length) {
+    console.error('[workoutService] removeExerciseFromWorkout: index out of bounds', exerciseIndex);
+    return false;
+  }
+
+  exercises.splice(exerciseIndex, 1);
+  return saveWorkoutExercises(workoutId, exercises);
+}
+
+export async function updateSet(
+  workoutId: string,
+  exerciseIndex: number,
+  setIndex: number,
+  data: Partial<WorkoutSet>
+): Promise<boolean> {
+  const exercises = await fetchWorkoutExercises(workoutId);
+
+  if (!exercises[exerciseIndex]) {
+    console.error('[workoutService] updateSet: exerciseIndex out of bounds', exerciseIndex);
+    return false;
+  }
+  if (!exercises[exerciseIndex].sets[setIndex]) {
+    console.error('[workoutService] updateSet: setIndex out of bounds', setIndex);
+    return false;
+  }
+
+  exercises[exerciseIndex].sets[setIndex] = {
+    ...exercises[exerciseIndex].sets[setIndex],
+    ...data,
   };
 
-  // Calculate from exercises if summary columns not yet populated
-  let totalVolume = Number(w.total_volume_kg ?? 0);
-  let totalSets = Number(w.total_sets ?? 0);
-  let totalReps = Number(w.total_reps ?? 0);
+  return saveWorkoutExercises(workoutId, exercises);
+}
 
-  if (totalVolume === 0 && Array.isArray(w.exercises)) {
-    for (const ex of w.exercises as { sets: { weight: number; reps: number; completed: boolean }[] }[]) {
-      for (const s of (ex.sets ?? [])) {
-        if (s.completed) {
-          totalVolume += (s.weight ?? 0) * (s.reps ?? 0);
-          totalSets++;
-          totalReps += s.reps ?? 0;
-        }
+export async function addSet(
+  workoutId: string,
+  exerciseIndex: number
+): Promise<boolean> {
+  const exercises = await fetchWorkoutExercises(workoutId);
+
+  if (!exercises[exerciseIndex]) {
+    console.error('[workoutService] addSet: exerciseIndex out of bounds', exerciseIndex);
+    return false;
+  }
+
+  const existingSets = exercises[exerciseIndex].sets;
+  const lastSet = existingSets.length > 0 ? existingSets[existingSets.length - 1] : null;
+
+  const newSet: WorkoutSet = {
+    set_number: existingSets.length + 1,
+    weight_kg: lastSet?.weight_kg ?? 0,
+    reps: lastSet?.reps ?? 10,
+    duration_sec: null,
+    distance_km: null,
+    is_completed: false,
+    is_pr: false,
+    pr_type: null,
+    rest_seconds: lastSet?.rest_seconds ?? 90,
+  };
+
+  exercises[exerciseIndex].sets.push(newSet);
+  return saveWorkoutExercises(workoutId, exercises);
+}
+
+export async function removeSet(
+  workoutId: string,
+  exerciseIndex: number,
+  setIndex: number
+): Promise<boolean> {
+  const exercises = await fetchWorkoutExercises(workoutId);
+
+  if (!exercises[exerciseIndex]) {
+    console.error('[workoutService] removeSet: exerciseIndex out of bounds', exerciseIndex);
+    return false;
+  }
+  if (setIndex < 0 || setIndex >= exercises[exerciseIndex].sets.length) {
+    console.error('[workoutService] removeSet: setIndex out of bounds', setIndex);
+    return false;
+  }
+
+  exercises[exerciseIndex].sets.splice(setIndex, 1);
+
+  // Renumber remaining sets
+  exercises[exerciseIndex].sets = exercises[exerciseIndex].sets.map((s, idx) => ({
+    ...s,
+    set_number: idx + 1,
+  }));
+
+  return saveWorkoutExercises(workoutId, exercises);
+}
+
+export async function completeSet(
+  workoutId: string,
+  exerciseIndex: number,
+  setIndex: number
+): Promise<boolean> {
+  const exercises = await fetchWorkoutExercises(workoutId);
+
+  if (!exercises[exerciseIndex]?.sets[setIndex]) {
+    console.error('[workoutService] completeSet: invalid indices', exerciseIndex, setIndex);
+    return false;
+  }
+
+  const current = exercises[exerciseIndex].sets[setIndex].is_completed;
+  exercises[exerciseIndex].sets[setIndex].is_completed = !current;
+
+  return saveWorkoutExercises(workoutId, exercises);
+}
+
+export async function reorderExercises(
+  workoutId: string,
+  exercises: WorkoutExerciseEntry[]
+): Promise<boolean> {
+  return saveWorkoutExercises(workoutId, exercises);
+}
+
+export async function completeWorkout(workoutId: string): Promise<WorkoutSummaryData | null> {
+  // Fetch full workout row
+  const { data: workoutData, error: fetchErr } = await db('workouts')
+    .select('id,name,exercises,started_at,duration,routine_id,user_id,date')
+    .eq('id', workoutId)
+    .single();
+
+  if (fetchErr || !workoutData) {
+    console.error('[workoutService] completeWorkout fetch error:', fetchErr?.message);
+    return null;
+  }
+
+  const workout = workoutData as {
+    id: string;
+    name: string;
+    exercises: WorkoutExerciseEntry[];
+    started_at: string | null;
+    duration: number | null;
+    routine_id: string | null;
+    user_id: string;
+    date: string;
+  };
+
+  const exercises: WorkoutExerciseEntry[] = workout.exercises ?? [];
+
+  // Calculate stats from completed sets
+  let totalVolume = 0;
+  let totalSets = 0;
+  let totalReps = 0;
+  let prCount = 0;
+
+  for (const ex of exercises) {
+    for (const s of ex.sets ?? []) {
+      if (s.is_completed) {
+        totalVolume += (s.weight_kg ?? 0) * (s.reps ?? 0);
+        totalSets++;
+        totalReps += s.reps ?? 0;
+        if (s.is_pr) prCount++;
       }
     }
   }
 
-  const duration = w.duration ?? 0;
-  const caloriesBurned = w.calories_burned ?? Math.round(duration * 6.5); // ~6.5 kcal/min estimate
-  const xpEarned = 100 + (w.pr_count ?? 0) * 200;
-  const rpEarned = 15 + (w.pr_count ?? 0) * 25;
+  // Duration in minutes: use stored or compute from started_at
+  let duration = workout.duration ?? 0;
+  if (duration === 0 && workout.started_at) {
+    const startMs = new Date(workout.started_at).getTime();
+    duration = Math.round((Date.now() - startMs) / 60000);
+  }
+
+  const caloriesBurned = Math.round(duration * 6.5);
+  const xpEarned = 100 + prCount * 200;
+  const rpEarned = 15 + prCount * 25;
+  const exerciseCount = exercises.length;
+
+  // Persist summary columns and status
+  const { error: updateErr } = await db('workouts').update({
+    status: 'completed',
+    duration,
+    total_volume_kg: totalVolume,
+    total_sets: totalSets,
+    total_reps: totalReps,
+    pr_count: prCount,
+    calories_burned: caloriesBurned,
+  }).eq('id', workoutId);
+
+  if (updateErr) {
+    console.error('[workoutService] completeWorkout update error:', updateErr.message);
+    return null;
+  }
+
+  console.log('[workoutService] completeWorkout: workoutId=', workoutId, 'sets=', totalSets, 'volume=', totalVolume, 'prs=', prCount);
 
   return {
-    id: w.id,
-    name: w.name,
-    workout_type: w.workout_type,
+    id: workout.id,
+    name: workout.name,
     duration,
     totalVolume,
     totalSets,
     totalReps,
+    exerciseCount,
     caloriesBurned,
-    prCount: w.pr_count ?? 0,
-    totalRounds: w.total_rounds ?? undefined,
+    prCount,
     xpEarned,
     rpEarned,
   };
 }
 
-// ─── Analytics ────────────────────────────────────────────────────────────────
-
-export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress> {
-  const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-  const { data, error } = await db('workouts')
-    .select('date,duration,calories_burned,workout_type,completed')
-    .eq('user_id', userId)
-    .eq('completed', true)
-    .gte('date', weekAgo)
-    .order('date', { ascending: true });
+export async function cancelWorkout(workoutId: string): Promise<boolean> {
+  const { error } = await db('workouts')
+    .update({ status: 'cancelled' })
+    .eq('id', workoutId);
 
   if (error) {
-    console.error('[workoutService] getWeeklyProgress error:', error.message);
-    return { workoutCount: 0, totalCalories: 0, totalMinutes: 0, consistencyPct: 0, byDay: [] };
+    console.error('[workoutService] cancelWorkout error:', error.message);
+    return false;
   }
-
-  const rows = (data ?? []) as { date: string; duration: number | null; calories_burned: number | null }[];
-  const workoutCount = rows.length;
-  const totalMinutes = rows.reduce((s, r) => s + (r.duration ?? 0), 0);
-  const totalCalories = rows.reduce((s, r) => s + (r.calories_burned ?? Math.round((r.duration ?? 0) * 6.5)), 0);
-  const consistencyPct = Math.round((workoutCount / 7) * 100);
-
-  // Group by day
-  const dayMap = new Map<string, number>();
-  for (const r of rows) {
-    dayMap.set(r.date, (dayMap.get(r.date) ?? 0) + 1);
-  }
-  const byDay = [...dayMap.entries()].map(([date, count]) => ({ date, count }));
-
-  return { workoutCount, totalCalories, totalMinutes, consistencyPct, byDay };
+  return true;
 }
 
-export async function getActivityBreakdown(userId: string, days = 30): Promise<ActivityBreakdown> {
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
+export async function getActiveWorkout(userId: string): Promise<ActiveWorkout | null> {
   const { data, error } = await db('workouts')
-    .select('workout_type,duration')
+    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration')
     .eq('user_id', userId)
-    .eq('completed', true)
-    .gte('date', since);
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data) {
+    // Not an error if no active workout exists
+    if (error?.code !== 'PGRST116') {
+      console.error('[workoutService] getActiveWorkout error:', error?.message);
+    }
+    return null;
+  }
+
+  return data as ActiveWorkout;
+}
+
+// ─── Programs & History ───────────────────────────────────────────────────────
+
+export async function getPrograms(
+  filters?: { difficulty?: string; goal?: string }
+): Promise<WorkoutProgram[]> {
+  let q = db('workout_programs').select('*').order('name', { ascending: true });
+
+  if (filters?.difficulty) q = q.eq('difficulty', filters.difficulty);
+  if (filters?.goal) q = q.eq('goal', filters.goal);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error('[workoutService] getPrograms error:', error.message);
+    return [];
+  }
+  return (data ?? []) as WorkoutProgram[];
+}
+
+export async function getProgramById(id: string): Promise<WorkoutProgram | null> {
+  const { data, error } = await db('workout_programs')
+    .select('*')
+    .eq('id', id)
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] getProgramById error:', error?.message);
+    return null;
+  }
+  return data as WorkoutProgram;
+}
+
+export async function getWorkoutHistory(
+  userId: string,
+  limit = 20,
+  offset = 0
+): Promise<ActiveWorkout[]> {
+  const { data, error } = await db('workouts')
+    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration')
+    .eq('user_id', userId)
+    .eq('status', 'completed')
+    .order('date', { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (error) {
-    console.error('[workoutService] getActivityBreakdown error:', error.message);
-    return { strength: 0, cardio: 0, skill: 0, other: 0, totalMinutes: 0 };
+    console.error('[workoutService] getWorkoutHistory error:', error.message);
+    return [];
   }
-
-  const rows = (data ?? []) as { workout_type: string | null; duration: number | null }[];
-  let strength = 0, cardio = 0, skill = 0, other = 0;
-
-  for (const r of rows) {
-    const mins = r.duration ?? 0;
-    switch (r.workout_type) {
-      case 'strength': strength += mins; break;
-      case 'cardio':   cardio   += mins; break;
-      case 'skill':    skill    += mins; break;
-      default:         other    += mins; break;
-    }
-  }
-
-  const totalMinutes = strength + cardio + skill + other;
-  return { strength, cardio, skill, other, totalMinutes };
+  return (data ?? []) as ActiveWorkout[];
 }
