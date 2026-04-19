@@ -1,1253 +1,818 @@
+/**
+ * WorkoutLogger — /workout
+ * Active workout screen (JSONB-based, no separate set tables).
+ *
+ * Architecture:
+ *   workoutId → load workouts row → exercises JSONB column
+ *   All mutations: fetch exercises → update in JS → single UPDATE to workouts row
+ *
+ * Features:
+ *   - Elapsed timer (top-right)
+ *   - Exercise tabs (horizontal scroll chips)
+ *   - Set table: SET | KG | REPS | ✓
+ *   - Add / remove sets per exercise
+ *   - Add exercise mid-workout (inline search drawer)
+ *   - Finish / Cancel workout
+ */
+
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useFitness } from '@/context/FitnessContext';
-import { useNavigate } from 'react-router-dom';
-import { WorkoutSet, EXERCISE_DATABASE, WorkoutSplit } from '@/types/fitness';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  Check, ChevronLeft, Minus, Plus, Timer, Trophy, Zap, X,
-  TrendingUp, TrendingDown, Clock, Dumbbell, BarChart2, Flame,
-  Star, Target, Activity, ChevronRight, AlertTriangle,
+  Check, Plus, Minus, Timer, X, Search, Loader2,
+  ChevronLeft, ChevronRight, Dumbbell, Flame,
 } from 'lucide-react';
-import BottomNav from '@/components/layout/BottomNav';
 import { motion, AnimatePresence } from 'framer-motion';
-import { v4 } from '@/lib/id';
+import { useAuth } from '@/context/AuthContext';
+import {
+  getWorkoutById,
+  getActiveWorkout,
+  completeWorkout,
+  cancelWorkout,
+  searchExercises,
+} from '@/services/workoutService';
+import { supabase } from '@/integrations/supabase/client';
+import type {
+  ActiveWorkout,
+  WorkoutExerciseEntry,
+  WorkoutSet,
+  Exercise,
+} from '@/services/workoutService';
+import BottomNav from '@/components/layout/BottomNav';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// RestTimer — circular SVG progress ring with skip button
-// ─────────────────────────────────────────────────────────────────────────────
-interface RestTimerProps {
-  seconds: number;
-  onDone: () => void;
-  onSkip: () => void;
-}
+// ── Design tokens ──────────────────────────────────────────────────────────────
+const ACCENT     = '#0CFF9C';
+const BG         = '#0C1015';
+const SURFACE    = '#141A1F';
+const SURFACE_UP = '#1C2429';
+const T1         = '#EAEEF2';
+const T2         = '#8899AA';
+const T3         = '#4A5568';
+const GREEN_GLOW = 'rgba(12,255,156,0.08)';
 
-function RestTimer({ seconds, onDone, onSkip }: RestTimerProps) {
-  const [left, setLeft] = useState(seconds);
-  const total = seconds;
-  const R = 28;
-  const circ = 2 * Math.PI * R;
+// ── Timer ─────────────────────────────────────────────────────────────────────
+function useElapsedTimer(startedAt: string | null | undefined) {
+  const [elapsed, setElapsed] = useState(0);
 
   useEffect(() => {
-    if (left <= 0) { onDone(); return; }
-    const t = setTimeout(() => setLeft(l => l - 1), 1000);
-    return () => clearTimeout(t);
-  }, [left, onDone]);
+    const base = startedAt ? new Date(startedAt).getTime() : Date.now();
+    const tick = () => setElapsed(Math.floor((Date.now() - base) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt]);
 
-  const progress = (total - left) / total; // 0→1
-  const strokeDash = circ * progress;
-  const offset = circ - strokeDash;
+  const h = Math.floor(elapsed / 3600);
+  const m = Math.floor((elapsed % 3600) / 60);
+  const s = elapsed % 60;
+  const str = h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 
-  const min = Math.floor(left / 60);
-  const sec = left % 60;
-  const timeStr = min > 0 ? `${min}:${String(sec).padStart(2, '0')}` : `${sec}s`;
+  return str;
+}
 
-  // Colour shifts red as time runs out
-  const strokeColor = left <= 10 ? '#ef4444' : left <= 20 ? '#f97316' : '#F5C518';
+// ── Exercise thumbnail ────────────────────────────────────────────────────────
+function ExThumb({ ex }: { ex: Exercise }) {
+  const [err, setErr] = useState(false);
+  const url = ex.gif_url ?? ex.image_url;
+  const colors: Record<string, string> = {
+    chest: '#ef4444', back: '#3b82f6', shoulders: '#a855f7',
+    'upper arms': '#f97316', 'lower arms': '#f59e0b',
+    'upper legs': '#10b981', 'lower legs': '#14b8a6',
+    waist: '#8b5cf6', cardio: '#ec4899', neck: '#64748b',
+  };
+  const bg = colors[ex.body_part] ?? '#4A5568';
+
+  if (url && !err) {
+    return (
+      <img src={url} alt="" loading="lazy" onError={() => setErr(true)}
+        style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+    );
+  }
+  return (
+    <div style={{
+      width: 40, height: 40, borderRadius: 8,
+      background: `${bg}22`, border: `1px solid ${bg}44`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, fontSize: 16, fontWeight: 700, color: bg,
+    }}>
+      {ex.name.charAt(0).toUpperCase()}
+    </div>
+  );
+}
+
+// ── Add exercise drawer ───────────────────────────────────────────────────────
+function AddExerciseDrawer({
+  onAdd, onClose,
+}: {
+  onAdd: (ex: Exercise) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery]       = useState('');
+  const [results, setResults]   = useState<Exercise[]>([]);
+  const [loading, setLoading]   = useState(false);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(async () => {
+      setLoading(true);
+      const data = await searchExercises(query, {}, 60);
+      setResults(data);
+      setLoading(false);
+    }, 280);
+    return () => { if (debounce.current) clearTimeout(debounce.current); };
+  }, [query]);
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.92, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.88, y: -8 }}
-      transition={{ type: 'spring', stiffness: 480, damping: 32 }}
-      className="mt-3 p-4 rounded-2xl bg-surface-1 border border-primary-accent/20 flex items-center gap-4"
-      style={{ boxShadow: '0 0 20px rgba(245,197,24,0.06)' }}
+      initial={{ y: '100%' }}
+      animate={{ y: 0 }}
+      exit={{ y: '100%' }}
+      transition={{ type: 'spring', stiffness: 400, damping: 40 }}
+      style={{
+        position: 'fixed', inset: 0, top: 'auto', bottom: 0,
+        height: '80dvh', background: '#0F151A',
+        borderRadius: '20px 20px 0 0',
+        border: '1px solid rgba(255,255,255,0.08)',
+        zIndex: 100, display: 'flex', flexDirection: 'column',
+        boxShadow: '0 -20px 60px rgba(0,0,0,0.6)',
+      }}
     >
-      {/* Circular ring */}
-      <div className="relative shrink-0 w-[68px] h-[68px] flex items-center justify-center">
-        <svg
-          className="-rotate-90 absolute inset-0"
-          width="68" height="68"
-          viewBox="0 0 68 68"
-        >
-          {/* Track */}
-          <circle
-            cx="34" cy="34" r={R}
-            fill="none"
-            stroke="rgba(245,197,24,0.10)"
-            strokeWidth="4"
-          />
-          {/* Progress arc */}
-          <circle
-            cx="34" cy="34" r={R}
-            fill="none"
-            stroke={strokeColor}
-            strokeWidth="4"
-            strokeLinecap="round"
-            strokeDasharray={circ}
-            strokeDashoffset={offset}
-            style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.5s ease' }}
-          />
-        </svg>
-        {/* Center label */}
-        <div className="flex flex-col items-center leading-none z-10">
-          <span
-            className="text-[16px] font-extrabold tabular-nums"
-            style={{ color: strokeColor, transition: 'color 0.5s' }}
-          >
-            {timeStr}
-          </span>
-          <span className="text-[9px] text-text-3 uppercase tracking-widest font-semibold mt-0.5">
-            rest
-          </span>
-        </div>
+      {/* Handle */}
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 6px' }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.12)' }} />
       </div>
 
-      {/* Info text */}
-      <div className="flex-1 min-w-0">
-        <p className="text-[13px] font-semibold text-text-1">Rest Period</p>
-        <p className="text-[11px] text-text-3 mt-0.5">Take a breath, next set soon</p>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', padding: '0 16px 12px', gap: 10 }}>
+        <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: T1 }}>Add Exercise</span>
+        <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}>
+          <X style={{ width: 18, height: 18, color: T2 }} />
+        </button>
       </div>
 
-      {/* Skip */}
-      <button
-        onClick={onSkip}
-        className="shrink-0 px-3.5 py-2 rounded-full bg-primary-accent text-canvas text-[12px] font-bold transition-transform active:scale-95"
+      {/* Search */}
+      <div style={{ padding: '0 16px 12px', position: 'relative' }}>
+        <Search style={{ position: 'absolute', left: 28, top: '50%', transform: 'translateY(-50%)', width: 14, height: 14, color: T3 }} />
+        <input
+          autoFocus
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search exercises…"
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: SURFACE_UP, border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 10, padding: '10px 12px 10px 36px',
+            fontSize: 14, color: T1, outline: 'none',
+          }}
+        />
+      </div>
+
+      {/* Results */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 24px' }}>
+        {loading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}>
+            <Loader2 style={{ width: 20, height: 20, color: ACCENT, animation: 'spin 1s linear infinite' }} />
+          </div>
+        ) : results.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: T3, fontSize: 14 }}>
+            {query ? 'No exercises found' : 'Start typing to search'}
+          </div>
+        ) : (
+          results.map(ex => (
+            <motion.div
+              key={ex.id}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => onAdd(ex)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                background: SURFACE, borderRadius: 10, padding: '10px 12px',
+                marginBottom: 8, cursor: 'pointer',
+                border: '1px solid rgba(255,255,255,0.05)',
+              }}
+            >
+              {/* Fake thumb */}
+              <div style={{
+                width: 40, height: 40, borderRadius: 8, background: SURFACE_UP,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, fontSize: 16, fontWeight: 700, color: T3,
+              }}>
+                {ex.name.charAt(0)}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ex.name}
+                </div>
+                <div style={{ fontSize: 12, color: T3, marginTop: 1, textTransform: 'capitalize' }}>
+                  {ex.body_part} · {ex.equipment}
+                </div>
+              </div>
+              <Plus style={{ width: 16, height: 16, color: ACCENT, flexShrink: 0 }} />
+            </motion.div>
+          ))
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── Set row ───────────────────────────────────────────────────────────────────
+function SetRow({
+  set,
+  setIndex,
+  onWeightChange,
+  onRepsChange,
+  onComplete,
+  onRemove,
+}: {
+  set: WorkoutSet;
+  setIndex: number;
+  onWeightChange: (v: number) => void;
+  onRepsChange: (v: number) => void;
+  onComplete: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 10 }}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: set.is_completed ? 'rgba(12,255,156,0.04)' : 'transparent',
+        borderRadius: 10, padding: '8px 4px',
+        borderBottom: '1px solid rgba(255,255,255,0.04)',
+        opacity: set.is_completed ? 0.75 : 1,
+      }}
+    >
+      {/* Set number */}
+      <div style={{
+        width: 28, height: 28, borderRadius: '50%',
+        background: set.is_completed ? ACCENT : SURFACE_UP,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0, fontSize: 11, fontWeight: 800,
+        color: set.is_completed ? '#0C1015' : T3,
+      }}>
+        {set.set_number}
+      </div>
+
+      {/* Weight input */}
+      <div style={{ flex: 1, textAlign: 'center' }}>
+        <input
+          type="number"
+          value={set.weight_kg || ''}
+          onChange={e => onWeightChange(parseFloat(e.target.value) || 0)}
+          placeholder="0"
+          style={{
+            width: '100%', textAlign: 'center',
+            background: SURFACE_UP, border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 8, padding: '8px 4px',
+            fontSize: 16, fontWeight: 700, color: T1, outline: 'none',
+          }}
+        />
+      </div>
+
+      {/* Reps input */}
+      <div style={{ flex: 1, textAlign: 'center' }}>
+        <input
+          type="number"
+          value={set.reps || ''}
+          onChange={e => onRepsChange(parseInt(e.target.value) || 0)}
+          placeholder="0"
+          style={{
+            width: '100%', textAlign: 'center',
+            background: SURFACE_UP, border: '1px solid rgba(255,255,255,0.06)',
+            borderRadius: 8, padding: '8px 4px',
+            fontSize: 16, fontWeight: 700, color: T1, outline: 'none',
+          }}
+        />
+      </div>
+
+      {/* Complete button */}
+      <motion.button
+        whileTap={{ scale: 0.88 }}
+        onClick={onComplete}
+        style={{
+          width: 36, height: 36, borderRadius: '50%', flexShrink: 0, border: 'none',
+          background: set.is_completed ? ACCENT : SURFACE_UP,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer',
+        }}
       >
-        Skip →
+        <Check style={{ width: 14, height: 14, color: set.is_completed ? '#0C1015' : T3, strokeWidth: 3 }} />
+      </motion.button>
+
+      {/* Remove */}
+      <button
+        onClick={onRemove}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}
+      >
+        <X style={{ width: 13, height: 13, color: T3 }} />
       </button>
     </motion.div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// WorkoutSummary — full-screen end-of-workout outro
-// ─────────────────────────────────────────────────────────────────────────────
-interface PR { exerciseName: string; type: string; value: number }
+// ── Main component ─────────────────────────────────────────────────────────────
 
-interface SummaryProps {
-  workoutName: string;
-  duration: number;
-  volume: number;
-  completedSets: number;
-  totalSets: number;
-  newPRs: PR[];
-  rpEarned: number;
-  xpEarned: number;
-  rating: number;
-  onRatingChange: (v: number) => void;
-  onSave: () => void;
-}
+export default function WorkoutLogger() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { user }  = useAuth();
 
-function WorkoutSummary({
-  workoutName, duration, volume, completedSets, totalSets,
-  newPRs, rpEarned, xpEarned, rating, onRatingChange, onSave,
-}: SummaryProps) {
-  const statCards = [
-    {
-      icon: Clock,
-      label: 'Duration',
-      value: duration >= 60 ? `${Math.floor(duration / 60)}h ${duration % 60}m` : `${duration}m`,
-      color: '#60a5fa',
-      bg: 'rgba(96,165,250,0.10)',
-    },
-    {
-      icon: BarChart2,
-      label: 'Volume',
-      value: volume >= 1000 ? `${(volume / 1000).toFixed(1)}k kg` : `${volume} kg`,
-      color: '#34d399',
-      bg: 'rgba(52,211,153,0.10)',
-    },
-    {
-      icon: Target,
-      label: 'Sets',
-      value: `${completedSets}/${totalSets}`,
-      color: '#a78bfa',
-      bg: 'rgba(167,139,250,0.10)',
-    },
-    {
-      icon: TrendingUp,
-      label: 'New PRs',
-      value: String(newPRs.length),
-      color: '#fb923c',
-      bg: 'rgba(251,146,60,0.10)',
-    },
-  ];
-
-  const ratingEmojis = ['😫', '😐', '🙂', '💪', '🔥'];
-  const ratingLabels = ['Rough', 'Okay', 'Good', 'Strong', 'Beast!'];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      className="min-h-screen bg-canvas flex flex-col items-center px-5 pt-10 pb-24 gap-6 overflow-y-auto"
-    >
-      {/* Trophy hero */}
-      <motion.div
-        initial={{ scale: 0.5, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: 'spring', stiffness: 260, damping: 20, delay: 0.1 }}
-        className="relative flex items-center justify-center"
-      >
-        <div className="absolute w-40 h-40 rounded-full bg-primary-accent/15 blur-[50px]" />
-        <div
-          className="w-24 h-24 rounded-full flex items-center justify-center relative z-10 animate-pulse-glow"
-          style={{
-            background: 'linear-gradient(135deg, rgba(245,197,24,0.22), rgba(245,197,24,0.06))',
-            border: '2px solid rgba(245,197,24,0.35)',
-          }}
-        >
-          <Trophy className="w-11 h-11 text-primary-accent" />
-        </div>
-      </motion.div>
-
-      {/* Title */}
-      <motion.div
-        initial={{ y: 12, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.2 }}
-        className="text-center"
-      >
-        <p className="text-[11px] text-primary-accent font-bold uppercase tracking-[0.18em] mb-1">
-          Workout Complete 🎉
-        </p>
-        <h1 className="text-[26px] font-extrabold text-text-1 leading-tight">{workoutName}</h1>
-      </motion.div>
-
-      {/* XP + RP reward pills */}
-      <motion.div
-        initial={{ y: 8, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.3 }}
-        className="flex gap-3"
-      >
-        <div
-          className="flex items-center gap-2 px-5 py-2.5 rounded-full"
-          style={{ background: 'rgba(245,197,24,0.12)', border: '1px solid rgba(245,197,24,0.30)' }}
-        >
-          <Zap className="w-4 h-4 text-primary-accent" />
-          <span className="text-[15px] font-extrabold text-primary-accent">+{xpEarned} XP</span>
-        </div>
-        <div
-          className="flex items-center gap-2 px-5 py-2.5 rounded-full"
-          style={{ background: 'rgba(167,139,250,0.12)', border: '1px solid rgba(167,139,250,0.30)' }}
-        >
-          <Flame className="w-4 h-4 text-violet-400" />
-          <span className="text-[15px] font-extrabold text-violet-400">+{rpEarned} RP</span>
-        </div>
-      </motion.div>
-
-      {/* Stat grid */}
-      <motion.div
-        initial={{ y: 10, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.35 }}
-        className="w-full max-w-sm grid grid-cols-2 gap-2.5"
-      >
-        {statCards.map(({ icon: Icon, label, value, color, bg }) => (
-          <div
-            key={label}
-            className="rounded-2xl p-4 flex flex-col gap-2"
-            style={{ background: bg, border: '1px solid rgba(255,255,255,0.05)' }}
-          >
-            <Icon className="w-4 h-4" style={{ color }} />
-            <p className="text-[22px] font-extrabold tabular-nums leading-none" style={{ color }}>
-              {value}
-            </p>
-            <p className="text-[11px] text-text-3 font-medium">{label}</p>
-          </div>
-        ))}
-      </motion.div>
-
-      {/* New PRs */}
-      <AnimatePresence>
-        {newPRs.length > 0 && (
-          <motion.div
-            initial={{ y: 10, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ delay: 0.45 }}
-            className="w-full max-w-sm"
-          >
-            <p className="text-[11px] text-text-3 uppercase tracking-widest text-center mb-3 font-semibold">
-              New Personal Records
-            </p>
-            <div className="flex flex-col gap-2">
-              {newPRs.map((pr, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ x: -12, opacity: 0 }}
-                  animate={{ x: 0, opacity: 1 }}
-                  transition={{ delay: 0.5 + i * 0.06 }}
-                  className="flex items-center justify-between rounded-2xl px-4 py-3"
-                  style={{ background: 'rgba(245,197,24,0.06)', border: '1px solid rgba(245,197,24,0.20)' }}
-                >
-                  <div>
-                    <p className="text-[10px] text-primary-accent/70 uppercase tracking-widest font-semibold">
-                      {pr.type} PR
-                    </p>
-                    <p className="text-[14px] font-semibold text-text-1 mt-0.5">{pr.exerciseName}</p>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Star className="w-3.5 h-3.5 text-primary-accent" />
-                    <span className="text-[20px] font-extrabold text-primary-accent tabular-nums">
-                      {pr.value}
-                      <span className="text-[12px] font-semibold ml-0.5">
-                        {pr.type === 'weight' ? 'kg' : pr.type === 'reps' ? 'r' : ''}
-                      </span>
-                    </span>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Workout rating */}
-      <motion.div
-        initial={{ y: 8, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.5 }}
-        className="w-full max-w-sm"
-      >
-        <p className="text-[12px] text-text-2 text-center mb-3 font-medium">
-          How did it feel?
-          {rating > 0 && (
-            <span className="ml-2 text-primary-accent font-semibold">{ratingLabels[rating - 1]}</span>
-          )}
-        </p>
-        <div className="flex justify-center gap-2">
-          {ratingEmojis.map((emoji, i) => (
-            <button
-              key={i}
-              onClick={() => onRatingChange(i + 1)}
-              className="w-[52px] h-[52px] rounded-2xl flex items-center justify-center text-[22px] transition-all duration-200"
-              style={{
-                background: i + 1 === rating ? 'rgba(245,197,24,0.18)' : 'rgba(255,255,255,0.04)',
-                border: i + 1 === rating ? '2px solid rgba(245,197,24,0.50)' : '1px solid rgba(255,255,255,0.08)',
-                transform: i + 1 === rating ? 'scale(1.15)' : 'scale(1)',
-              }}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
-      </motion.div>
-
-      {/* Save button */}
-      <motion.button
-        initial={{ y: 12, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ delay: 0.55 }}
-        onClick={onSave}
-        whileTap={{ scale: 0.97 }}
-        className="w-full max-w-sm py-4 rounded-full flex items-center justify-center gap-2 text-canvas font-extrabold text-[16px]"
-        style={{
-          background: 'linear-gradient(135deg, #F5C518, #E8B000)',
-          boxShadow: '0 8px 32px rgba(245,197,24,0.35)',
-        }}
-      >
-        Save &amp; Level Up
-        <ChevronRight className="w-5 h-5" />
-      </motion.button>
-    </motion.div>
+  // workoutId from navigation state or active workout
+  const [workoutId, setWorkoutId]     = useState<string | null>(
+    (location.state as { workoutId?: string })?.workoutId ?? null
   );
-}
+  const [workout, setWorkout]         = useState<ActiveWorkout | null>(null);
+  const [exercises, setExercises]     = useState<WorkoutExerciseEntry[]>([]);
+  const [activeIdx, setActiveIdx]     = useState(0);
+  const [loading, setLoading]         = useState(true);
+  const [showAddDrawer, setShowAddDrawer] = useState(false);
+  const [finishing, setFinishing]     = useState(false);
+  const [saving, setSaving]           = useState(false); // debounce save indicator
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SetRow — single set with weight/reps spinners + check + animated remove
-// ─────────────────────────────────────────────────────────────────────────────
-interface SetRowProps {
-  set: WorkoutSet;
-  index: number;
-  canRemove: boolean;
-  lastWeight?: number;
-  lastReps?: number;
-  showRestTimer: boolean;
-  restSeconds: number;
-  onUpdate: (changes: Partial<WorkoutSet>) => void;
-  onToggleComplete: () => void;
-  onRemove: () => void;
-  onRestDone: () => void;
-}
+  const timer = useElapsedTimer(workout?.started_at);
 
-function SetRow({
-  set, index, canRemove, lastWeight, lastReps,
-  showRestTimer, restSeconds, onUpdate, onToggleComplete, onRemove, onRestDone,
-}: SetRowProps) {
-  const isNewPR =
-    set.completed &&
-    lastWeight !== undefined &&
-    set.weight > lastWeight;
+  // ── Load workout ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      try {
+        let w: ActiveWorkout | null = null;
+
+        if (workoutId) {
+          w = await getWorkoutById(workoutId);
+        }
+        if (!w) {
+          w = await getActiveWorkout(user!.id);
+        }
+
+        if (!cancelled && w) {
+          setWorkout(w);
+          setWorkoutId(w.id);
+          setExercises(w.exercises ?? []);
+        } else if (!cancelled) {
+          // No active workout — redirect back
+          navigate('/workout-hub', { replace: true });
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  // ── Sync local exercise state back to Supabase (debounced) ───────────────────
+  const syncTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workoutIdRef = useRef<string | null>(workoutId);
+  useEffect(() => { workoutIdRef.current = workoutId; }, [workoutId]);
+
+  function scheduleSync(newExercises: WorkoutExerciseEntry[]) {
+    if (syncTimeout.current) clearTimeout(syncTimeout.current);
+    setSaving(true);
+    syncTimeout.current = setTimeout(async () => {
+      const id = workoutIdRef.current;
+      if (!id) return;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supabase as any).from('workouts').update({ exercises: newExercises }).eq('id', id);
+      setSaving(false);
+    }, 800);
+  }
+
+  // ── Optimistic exercise mutations ─────────────────────────────────────────────
+  function mutateExercises(updater: (prev: WorkoutExerciseEntry[]) => WorkoutExerciseEntry[]) {
+    setExercises(prev => {
+      const next = updater(prev);
+      scheduleSync(next);
+      return next;
+    });
+  }
+
+  function handleUpdateWeight(exIdx: number, setIdx: number, value: number) {
+    mutateExercises(prev => {
+      const next = prev.map((ex, i) => i !== exIdx ? ex : {
+        ...ex,
+        sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, weight_kg: value }),
+      });
+      return next;
+    });
+  }
+
+  function handleUpdateReps(exIdx: number, setIdx: number, value: number) {
+    mutateExercises(prev => prev.map((ex, i) => i !== exIdx ? ex : {
+      ...ex,
+      sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, reps: value }),
+    }));
+  }
+
+  function handleCompleteSet(exIdx: number, setIdx: number) {
+    mutateExercises(prev => prev.map((ex, i) => i !== exIdx ? ex : {
+      ...ex,
+      sets: ex.sets.map((s, j) => j !== setIdx ? s : { ...s, is_completed: !s.is_completed }),
+    }));
+  }
+
+  function handleAddSet(exIdx: number) {
+    mutateExercises(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      const last = ex.sets[ex.sets.length - 1];
+      const newSet: WorkoutSet = {
+        set_number:   ex.sets.length + 1,
+        weight_kg:    last?.weight_kg ?? 0,
+        reps:         last?.reps ?? 10,
+        duration_sec: null,
+        distance_km:  null,
+        is_completed: false,
+        is_pr:        false,
+        pr_type:      null,
+        rest_seconds: 90,
+      };
+      return { ...ex, sets: [...ex.sets, newSet] };
+    }));
+  }
+
+  function handleRemoveSet(exIdx: number, setIdx: number) {
+    mutateExercises(prev => prev.map((ex, i) => {
+      if (i !== exIdx) return ex;
+      const updated = ex.sets.filter((_, j) => j !== setIdx)
+        .map((s, j) => ({ ...s, set_number: j + 1 }));
+      return { ...ex, sets: updated };
+    }));
+  }
+
+  function handleRemoveExercise(exIdx: number) {
+    mutateExercises(prev => prev.filter((_, i) => i !== exIdx));
+    setActiveIdx(prev => Math.max(0, prev - 1));
+  }
+
+  async function handleAddExercise(ex: Exercise) {
+    if (!workoutId) return;
+    setShowAddDrawer(false);
+    const entry: WorkoutExerciseEntry = {
+      exercise_id:        ex.id,
+      name:               ex.name,
+      gif_url:            ex.gif_url,
+      body_part:          ex.body_part,
+      target_muscle:      ex.target_muscle,
+      exercise_type:      ex.exercise_type,
+      notes:              '',
+      rest_timer_seconds: 90,
+      sets: [{
+        set_number: 1, weight_kg: 0, reps: 10,
+        duration_sec: null, distance_km: null,
+        is_completed: false, is_pr: false, pr_type: null, rest_seconds: 90,
+      }],
+    };
+    mutateExercises(prev => {
+      const next = [...prev, entry];
+      // Jump to new exercise
+      setTimeout(() => setActiveIdx(next.length - 1), 50);
+      return next;
+    });
+  }
+
+  // ── Finish workout ───────────────────────────────────────────────────────────
+  async function handleFinish() {
+    if (!workoutId || finishing) return;
+    setFinishing(true);
+
+    // Flush pending sync first
+    if (syncTimeout.current) clearTimeout(syncTimeout.current);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).from('workouts').update({ exercises }).eq('id', workoutId);
+
+    const summary = await completeWorkout(workoutId);
+    setFinishing(false);
+
+    if (summary) {
+      // Map WorkoutSummaryData → WorkoutSummary page's SummaryState format
+      navigate('/workout-summary', {
+        state: {
+          workoutName:    summary.name,
+          workoutType:    'strength' as const,
+          duration:       summary.duration,
+          caloriesBurned: summary.caloriesBurned,
+          totalSets:      summary.totalSets,
+          totalVolume:    summary.totalVolume,
+          prCount:        summary.prCount,
+          xpEarned:       summary.xpEarned,
+          rpEarned:       summary.rpEarned,
+        },
+      });
+    } else {
+      navigate('/workout-hub');
+    }
+  }
+
+  async function handleCancel() {
+    if (!workoutId) return;
+    await cancelWorkout(workoutId);
+    navigate('/workout-hub');
+  }
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ background: BG, minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Loader2 style={{ width: 28, height: 28, color: ACCENT, animation: 'spin 1s linear infinite' }} />
+        <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
+      </div>
+    );
+  }
+
+  if (!workout) return null;
+
+  const currentEx = exercises[activeIdx] ?? null;
+  const completedSets = exercises.reduce((n, ex) => n + ex.sets.filter(s => s.is_completed).length, 0);
+  const totalSets     = exercises.reduce((n, ex) => n + ex.sets.length, 0);
 
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-      transition={{ duration: 0.2 }}
-    >
-      {/* Row */}
-      <div
-        className="grid items-center gap-2 p-3 rounded-2xl border transition-all duration-300"
-        style={{
-          gridTemplateColumns: '34px 1fr 1fr 44px 32px',
-          background: set.completed
-            ? 'rgba(245,197,24,0.07)'
-            : 'rgba(255,255,255,0.03)',
-          borderColor: set.completed
-            ? 'rgba(245,197,24,0.28)'
-            : isNewPR
-            ? 'rgba(52,211,153,0.3)'
-            : 'rgba(255,255,255,0.07)',
-        }}
-      >
-        {/* Set number */}
-        <span
-          className="text-[13px] font-extrabold text-center"
-          style={{ color: set.completed ? '#F5C518' : '#6b7280' }}
-        >
-          {index + 1}
-        </span>
+    <div style={{ background: BG, minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+      `}</style>
 
-        {/* Weight spinner */}
-        <div className="flex items-center gap-1">
+      {/* ── Header ── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 30,
+        background: 'rgba(12,16,21,0.97)',
+        backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+        padding: 'max(12px, env(safe-area-inset-top)) 16px 10px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {/* Name + sets progress */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: T1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {workout.name}
+            </div>
+            <div style={{ fontSize: 12, color: T3, marginTop: 1 }}>
+              {completedSets}/{totalSets} sets · {exercises.length} exercises
+            </div>
+          </div>
+
+          {/* Timer */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            background: SURFACE_UP, borderRadius: 20, padding: '6px 12px',
+          }}>
+            <Timer style={{ width: 12, height: 12, color: ACCENT }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: T1, fontVariantNumeric: 'tabular-nums' }}>
+              {timer}
+            </span>
+          </div>
+
+          {/* Cancel */}
           <button
-            onClick={() => onUpdate({ weight: Math.max(0, set.weight - 2.5) })}
-            className="w-6 h-6 rounded-lg flex items-center justify-center transition-colors"
-            style={{ background: 'rgba(255,255,255,0.06)' }}
+            onClick={handleCancel}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex' }}
           >
-            <Minus className="w-3 h-3 text-text-2" />
-          </button>
-          <input
-            type="number"
-            value={set.weight}
-            onChange={e => onUpdate({ weight: parseFloat(e.target.value) || 0 })}
-            className="w-full text-center bg-transparent text-text-1 font-bold text-[14px] focus:outline-none tabular-nums"
-          />
-          <button
-            onClick={() => onUpdate({ weight: set.weight + 2.5 })}
-            className="w-6 h-6 rounded-lg flex items-center justify-center transition-colors"
-            style={{ background: 'rgba(255,255,255,0.06)' }}
-          >
-            <Plus className="w-3 h-3 text-text-2" />
+            <X style={{ width: 18, height: 18, color: T3 }} />
           </button>
         </div>
 
-        {/* Reps spinner */}
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => onUpdate({ reps: Math.max(0, set.reps - 1) })}
-            className="w-6 h-6 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgba(255,255,255,0.06)' }}
-          >
-            <Minus className="w-3 h-3 text-text-2" />
-          </button>
-          <input
-            type="number"
-            value={set.reps}
-            onChange={e => onUpdate({ reps: parseInt(e.target.value) || 0 })}
-            className="w-full text-center bg-transparent text-text-1 font-bold text-[14px] focus:outline-none tabular-nums"
-          />
-          <button
-            onClick={() => onUpdate({ reps: set.reps + 1 })}
-            className="w-6 h-6 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgba(255,255,255,0.06)' }}
-          >
-            <Plus className="w-3 h-3 text-text-2" />
-          </button>
+        {/* Progress bar */}
+        <div style={{ height: 3, background: SURFACE_UP, borderRadius: 4, marginTop: 10, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', background: ACCENT, borderRadius: 4,
+            width: totalSets > 0 ? `${Math.round(completedSets / totalSets * 100)}%` : '0%',
+            transition: 'width 0.4s ease',
+          }} />
         </div>
-
-        {/* Check button */}
-        <button
-          onClick={onToggleComplete}
-          className="w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200"
-          style={{
-            background: set.completed
-              ? 'linear-gradient(135deg, #F5C518, #E8B000)'
-              : 'rgba(255,255,255,0.05)',
-            border: set.completed ? 'none' : '1px solid rgba(255,255,255,0.10)',
-            boxShadow: set.completed ? '0 4px 12px rgba(245,197,24,0.35)' : 'none',
-          }}
-        >
-          <Check className={`w-4 h-4 ${set.completed ? 'text-canvas' : 'text-text-3'}`} />
-        </button>
-
-        {/* Remove ×  */}
-        <button
-          onClick={onRemove}
-          disabled={!canRemove}
-          className="w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200"
-          style={{
-            opacity: canRemove ? 1 : 0.2,
-            pointerEvents: canRemove ? 'auto' : 'none',
-            color: 'rgba(156,163,175,1)',
-          }}
-          onMouseEnter={e => { if (canRemove) (e.currentTarget as HTMLElement).style.color = '#ef4444'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = 'rgba(156,163,175,1)'; }}
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
       </div>
 
-      {/* PR micro-badge */}
-      {isNewPR && (
-        <motion.div
-          initial={{ opacity: 0, x: -6 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="mt-1 ml-1 flex items-center gap-1"
-        >
-          <Star className="w-3 h-3 text-emerald-400" />
-          <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">New PR!</span>
-        </motion.div>
+      {/* ── Exercise tabs ── */}
+      {exercises.length > 0 && (
+        <div style={{
+          display: 'flex', gap: 6,
+          padding: '10px 16px',
+          overflowX: 'auto', scrollbarWidth: 'none', msOverflowStyle: 'none',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+        }}>
+          {exercises.map((ex, i) => {
+            const done = ex.sets.filter(s => s.is_completed).length;
+            const total = ex.sets.length;
+            const allDone = done === total && total > 0;
+            const isActive = i === activeIdx;
+            return (
+              <button
+                key={`${ex.exercise_id}-${i}`}
+                onClick={() => setActiveIdx(i)}
+                style={{
+                  flexShrink: 0,
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  border: isActive
+                    ? `1.5px solid ${ACCENT}`
+                    : '1px solid rgba(255,255,255,0.06)',
+                  background: isActive ? 'rgba(12,255,156,0.08)' : SURFACE_UP,
+                  color: isActive ? ACCENT : allDone ? T2 : T3,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {allDone && <Check style={{ width: 10, height: 10, strokeWidth: 3 }} />}
+                {ex.name.length > 14 ? ex.name.slice(0, 13) + '…' : ex.name}
+                <span style={{ color: isActive ? ACCENT : T3, opacity: 0.7 }}>
+                  {done}/{total}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
 
-      {/* Rest Timer below this set */}
-      <AnimatePresence>
-        {showRestTimer && (
-          <RestTimer
-            key={`rest-${set.id}`}
-            seconds={restSeconds}
-            onDone={onRestDone}
-            onSkip={onRestDone}
-          />
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Recommended Workout Logic
-// ─────────────────────────────────────────────────────────────────────────────
-
-const SPLIT_DAYS: Record<WorkoutSplit, { name: string; muscles: string[] }[]> = {
-  push_pull_legs: [
-    { name: 'Push Day', muscles: ['chest', 'shoulders', 'triceps'] },
-    { name: 'Pull Day', muscles: ['back', 'biceps'] },
-    { name: 'Leg Day', muscles: ['legs', 'glutes'] },
-  ],
-  upper_lower: [
-    { name: 'Upper Body', muscles: ['chest', 'back', 'shoulders', 'biceps', 'triceps'] },
-    { name: 'Lower Body', muscles: ['legs', 'glutes'] },
-  ],
-  full_body: [
-    { name: 'Full Body', muscles: ['chest', 'back', 'legs', 'shoulders', 'core'] },
-  ],
-  bro_split: [
-    { name: 'Chest Day', muscles: ['chest', 'triceps'] },
-    { name: 'Back Day', muscles: ['back', 'biceps'] },
-    { name: 'Shoulder Day', muscles: ['shoulders'] },
-    { name: 'Arms Day', muscles: ['biceps', 'triceps'] },
-    { name: 'Leg Day', muscles: ['legs', 'glutes'] },
-  ],
-};
-
-function getRecommendedDay(split: WorkoutSplit, lastSplitIndex: number, completedWorkouts: import('@/types/fitness').Workout[]) {
-  const days = SPLIT_DAYS[split];
-  const nextIndex = (lastSplitIndex + (completedWorkouts.length > 0 ? 1 : 0)) % days.length;
-  return { day: days[nextIndex], index: nextIndex };
-}
-
-function buildRecommendedExercises(muscles: string[]) {
-  const exercises = EXERCISE_DATABASE.filter(ex =>
-    muscles.some(m => ex.muscleGroup === m || ex.muscleGroup.startsWith(m))
-  );
-  // Compounds first, then isolation
-  const compounds = exercises.filter(ex => ex.isCompound).slice(0, 3);
-  const isolation = exercises.filter(ex => !ex.isCompound).slice(0, 2);
-  const selected = [...compounds, ...isolation].slice(0, 5);
-  return selected.map(ex => ({
-    exerciseId: ex.id,
-    exerciseName: ex.name,
-    muscleGroup: ex.muscleGroup as import('@/types/fitness').MuscleGroup,
-    sets: 3,
-    reps: 8,
-    weight: 0,
-  }));
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// WorkoutLogger — main page
-// ─────────────────────────────────────────────────────────────────────────────
-export default function WorkoutLogger() {
-  const {
-    activeWorkoutId, currentPlan, updateWorkout, completeWorkout,
-    getTodaysWorkout, startWorkout, recentPRs, clearRecentPRs,
-    progressHistory, profile, workouts, startCustomWorkout,
-  } = useFitness();
-  const navigate = useNavigate();
-
-  const [currentExIndex, setCurrentExIndex] = useState(0);
-  const [showSummary, setShowSummary] = useState(false);
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [showPicker, setShowPicker] = useState(false);
-  const [search, setSearch] = useState('');
-  const [rating, setRating] = useState(3);
-  const [activeRestTimer, setActiveRestTimer] = useState<string | null>(null); // set.id
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const startTimeRef = useRef<number>(Date.now());
-
-  const workout = currentPlan.find(w => w.id === activeWorkoutId) || null;
-
-  // ── Clamp currentExIndex to valid bounds whenever exercises array changes ────
-  // This prevents blank screens when exercises are added/removed
-  useEffect(() => {
-    if (!workout) return;
-    const maxIdx = workout.exercises.length - 1;
-    if (currentExIndex > maxIdx) {
-      setCurrentExIndex(Math.max(0, maxIdx));
-    }
-  }, [workout?.exercises.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Set mutation helpers ─────────────────────────────────────────────────────
-  const mutateExercise = useCallback(
-    (fn: (sets: WorkoutSet[]) => WorkoutSet[]) => {
-      if (!workout) return;
-      updateWorkout({
-        ...workout,
-        exercises: workout.exercises.map((ex, ei) =>
-          ei === currentExIndex ? { ...ex, sets: fn(ex.sets) } : ex
-        ),
-      });
-    },
-    [workout, currentExIndex, updateWorkout]
-  );
-
-  const addExerciseToActiveWorkout = (ex: typeof EXERCISE_DATABASE[0]) => {
-    if (!workout) return;
-    const newExercise = {
-      id: v4(),
-      exerciseId: ex.id,
-      exerciseName: ex.name,
-      muscleGroup: ex.muscleGroup as import('@/types/fitness').MuscleGroup,
-      restSeconds: 90,
-      sets: Array.from({ length: 3 }, () => ({
-        id: v4(),
-        weight: ex.isCompound ? 40 : 10,
-        reps: ex.isCompound ? 8 : 12,
-        completed: false,
-      })),
-    };
-    // Capture the new index BEFORE updating state to avoid stale-closure races
-    const newIndex = workout.exercises.length;
-    const updatedWorkout = {
-      ...workout,
-      exercises: [...workout.exercises, newExercise],
-    };
-    console.log('[WorkoutLogger] Adding exercise:', ex.name, '→ index', newIndex,
-                'total exercises after:', updatedWorkout.exercises.length);
-    updateWorkout(updatedWorkout);
-    setShowPicker(false);
-    setSearch('');
-    // Switch to the newly added exercise — use the captured index
-    setCurrentExIndex(newIndex);
-  };
-
-  // Live workout timer
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!showPicker && !showSummary && !showCancelConfirm) {
-        setElapsedSec(Math.floor((Date.now() - startTimeRef.current) / 1000));
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [showPicker, showSummary, showCancelConfirm]);
-
-  // ── No active workout — enhanced landing ────────────────────────────────────
-  if (!workout) {
-    const split = profile?.preferredSplit ?? 'push_pull_legs';
-    const lastSplitIndex = 0; // future: read from profile.last_split_index
-    const completedWorkouts = workouts.filter(w => w.completed);
-    const { day: recommendedDay } = getRecommendedDay(split, lastSplitIndex, completedWorkouts);
-    const recommendedExercises = buildRecommendedExercises(recommendedDay.muscles);
-
-    const handleStartRecommended = () => {
-      const template = {
-        id: v4(),
-        name: recommendedDay.name,
-        exercises: recommendedExercises,
-        tags: recommendedDay.muscles,
-        difficulty: 'intermediate' as const,
-        estimatedDuration: 45,
-        isAIGenerated: true,
-        createdAt: new Date().toISOString(),
-      };
-      startCustomWorkout(template);
-    };
-
-    return (
-      <div className="min-h-screen bg-canvas pb-24 font-sans">
-        <div className="flex items-center gap-3 px-4 pt-6 pb-3">
-          <button
-            onClick={() => navigate('/')}
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
-          >
-            <ChevronLeft className="w-4 h-4 text-text-1" />
-          </button>
-          <h1 className="text-[18px] font-bold text-text-1">Workout</h1>
-        </div>
-
-        <div className="px-4 space-y-4">
-          {/* Recommended workout card */}
-          <div
-            className="rounded-[24px] p-5 relative overflow-hidden"
-            style={{ background: 'linear-gradient(135deg, rgba(245,197,24,0.12), rgba(245,197,24,0.04))', border: '1px solid rgba(245,197,24,0.25)' }}
-          >
-            <div className="absolute -top-8 -right-8 w-40 h-40 bg-primary-accent/10 blur-[50px] rounded-full pointer-events-none" />
-            <div className="relative z-10">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-6 h-6 rounded-full bg-primary-accent/20 flex items-center justify-center">
-                  <Zap className="w-3.5 h-3.5 text-primary-accent" />
-                </div>
-                <span className="text-[11px] font-bold text-primary-accent uppercase tracking-widest">Recommended for you</span>
-              </div>
-              <h2 className="text-[22px] font-extrabold text-text-1 mb-1">{recommendedDay.name}</h2>
-              <p className="text-[12px] text-text-2 mb-4 capitalize">
-                {recommendedDay.muscles.join(' · ')}
-              </p>
-
-              {/* Exercise preview */}
-              <div className="flex flex-col gap-1.5 mb-5">
-                {recommendedExercises.slice(0, 4).map((ex, i) => (
-                  <div key={ex.exerciseId} className="flex items-center gap-2">
-                    <span className="text-[11px] text-primary-accent/60 font-bold w-4">{i + 1}.</span>
-                    <span className="text-[13px] text-text-1 font-medium">{ex.exerciseName}</span>
-                    <span className="text-[11px] text-text-3">· {ex.sets} sets</span>
-                  </div>
-                ))}
-                {recommendedExercises.length > 4 && (
-                  <p className="text-[11px] text-text-3 ml-6">+{recommendedExercises.length - 4} more</p>
-                )}
-              </div>
-
-              <div className="flex gap-2.5">
-                <button
-                  onClick={handleStartRecommended}
-                  className="flex-1 py-3.5 rounded-full font-bold text-[15px] text-canvas flex items-center justify-center gap-2"
-                  style={{ background: 'linear-gradient(135deg,#F5C518,#E8B000)', boxShadow: '0 6px 24px rgba(245,197,24,0.35)' }}
-                >
-                  <Star className="w-4 h-4" />
-                  Start This Workout
-                </button>
-                <button
-                  onClick={() => navigate('/builder')}
-                  className="px-4 py-3.5 rounded-full font-semibold text-[13px] text-text-1"
-                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.10)' }}
-                >
-                  Customize
-                </button>
-              </div>
-            </div>
+      {/* ── Current exercise ── */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px 120px' }}>
+        {exercises.length === 0 ? (
+          <div style={{ textAlign: 'center', paddingTop: 60 }}>
+            <Dumbbell style={{ width: 32, height: 32, color: T3, margin: '0 auto 12px' }} />
+            <div style={{ fontSize: 15, color: T2, fontWeight: 600 }}>No exercises yet</div>
+            <div style={{ fontSize: 13, color: T3, marginTop: 4 }}>Tap "+ Add Exercise" below</div>
           </div>
-
-          {/* Custom workout option */}
-          <button
-            onClick={() => navigate('/builder')}
-            className="w-full rounded-[20px] p-5 flex items-center gap-4 text-left"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}
-          >
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(255,255,255,0.06)' }}
-            >
-              <Dumbbell className="w-5 h-5 text-text-2" />
-            </div>
-            <div className="flex-1">
-              <p className="text-[15px] font-bold text-text-1">Start Custom Workout</p>
-              <p className="text-[12px] text-text-3 mt-0.5">Pick your own exercises &amp; sets</p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-text-3 shrink-0" />
-          </button>
-
-          {/* Exercise library shortcut */}
-          <button
-            onClick={() => navigate('/exercises')}
-            className="w-full rounded-[20px] p-5 flex items-center gap-4 text-left"
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)' }}
-          >
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0"
-              style={{ background: 'rgba(255,255,255,0.06)' }}
-            >
-              <Target className="w-5 h-5 text-text-2" />
-            </div>
-            <div className="flex-1">
-              <p className="text-[15px] font-bold text-text-1">Browse Exercises</p>
-              <p className="text-[12px] text-text-3 mt-0.5">Search by muscle group or equipment</p>
-            </div>
-            <ChevronRight className="w-4 h-4 text-text-3 shrink-0" />
-          </button>
-        </div>
-
-        <BottomNav />
-      </div>
-    );
-  }
-
-  // ── Safe exercise access — clamp to avoid out-of-bounds ────────────────────
-  // Use a safe index so showPicker/showSummary can still render if index drifts
-  const safeExIndex = Math.min(
-    Math.max(0, currentExIndex),
-    Math.max(0, workout.exercises.length - 1)
-  );
-  const exercise = workout.exercises[safeExIndex] ?? null;
-
-  // ── Early returns for overlay screens (BEFORE exercise null check) ──────────
-  // If !exercise and neither picker nor summary is shown — nothing to render
-  if (!exercise && !showSummary && !showPicker) return null;
-
-  const updateSet = (si: number, changes: Partial<WorkoutSet>) => {
-    if (!exercise) return;
-    mutateExercise(sets => sets.map((s, i) => (i === si ? { ...s, ...changes } : s)));
-  };
-
-  const addSet = () => {
-    const last = exercise.sets[exercise.sets.length - 1];
-    const newSet: WorkoutSet = {
-      id: v4(),
-      weight: last?.weight ?? 0,
-      reps: last?.reps ?? 8,
-      completed: false,
-    };
-    mutateExercise(sets => [...sets, newSet]);
-  };
-
-  const removeSet = (si: number) => {
-    if (exercise.sets.length <= 1) return;
-    if (activeRestTimer === exercise.sets[si].id) setActiveRestTimer(null);
-    mutateExercise(sets => sets.filter((_, i) => i !== si));
-  };
-
-  const toggleSetComplete = (si: number) => {
-    const set = exercise.sets[si];
-    const nowCompleted = !set.completed;
-    updateSet(si, { completed: nowCompleted });
-    if (nowCompleted) {
-      setActiveRestTimer(set.id);
-    } else {
-      if (activeRestTimer === set.id) setActiveRestTimer(null);
-    }
-  };
-
-  // ── Progressive overload ─────────────────────────────────────────────────────
-  const lastPerf = progressHistory
-    .filter(p => p.exerciseId === exercise.exerciseId)
-    .slice(-1)[0] ?? null;
-
-  const progressTrend = (() => {
-    if (!lastPerf) return null;
-    const currentBest = exercise.sets
-      .filter(s => s.completed)
-      .reduce((best, s) => (s.weight > best ? s.weight : best), 0);
-    if (currentBest === 0) return null;
-    if (currentBest > lastPerf.bestSet.weight) return 'up';
-    if (currentBest < lastPerf.bestSet.weight) return 'down';
-    return 'same';
-  })();
-
-  // ── Stats ────────────────────────────────────────────────────────────────────
-  const allExercisesDone = workout.exercises.every(ex => ex.sets.every(s => s.completed));
-  const completedSets = workout.exercises.reduce((t, ex) => t + ex.sets.filter(s => s.completed).length, 0);
-  const totalSets = workout.exercises.reduce((t, ex) => t + ex.sets.length, 0);
-  const totalVolume = workout.exercises.reduce(
-    (t, ex) => t + ex.sets.filter(s => s.completed).reduce((s, set) => s + set.weight * set.reps, 0),
-    0
-  );
-  const elapsedMinutes = Math.max(1, Math.round(elapsedSec / 60));
-  const rpEstimate = 15 + recentPRs.length * 25;
-  const xpEstimate = 100 + recentPRs.length * 200;
-
-  const durationDisplay = (() => {
-    const m = Math.floor(elapsedSec / 60);
-    const s = elapsedSec % 60;
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  })();
-
-  // ── Summary screen ────────────────────────────────────────────────────────────
-  if (showSummary) {
-    return (
-      <WorkoutSummary
-        workoutName={workout.name}
-        duration={elapsedMinutes}
-        volume={totalVolume}
-        completedSets={completedSets}
-        totalSets={totalSets}
-        newPRs={recentPRs}
-        rpEarned={rpEstimate}
-        xpEarned={xpEstimate}
-        rating={rating}
-        onRatingChange={setRating}
-        onSave={() => {
-          completeWorkout(workout.id, rating, elapsedMinutes);
-          clearRecentPRs();
-          navigate('/');
-        }}
-      />
-    );
-  }
-
-  // ── Exercise Picker UI ────────────────────────────────────────────────────────
-  if (showPicker) {
-    const filteredExercises = EXERCISE_DATABASE.filter(
-      e => e.name.toLowerCase().includes(search.toLowerCase()) ||
-           e.muscleGroup.toLowerCase().includes(search.toLowerCase())
-    );
-    return (
-      <div className="min-h-screen bg-canvas pb-24 font-sans flex flex-col z-50">
-        <div className="flex items-center gap-3 px-4 pt-6 pb-3 bg-surface-1 border-b border-border-subtle sticky top-0 z-10">
-          <button
-            onClick={() => { setShowPicker(false); setSearch(''); }}
-            className="w-9 h-9 rounded-full flex items-center justify-center"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
-          >
-            <ChevronLeft className="w-4 h-4 text-text-1" />
-          </button>
-          <div className="flex-1">
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search exercises..."
-              className="w-full bg-transparent text-[15px] font-medium text-text-1 focus:outline-none placeholder:text-text-3"
-              autoFocus
-            />
-          </div>
-        </div>
-        <div className="px-4 flex flex-col gap-2 pt-4 overflow-y-auto">
-          {filteredExercises.map(ex => (
-            <button
-              key={ex.id}
-              onClick={() => addExerciseToActiveWorkout(ex)}
-              className="flex items-center gap-3 p-4 rounded-[20px] text-left transition-all active:scale-[0.98]"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-            >
-              <div className="w-11 h-11 rounded-2xl bg-primary-accent/10 flex items-center justify-center shrink-0">
-                <Dumbbell className="w-5 h-5 text-primary-accent" />
-              </div>
-              <div>
-                <p className="text-[14px] font-bold text-text-1">{ex.name}</p>
-                <p className="text-[11px] text-text-3 font-medium capitalize mt-0.5">
-                  {ex.muscleGroup} · {ex.equipment}
-                </p>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // ── Main Logger UI ─────────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-canvas pb-24 font-sans">
-      {/* ─── Cancel confirmation dialog ─── */}
-      <AnimatePresence>
-        {showCancelConfirm && (
-          <div
-            className="fixed inset-0 z-[60] bg-canvas/80 backdrop-blur-sm flex items-end justify-center"
-            onClick={() => setShowCancelConfirm(false)}
-          >
+        ) : currentEx ? (
+          <AnimatePresence mode="wait">
             <motion.div
-              initial={{ y: 60, opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 60, opacity: 0 }}
-              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
-              className="w-full max-w-lg bg-surface-1 border border-border-subtle rounded-t-[28px] p-5 pb-24"
-              onClick={e => e.stopPropagation()}
+              key={activeIdx}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.15 }}
             >
-              <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-5" />
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-10 h-10 rounded-full bg-red-500/15 flex items-center justify-center">
-                  <AlertTriangle className="w-5 h-5 text-red-400" />
+              {/* Exercise header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: T1 }}>{currentEx.name}</div>
+                  <div style={{ fontSize: 12, color: T3, marginTop: 2, textTransform: 'capitalize' }}>
+                    {currentEx.body_part} · {currentEx.exercise_type.replace(/_/g, ' ')}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-[17px] font-bold text-text-1">Cancel workout?</h3>
-                  <p className="text-[12px] text-text-3">All progress will be lost</p>
-                </div>
-              </div>
-              <div className="flex gap-3 mt-5">
                 <button
-                  onClick={() => setShowCancelConfirm(false)}
-                  className="flex-1 py-3.5 rounded-full bg-surface-2 border border-border-subtle text-[14px] font-semibold text-text-1"
+                  onClick={() => handleRemoveExercise(activeIdx)}
+                  style={{ background: SURFACE_UP, border: 'none', cursor: 'pointer', borderRadius: 8, padding: 8, display: 'flex', alignItems: 'center' }}
                 >
-                  Keep Going
-                </button>
-                <button
-                  onClick={() => { setShowCancelConfirm(false); navigate('/workout'); }}
-                  className="flex-1 py-3.5 rounded-full bg-red-500/15 border border-red-500/30 text-[14px] font-bold text-red-400"
-                >
-                  Cancel Workout
+                  <X style={{ width: 14, height: 14, color: T3 }} />
                 </button>
               </div>
+
+              {/* Column headers */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '4px 4px 8px', borderBottom: '1px solid rgba(255,255,255,0.06)',
+                marginBottom: 4,
+              }}>
+                <div style={{ width: 28, fontSize: 10, fontWeight: 700, color: T3, textAlign: 'center', textTransform: 'uppercase' }}>Set</div>
+                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: T3, textAlign: 'center', textTransform: 'uppercase' }}>kg</div>
+                <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: T3, textAlign: 'center', textTransform: 'uppercase' }}>reps</div>
+                <div style={{ width: 36, fontSize: 10, fontWeight: 700, color: T3, textAlign: 'center', textTransform: 'uppercase' }}>✓</div>
+                <div style={{ width: 24 }} />
+              </div>
+
+              {/* Sets */}
+              <AnimatePresence>
+                {currentEx.sets.map((set, setIdx) => (
+                  <SetRow
+                    key={setIdx}
+                    set={set}
+                    setIndex={setIdx}
+                    onWeightChange={v => handleUpdateWeight(activeIdx, setIdx, v)}
+                    onRepsChange={v => handleUpdateReps(activeIdx, setIdx, v)}
+                    onComplete={() => handleCompleteSet(activeIdx, setIdx)}
+                    onRemove={() => handleRemoveSet(activeIdx, setIdx)}
+                  />
+                ))}
+              </AnimatePresence>
+
+              {/* Add set */}
+              <motion.button
+                whileTap={{ scale: 0.97 }}
+                onClick={() => handleAddSet(activeIdx)}
+                style={{
+                  width: '100%', height: 40,
+                  background: 'transparent',
+                  border: '1px dashed rgba(255,255,255,0.1)',
+                  borderRadius: 10, marginTop: 10,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                  cursor: 'pointer',
+                }}
+              >
+                <Plus style={{ width: 14, height: 14, color: T3 }} />
+                <span style={{ fontSize: 13, color: T3, fontWeight: 600 }}>Add Set</span>
+              </motion.button>
+
+              {/* Next exercise nav */}
+              {exercises.length > 1 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 20, gap: 8 }}>
+                  <button
+                    onClick={() => setActiveIdx(i => Math.max(0, i - 1))}
+                    disabled={activeIdx === 0}
+                    style={{
+                      flex: 1, height: 40, background: SURFACE_UP, border: 'none',
+                      borderRadius: 10, cursor: activeIdx === 0 ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                      color: activeIdx === 0 ? T3 : T2, fontSize: 13, fontWeight: 600,
+                    }}
+                  >
+                    <ChevronLeft style={{ width: 14, height: 14 }} />
+                    Prev
+                  </button>
+                  <button
+                    onClick={() => setActiveIdx(i => Math.min(exercises.length - 1, i + 1))}
+                    disabled={activeIdx === exercises.length - 1}
+                    style={{
+                      flex: 1, height: 40, background: SURFACE_UP, border: 'none',
+                      borderRadius: 10, cursor: activeIdx === exercises.length - 1 ? 'not-allowed' : 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+                      color: activeIdx === exercises.length - 1 ? T3 : T2, fontSize: 13, fontWeight: 600,
+                    }}
+                  >
+                    Next
+                    <ChevronRight style={{ width: 14, height: 14 }} />
+                  </button>
+                </div>
+              )}
             </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* ─── Header ─── */}
-      <div className="flex items-center justify-between px-4 pt-safe pt-6 pb-3">
-        <button
-          onClick={() => setShowCancelConfirm(true)}
-          className="w-9 h-9 rounded-full flex items-center justify-center transition-colors"
-          style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
-        >
-          <ChevronLeft className="w-4 h-4 text-text-1" />
-        </button>
-
-        <div className="text-center">
-          <h1 className="text-[15px] font-bold text-text-1">{workout.name}</h1>
-          <p className="text-[11px] text-text-3">{workout.exercises.length} exercises</p>
-        </div>
-
-        {/* Live clock */}
-        <div
-          className="flex items-center gap-1.5 rounded-full px-3 py-1.5"
-          style={{ background: 'rgba(245,197,24,0.10)', border: '1px solid rgba(245,197,24,0.22)' }}
-        >
-          <Timer className="w-3.5 h-3.5 text-primary-accent" />
-          <span className="text-[12px] font-bold text-primary-accent tabular-nums">
-            {durationDisplay}
-          </span>
-        </div>
+          </AnimatePresence>
+        ) : null}
       </div>
 
-      {/* ─── Progress bar ─── */}
-      <div className="mx-4 mb-4 h-1.5 rounded-full bg-surface-1 overflow-hidden">
-        <motion.div
-          className="h-full rounded-full"
-          style={{ background: 'linear-gradient(90deg,#F5C518,#E8B000)' }}
-          animate={{ width: `${totalSets ? (completedSets / totalSets) * 100 : 0}%` }}
-          transition={{ duration: 0.4 }}
-        />
-      </div>
-
-      {/* ─── Exercise tabs ─── */}
-      <div className="flex gap-2 px-4 mb-5 overflow-x-auto no-scrollbar">
-        {workout.exercises.map((ex, i) => {
-          const done = ex.sets.every(s => s.completed);
-          const active = i === currentExIndex;
-          return (
-            <button
-              key={ex.id}
-              onClick={() => { setCurrentExIndex(i); setActiveRestTimer(null); }}
-              className="shrink-0 px-3 py-1.5 rounded-full text-[12px] font-semibold transition-all duration-200"
-              style={{
-                background: active
-                  ? '#F5C518'
-                  : done
-                  ? 'rgba(245,197,24,0.15)'
-                  : 'rgba(255,255,255,0.05)',
-                color: active ? '#111113' : done ? '#F5C518' : '#9ca3af',
-                border: active ? 'none' : done ? '1px solid rgba(245,197,24,0.30)' : '1px solid rgba(255,255,255,0.08)',
-              }}
-            >
-              {done && '✓ '}{ex.exerciseName.split(' ').slice(0, 2).join(' ')}
-            </button>
-          );
-        })}
-        <button
-          onClick={() => setShowPicker(true)}
-          className="shrink-0 px-4 py-1.5 rounded-full text-[12px] font-bold transition-all duration-200 flex items-center gap-1.5"
+      {/* ── Bottom actions ── */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 40,
+        background: 'rgba(12,16,21,0.98)',
+        backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)',
+        padding: '10px 16px max(16px, env(safe-area-inset-bottom))',
+        borderTop: '1px solid rgba(255,255,255,0.06)',
+        display: 'flex', gap: 10,
+      }}>
+        {/* Add exercise */}
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={() => setShowAddDrawer(true)}
           style={{
-            background: 'rgba(255,255,255,0.04)',
-            color: '#F5C518',
-            border: '1px dashed rgba(245,197,24,0.3)',
+            flex: 1, height: 48, background: SURFACE_UP,
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            cursor: 'pointer', color: T2, fontSize: 13, fontWeight: 600,
           }}
         >
-          <Plus className="w-3.5 h-3.5" /> Add
-        </button>
+          <Plus style={{ width: 15, height: 15 }} />
+          Add Exercise
+        </motion.button>
+
+        {/* Finish */}
+        <motion.button
+          whileTap={{ scale: 0.97 }}
+          onClick={handleFinish}
+          disabled={finishing}
+          style={{
+            flex: 2, height: 48,
+            background: finishing ? SURFACE_UP : ACCENT,
+            color: finishing ? T3 : '#0C1015',
+            border: 'none', borderRadius: 12,
+            fontSize: 14, fontWeight: 800, cursor: finishing ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}
+        >
+          {finishing ? (
+            <><Loader2 style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} /> Saving…</>
+          ) : (
+            <><Flame style={{ width: 15, height: 15 }} /> Finish Workout</>
+          )}
+        </motion.button>
       </div>
 
-      {/* ─── Current exercise ─── */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={exercise.id}
-          initial={{ opacity: 0, x: 16 }}
-          animate={{ opacity: 1, x: 0 }}
-          exit={{ opacity: 0, x: -16 }}
-          transition={{ duration: 0.22 }}
-          className="px-4"
-        >
-          {/* Exercise header */}
-          <div className="mb-4">
-            <h2 className="text-[22px] font-extrabold text-text-1">{exercise.exerciseName}</h2>
-            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-              <span
-                className="text-[11px] capitalize px-2.5 py-1 rounded-full font-semibold"
-                style={{ background: 'rgba(255,255,255,0.06)', color: '#9ca3af' }}
-              >
-                {exercise.muscleGroup}
-              </span>
-              <span className="text-[11px] text-text-3">
-                <Clock className="w-3 h-3 inline mr-1 opacity-60" />
-                {exercise.restSeconds}s rest
-              </span>
-
-              {/* Progressive overload pill */}
-              {lastPerf && (
-                <motion.span
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                  style={{
-                    background:
-                      progressTrend === 'up'
-                        ? 'rgba(52,211,153,0.12)'
-                        : progressTrend === 'down'
-                        ? 'rgba(239,68,68,0.10)'
-                        : 'rgba(245,197,24,0.10)',
-                    color:
-                      progressTrend === 'up'
-                        ? '#34d399'
-                        : progressTrend === 'down'
-                        ? '#f87171'
-                        : '#F5C518',
-                  }}
-                >
-                  {progressTrend === 'up' ? (
-                    <TrendingUp className="w-3 h-3" />
-                  ) : progressTrend === 'down' ? (
-                    <TrendingDown className="w-3 h-3" />
-                  ) : (
-                    <Activity className="w-3 h-3" />
-                  )}
-                  Last: {lastPerf.bestSet.weight}kg × {lastPerf.bestSet.reps}
-                </motion.span>
-              )}
-            </div>
-          </div>
-
-          {/* Sets column header */}
-          <div
-            className="grid text-[10px] text-text-3 font-semibold uppercase tracking-widest px-1 mb-2"
-            style={{ gridTemplateColumns: '34px 1fr 1fr 44px 32px', gap: '8px' }}
-          >
-            <span>Set</span>
-            <span>Weight (kg)</span>
-            <span>Reps</span>
-            <span />
-            <span />
-          </div>
-
-          {/* Sets list */}
-          <div className="flex flex-col gap-2">
-            <AnimatePresence initial={false}>
-              {exercise.sets.map((set, si) => (
-                <SetRow
-                  key={set.id}
-                  set={set}
-                  index={si}
-                  canRemove={exercise.sets.length > 1}
-                  lastWeight={lastPerf?.bestSet.weight}
-                  lastReps={lastPerf?.bestSet.reps}
-                  showRestTimer={activeRestTimer === set.id && set.completed}
-                  restSeconds={exercise.restSeconds || 90}
-                  onUpdate={changes => updateSet(si, changes)}
-                  onToggleComplete={() => toggleSetComplete(si)}
-                  onRemove={() => removeSet(si)}
-                  onRestDone={() => setActiveRestTimer(null)}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-
-          {/* ─── + Add Set ghost button ─── */}
-          <motion.button
-            onClick={addSet}
-            whileTap={{ scale: 0.97 }}
-            className="w-full mt-3 py-3.5 rounded-2xl flex items-center justify-center gap-2 text-[13px] font-semibold transition-all duration-200 group"
-            style={{
-              border: '1.5px dashed rgba(255,255,255,0.12)',
-              color: '#6b7280',
-              background: 'transparent',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.borderColor = 'rgba(245,197,24,0.40)';
-              (e.currentTarget as HTMLElement).style.color = '#F5C518';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.borderColor = 'rgba(255,255,255,0.12)';
-              (e.currentTarget as HTMLElement).style.color = '#6b7280';
-            }}
-          >
-            <Plus className="w-4 h-4" />
-            Add Set
-          </motion.button>
-
-          {/* ─── Live volume indicator ─── */}
-          {totalVolume > 0 && (
+      {/* ── Add exercise drawer ── */}
+      <AnimatePresence>
+        {showAddDrawer && (
+          <>
             <motion.div
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="mt-3 flex items-center justify-between rounded-2xl px-4 py-3"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}
-            >
-              <div className="flex items-center gap-2 text-text-3">
-                <BarChart2 className="w-3.5 h-3.5" />
-                <span className="text-[12px] font-semibold">Total Volume</span>
-              </div>
-              <span className="text-[15px] font-extrabold text-primary-accent tabular-nums">
-                {totalVolume >= 1000
-                  ? `${(totalVolume / 1000).toFixed(2)}k kg`
-                  : `${totalVolume} kg`}
-              </span>
-            </motion.div>
-          )}
-
-          {/* ─── Exercise navigation ─── */}
-          <div className="flex gap-3 mt-5">
-            {currentExIndex > 0 && (
-              <button
-                onClick={() => { setCurrentExIndex(i => i - 1); setActiveRestTimer(null); }}
-                className="flex-1 py-3.5 rounded-full font-semibold text-[14px] text-text-1 transition-colors"
-                style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)' }}
-              >
-                Previous
-              </button>
-            )}
-
-            {currentExIndex < workout.exercises.length - 1 ? (
-              <button
-                onClick={() => { setCurrentExIndex(i => i + 1); setActiveRestTimer(null); }}
-                className="flex-1 py-3.5 rounded-full font-bold text-[14px] text-canvas flex items-center justify-center gap-2 transition-all"
-                style={{ background: 'linear-gradient(135deg,#F5C518,#E8B000)', boxShadow: '0 6px 20px rgba(245,197,24,0.28)' }}
-              >
-                Next Exercise
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            ) : (
-              <motion.button
-                onClick={() => setShowSummary(true)}
-                disabled={!allExercisesDone}
-                whileTap={{ scale: 0.97 }}
-                className="flex-1 py-3.5 rounded-full font-bold text-[14px] flex items-center justify-center gap-2 transition-all duration-300"
-                style={
-                  allExercisesDone
-                    ? {
-                        background: 'linear-gradient(135deg,#F5C518,#E8B000)',
-                        color: '#111113',
-                        boxShadow: '0 8px 28px rgba(245,197,24,0.35)',
-                      }
-                    : {
-                        background: 'rgba(255,255,255,0.04)',
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        color: '#6b7280',
-                      }
-                }
-              >
-                {allExercisesDone ? (
-                  <>
-                    <Trophy className="w-4 h-4" />
-                    Finish Workout
-                  </>
-                ) : (
-                  'Complete All Sets First'
-                )}
-              </motion.button>
-            )}
-          </div>
-
-          {/* Completion status */}
-          <p className="text-center text-[11px] text-text-3 mt-3 font-medium">
-            {completedSets} / {totalSets} sets completed
-          </p>
-        </motion.div>
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowAddDrawer(false)}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 90 }}
+            />
+            <AddExerciseDrawer
+              onAdd={handleAddExercise}
+              onClose={() => setShowAddDrawer(false)}
+            />
+          </>
+        )}
       </AnimatePresence>
-
-      <BottomNav />
     </div>
   );
 }

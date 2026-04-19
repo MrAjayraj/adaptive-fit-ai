@@ -100,6 +100,8 @@ export function useDirectMessages(friendId: string): UseDirectMessagesReturn {
       deleted_for_sender: false,
       deleted_for_receiver: false,
       deleted_for_everyone: false,
+      message_type: 'text',
+      metadata: {},
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimistic]);

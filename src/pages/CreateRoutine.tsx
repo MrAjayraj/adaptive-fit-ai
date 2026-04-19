@@ -167,11 +167,9 @@ function ExerciseBlock({
           position: 'relative',
         }}
       >
-        <Reorder.DragControls>
           <div style={{ cursor: 'grab', color: T3, display: 'flex', alignItems: 'center' }}>
             <GripVertical style={{ width: 18, height: 18 }} />
           </div>
-        </Reorder.DragControls>
 
         <span
           style={{

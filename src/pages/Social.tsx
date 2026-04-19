@@ -224,9 +224,9 @@ export default function Social() {
                 flexShrink: 0,
               }}
             >
-              {profile?.avatar_url ? (
+              {profile?.avatarUrl ? (
                 <img 
-                  src={profile.avatar_url} 
+                  src={profile.avatarUrl} 
                   alt="avatar" 
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />

@@ -165,7 +165,7 @@ export function useActiveWorkout() {
         console.error('[useActiveWorkout] addExercise failed:', e);
         setWorkout((prev) =>
           prev
-            ? { ...prev, exercises: prev.exercises.filter((ex) => ex.id !== exercise.id) }
+            ? { ...prev, exercises: prev.exercises.filter((ex) => ex.exercise_id !== exercise.exercise_id) }
             : prev
         );
       } finally {

@@ -157,15 +157,20 @@ async function saveWorkoutExercises(
 
 export async function searchExercises(
   query: string,
-  filters?: { bodyPart?: string; equipment?: string; targetMuscle?: string }
+  filters?: { bodyPart?: string; equipment?: string; targetMuscle?: string },
+  limit = 100
 ): Promise<Exercise[]> {
   let q = db('exercises')
-    .select('*')
-    .ilike('name', `%${query}%`)
-    .limit(50);
+    .select('id,name,body_part,equipment,target_muscle,gif_url,image_url,exercise_type,secondary_muscles,is_custom')
+    .order('name', { ascending: true })
+    .limit(limit);
 
-  if (filters?.bodyPart) q = q.eq('body_part', filters.bodyPart);
-  if (filters?.equipment) q = q.eq('equipment', filters.equipment);
+  if (query && query.trim()) {
+    q = q.ilike('name', `%${query.trim()}%`);
+  }
+
+  if (filters?.bodyPart)    q = q.eq('body_part',    filters.bodyPart);
+  if (filters?.equipment)   q = q.eq('equipment',    filters.equipment);
   if (filters?.targetMuscle) q = q.eq('target_muscle', filters.targetMuscle);
 
   const { data, error } = await q;
@@ -698,6 +703,19 @@ export async function cancelWorkout(workoutId: string): Promise<boolean> {
   return true;
 }
 
+export async function getWorkoutById(workoutId: string): Promise<ActiveWorkout | null> {
+  const { data, error } = await db('workouts')
+    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration')
+    .eq('id', workoutId)
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] getWorkoutById error:', error?.message);
+    return null;
+  }
+  return data as ActiveWorkout;
+}
+
 export async function getActiveWorkout(userId: string): Promise<ActiveWorkout | null> {
   const { data, error } = await db('workouts')
     .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration')
@@ -768,225 +786,85 @@ export async function getWorkoutHistory(
   return (data ?? []) as ActiveWorkout[];
 }
 
-// ─── Routine CRUD ─────────────────────────────────────────────────────────────
 
-export async function getUserRoutines(userId: string): Promise<Routine[]> {
-  const { data, error } = await db('routines')
-    .select('*')
+
+
+// ─── Progress & Analytics (types exported for Progress.tsx) ──────────────────
+
+export interface WeeklyProgress {
+  weekLabel:  string;
+  workouts:   number;
+  volume:     number;
+  duration:   number;
+  days:       { date: string; hasWorkout: boolean }[];
+}
+
+export interface ActivityBreakdown {
+  strength:   number;
+  cardio:     number;
+  skill:      number;
+  other:      number;
+}
+
+export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress | null> {
+  const startOfWeek = new Date();
+  startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay());
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  const { data, error } = await db('workouts')
+    .select('date,duration,total_volume_kg')
     .eq('user_id', userId)
-    .order('updated_at', { ascending: false });
+    .eq('status', 'completed')
+    .gte('date', startOfWeek.toISOString().split('T')[0]);
 
   if (error) {
-    console.error('[workoutService] getUserRoutines error:', error.message);
-    return [];
-  }
-  return (data ?? []) as Routine[];
-}
-
-export async function createRoutine(
-  userId: string,
-  name: string,
-  exercises: RoutineExercise[],
-  notes?: string
-): Promise<Routine | null> {
-  const { data, error } = await db('routines')
-    .insert({
-      user_id: userId,
-      name,
-      notes: notes ?? null,
-      exercises,
-      times_performed: 0,
-    })
-    .select('*')
-    .single();
-
-  if (error || !data) {
-    console.error('[workoutService] createRoutine error:', error?.message);
-    return null;
-  }
-  return data as Routine;
-}
-
-export async function updateRoutine(
-  routineId: string,
-  data: Partial<Pick<Routine, 'name' | 'notes' | 'exercises'>>
-): Promise<boolean> {
-  const { error } = await db('routines')
-    .update({ ...data, updated_at: new Date().toISOString() })
-    .eq('id', routineId);
-
-  if (error) {
-    console.error('[workoutService] updateRoutine error:', error.message);
-    return false;
-  }
-  return true;
-}
-
-export async function deleteRoutine(routineId: string): Promise<boolean> {
-  const { error } = await db('routines').delete().eq('id', routineId);
-
-  if (error) {
-    console.error('[workoutService] deleteRoutine error:', error.message);
-    return false;
-  }
-  return true;
-}
-
-export async function duplicateRoutine(
-  routineId: string,
-  userId: string
-): Promise<Routine | null> {
-  // Fetch original
-  const { data: original, error: fetchErr } = await db('routines')
-    .select('*')
-    .eq('id', routineId)
-    .single();
-
-  if (fetchErr || !original) {
-    console.error('[workoutService] duplicateRoutine fetch error:', fetchErr?.message);
+    console.error('[workoutService] getWeeklyProgress error:', error.message);
     return null;
   }
 
-  const { data, error } = await db('routines')
-    .insert({
-      user_id: userId,
-      name: `${(original as Routine).name} (Copy)`,
-      notes: (original as Routine).notes,
-      exercises: (original as Routine).exercises,
-      times_performed: 0,
-    })
-    .select('*')
-    .single();
+  const rows = (data ?? []) as { date: string; duration: number | null; total_volume_kg: number | null }[];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(startOfWeek);
+    d.setDate(d.getDate() + i);
+    const dateStr = d.toISOString().split('T')[0];
+    return { date: dayNames[i], hasWorkout: rows.some(r => r.date === dateStr) };
+  });
 
-  if (error || !data) {
-    console.error('[workoutService] duplicateRoutine insert error:', error?.message);
-    return null;
-  }
-  return data as Routine;
+  return {
+    weekLabel: 'This Week',
+    workouts:  rows.length,
+    volume:    rows.reduce((n, r) => n + (r.total_volume_kg ?? 0), 0),
+    duration:  rows.reduce((n, r) => n + (r.duration ?? 0), 0),
+    days,
+  };
 }
 
-// ─── Custom Exercise ──────────────────────────────────────────────────────────
-
-export async function createCustomExercise(
-  exerciseData: Pick<
-    Exercise,
-    | 'name'
-    | 'body_part'
-    | 'equipment'
-    | 'target_muscle'
-    | 'secondary_muscles'
-    | 'exercise_type'
-    | 'is_custom'
-  > & { instructions?: string[]; gif_url?: string | null },
-  userId: string
-): Promise<Exercise | null> {
-  const { data, error } = await db('exercises')
-    .insert({
-      ...exerciseData,
-      created_by: userId,
-      is_custom: true,
-    })
-    .select('*')
-    .single();
-
-  if (error || !data) {
-    console.error('[workoutService] createCustomExercise error:', error?.message);
-    return null;
-  }
-  return data as Exercise;
-}
-
-// ─── Start workout helpers ─────────────────────────────────────────────────────
-
-export async function startEmptyWorkout(
-  userId: string,
-  name = 'My Workout'
-): Promise<string | null> {
-  const today = new Date().toISOString().split('T')[0];
+export async function getActivityBreakdown(userId: string, days = 30): Promise<ActivityBreakdown | null> {
+  const since = new Date();
+  since.setDate(since.getDate() - days);
 
   const { data, error } = await db('workouts')
-    .insert({
-      user_id: userId,
-      name,
-      date: today,
-      status: 'active',
-      exercises: [],
-      started_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
+    .select('name,routine_id')
+    .eq('user_id', userId)
+    .eq('status', 'completed')
+    .gte('date', since.toISOString().split('T')[0]);
 
-  if (error || !data) {
-    console.error('[workoutService] startEmptyWorkout error:', error?.message);
+  if (error) {
+    console.error('[workoutService] getActivityBreakdown error:', error.message);
     return null;
   }
-  return (data as { id: string }).id;
+
+  const rows = (data ?? []) as { name: string }[];
+  const breakdown: ActivityBreakdown = { strength: 0, cardio: 0, skill: 0, other: 0 };
+
+  for (const r of rows) {
+    const n = r.name.toLowerCase();
+    if (n.includes('cardio') || n.includes('hiit') || n.includes('run'))   breakdown.cardio++;
+    else if (n.includes('box') || n.includes('skill') || n.includes('mma')) breakdown.skill++;
+    else if (n.includes('strength') || n.includes('lift') || n.includes('gym')) breakdown.strength++;
+    else breakdown.strength++; // default
+  }
+
+  return breakdown;
 }
-
-export async function startFromRoutine(
-  userId: string,
-  routineId: string
-): Promise<string | null> {
-  // Load routine to get its exercises
-  const { data: routine, error: routineErr } = await db('routines')
-    .select('name,exercises')
-    .eq('id', routineId)
-    .single();
-
-  if (routineErr || !routine) {
-    console.error('[workoutService] startFromRoutine: could not fetch routine:', routineErr?.message);
-    return null;
-  }
-
-  const routineData = routine as { name: string; exercises: RoutineExercise[] };
-  const today = new Date().toISOString().split('T')[0];
-
-  // Convert RoutineExercise[] → WorkoutExerciseEntry[]
-  const workoutExercises: WorkoutExerciseEntry[] = (routineData.exercises ?? []).map((re) => ({
-    exercise_id: re.exercise_id,
-    name: re.exercise_name,
-    gif_url: re.gif_url,
-    body_part: re.body_part,
-    target_muscle: re.target_muscle,
-    exercise_type: re.exercise_type,
-    notes: re.notes ?? '',
-    rest_timer_seconds: re.rest_timer_seconds ?? 90,
-    sets: (re.sets ?? [{ reps: 10, weight_kg: 0 }]).map((s, i) => ({
-      set_number: i + 1,
-      weight_kg: s.weight_kg ?? 0,
-      reps: s.reps ?? 10,
-      duration_sec: s.duration_sec ?? null,
-      distance_km: null,
-      is_completed: false,
-      is_pr: false,
-      pr_type: null,
-      rest_seconds: re.rest_timer_seconds ?? 90,
-    })),
-  }));
-
-  const { data, error } = await db('workouts')
-    .insert({
-      user_id: userId,
-      name: routineData.name,
-      date: today,
-      status: 'active',
-      exercises: workoutExercises,
-      routine_id: routineId,
-      started_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-
-  if (error || !data) {
-    console.error('[workoutService] startFromRoutine error:', error?.message);
-    return null;
-  }
-
-  // Increment times_performed on the routine
-  await db('routines')
-    .update({ times_performed: (routineData as any).times_performed + 1 ?? 1, last_performed_at: new Date().toISOString() })
-    .eq('id', routineId);
-
-  return (data as { id: string }).id;
-}
-

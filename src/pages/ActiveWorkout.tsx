@@ -351,7 +351,7 @@ function ExerciseBlock({
         {/* 3-dot menu */}
         <div style={{ position: 'relative' }}>
           <button
-            onClick={onMenuToggle}
+            onClick={(e) => { e.stopPropagation(); onMenuToggle(); }}
             style={{
               background: 'transparent',
               border: 'none',
@@ -1168,8 +1168,7 @@ export default function ActiveWorkout() {
                 entry={entry}
                 exerciseIndex={exIdx}
                 menuOpen={exerciseMenuOpen === exIdx}
-                onMenuToggle={e => {
-                  (e as unknown as React.MouseEvent).stopPropagation();
+                onMenuToggle={() => {
                   setExerciseMenuOpen(prev => prev === exIdx ? null : exIdx);
                 }}
                 onMenuClose={() => setExerciseMenuOpen(null)}

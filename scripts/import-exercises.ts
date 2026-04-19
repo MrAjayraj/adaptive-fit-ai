@@ -1,22 +1,18 @@
 /**
- * ExerciseDB Import Script
- * ========================
- * Downloads and imports exercises from the ExerciseDB dataset into Supabase.
+ * Exercise Import Script
+ * ======================
+ * Sources:
+ *   1. exercises.csv  — ExerciseDB export (1324 exercises, full GIF URLs)
+ *   2. free-exercise-db — 870+ exercises from GitHub (yuhonas/free-exercise-db)
  *
  * Usage:
- *   1. Download exercises.json from Kaggle:
- *      https://www.kaggle.com/datasets/exercisedb/fitness-exercises-dataset
- *      (The file is called "exercises.json" inside the dataset ZIP)
+ *   npx tsx scripts/import-exercises.ts ./exercises.csv
  *
- *   2. Set environment variables:
- *      VITE_SUPABASE_URL=https://your-project.supabase.co
- *      SUPABASE_SERVICE_ROLE_KEY=your-service-role-key   ← use service key (not anon)
+ * Env vars required:
+ *   VITE_SUPABASE_URL=https://your-project.supabase.co
+ *   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
  *
- *   3. Run:
- *      npx tsx scripts/import-exercises.ts ./exercises.json
- *      # or: npx ts-node scripts/import-exercises.ts ./exercises.json
- *
- *   Expected result: ~1300-1500 exercises imported, including GIF URLs.
+ * Expected result: ~1300–1500 exercises imported.
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -24,10 +20,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 
-// ── Config ──────────────────────────────────────────────────────────────────
-const SUPABASE_URL          = process.env.VITE_SUPABASE_URL ?? '';
-const SUPABASE_SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
-const BATCH_SIZE            = 100; // inserts per batch
+// ── Config ───────────────────────────────────────────────────────────────────
+const SUPABASE_URL         = process.env.VITE_SUPABASE_URL ?? '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+const BATCH_SIZE           = 50;
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
   console.error('❌  Missing VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY env vars.');
@@ -36,19 +32,24 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
-// ── Kaggle ExerciseDB exercise shape ────────────────────────────────────────
-interface KaggleExercise {
-  bodyPart:         string;
-  equipment:        string;
-  gifUrl:           string;
-  id:               string;
-  name:             string;
-  target:           string;
-  secondaryMuscles: string[];
-  instructions:     string[];
+// ── DB Row type ───────────────────────────────────────────────────────────────
+interface ExerciseRow {
+  external_id:       string | null;
+  name:              string;
+  body_part:         string;
+  equipment:         string;
+  target_muscle:     string;
+  secondary_muscles: string[];
+  instructions:      string[];
+  gif_url:           string | null;
+  image_url:         string | null;
+  category:          string;
+  difficulty:        string;
+  exercise_type:     string;
+  is_custom:         boolean;
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function toTitleCase(str: string): string {
   return str
@@ -57,146 +58,143 @@ function toTitleCase(str: string): string {
     .join(' ');
 }
 
-function mapExerciseType(equipment: string, bodyPart: string): string {
-  const eq = equipment.toLowerCase();
-  const bp = bodyPart.toLowerCase();
-  if (bp === 'cardio')       return 'distance_duration';
-  if (eq === 'body weight') {
-    if (['plank','hold','static'].some(k => bp.includes(k))) return 'duration';
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/** Determine exercise_type from equipment + body_part/category */
+function inferExerciseType(equipment: string, bodyPart: string, category: string): string {
+  const eq  = (equipment ?? '').toLowerCase();
+  const bp  = (bodyPart  ?? '').toLowerCase();
+  const cat = (category  ?? '').toLowerCase();
+
+  if (cat === 'cardio'  || bp === 'cardio')    return 'distance_duration';
+  if (cat === 'stretching')                    return 'duration';
+  if (cat === 'plyometrics')                   return 'bodyweight_reps';
+  if (eq  === 'body weight' || eq === 'body only') {
+    if (['plank','hold','static','wall'].some(k => bp.includes(k))) return 'duration';
     return 'bodyweight_reps';
   }
   return 'weight_reps';
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+/** Map free-exercise-db category to our category values */
+function mapCategory(cat: string): string {
+  const c = (cat ?? '').toLowerCase();
+  if (c === 'cardio')                return 'cardio';
+  if (c === 'stretching')            return 'stretching';
+  if (c === 'plyometrics')           return 'plyometrics';
+  return 'strength';
 }
 
-// ── Main import ─────────────────────────────────────────────────────────────
+/** Map free-exercise-db level to our difficulty */
+function mapDifficulty(level: string): string {
+  const l = (level ?? '').toLowerCase();
+  if (l === 'beginner') return 'beginner';
+  if (l === 'expert')   return 'expert';
+  return 'intermediate';
+}
 
-async function importFromFile(filePath: string) {
-  const resolved = path.resolve(filePath);
-  console.log(`📂 Reading exercises from: ${resolved}`);
+// ── Parse CSV ─────────────────────────────────────────────────────────────────
+// Columns: bodyPart, equipment, gifUrl, id, name, target,
+//          secondaryMuscles/0..5, instructions/0..10
 
-  if (!fs.existsSync(resolved)) {
-    console.error(`❌  File not found: ${resolved}`);
-    console.error('    Download from: https://www.kaggle.com/datasets/exercisedb/fitness-exercises-dataset');
-    process.exit(1);
-  }
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let cur = '';
+  let inQuote = false;
 
-  const raw       = fs.readFileSync(resolved, 'utf-8');
-  const exercises = JSON.parse(raw) as KaggleExercise[];
-  const deduped = exercises.map(ex => ({
-      exercise_id:       ex.id,
-      name:              toTitleCase(ex.name),
-      body_part:         ex.bodyPart.toLowerCase(),
-      equipment:         ex.equipment.toLowerCase(),
-      target_muscle:     ex.target.toLowerCase(),
-      secondary_muscles: (ex.secondaryMuscles ?? []).map(m => m.toLowerCase()),
-      gif_url:           ex.gifUrl || null,
-      instructions:      ex.instructions ?? [],
-      exercise_type:     mapExerciseType(ex.equipment, ex.bodyPart),
-      is_custom:         false,
-  }));
-
-  let totalInserted = 0;
-  let totalErrors = 0;
-  const batches = Math.ceil(deduped.length / BATCH_SIZE);
-
-  for (let b = 0; b < batches; b++) {
-    const batch = deduped.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
-    process.stdout.write(`  🔄 Batch ${b + 1}/${batches} (${batch.length} exercises)… `);
-
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/bulk_insert_exercises`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'apikey': SUPABASE_KEY,
-      },
-      body: JSON.stringify({ payload: batch }),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error(`❌ Batch RPC failed: ${response.status} ${error}`);
-      totalErrors += batch.length;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuote && line[i + 1] === '"') { cur += '"'; i++; }
+      else inQuote = !inQuote;
+    } else if (ch === ',' && !inQuote) {
+      result.push(cur); cur = '';
     } else {
-      process.stdout.write(`✅\n`);
-      totalInserted += batch.length;
+      cur += ch;
     }
-
-    // Small delay to avoid rate limiting
-    if (b < batches - 1) await new Promise((r) => setTimeout(r, 200));
   }
-
-  console.log('\n══════════════════════════════════════════');
-  console.log(`✅ Import complete!`);
-  console.log(`   Imported : ${totalInserted}`);
-  console.log(`   Errors   : ${totalErrors}`);
+  result.push(cur);
+  return result;
 }
 
-// ── Alternative: fetch from exercisedb.io API (requires RapidAPI key) ──────
+function parseCSV(filePath: string): ExerciseRow[] {
+  const raw     = fs.readFileSync(filePath, 'utf-8');
+  const lines   = raw.split('\n').filter(l => l.trim());
+  const headers = parseCSVLine(lines[0]);
 
-async function importFromAPI(apiKey: string) {
-  console.log('📡 Fetching exercises from exercisedb.io API...');
-  const baseUrl = 'https://exercisedb.p.rapidapi.com/exercises';
-  const limit   = 100;
-  let offset    = 0;
-  let total     = 0;
-  let imported  = 0;
+  const rows: ExerciseRow[] = [];
 
-  // First request to get total count
-  const firstBatch = await fetchApiPage(apiKey, baseUrl, limit, 0);
-  if (!firstBatch) { console.error('❌  API fetch failed'); return; }
-  total = firstBatch.length > 0 ? 9999 : 0; // ExerciseDB doesn't return total count
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    if (cols.length < 6) continue;
 
-  while (true) {
-    const batch = await fetchApiPage(apiKey, baseUrl, limit, offset);
-    if (!batch || batch.length === 0) break;
-
-    const rows = batch.map((ex: KaggleExercise) => ({
-      exercise_id:       ex.id,
-      name:              toTitleCase(ex.name),
-      body_part:         ex.bodyPart.toLowerCase(),
-      equipment:         ex.equipment.toLowerCase(),
-      target_muscle:     ex.target.toLowerCase(),
-      secondary_muscles: (ex.secondaryMuscles ?? []).map((m: string) => m.toLowerCase()),
-      gif_url:           ex.gifUrl || null,
-      instructions:      ex.instructions ?? [],
-      exercise_type:     mapExerciseType(ex.equipment, ex.bodyPart),
-      is_custom:         false,
-    }));
-
-    const { error } = await supabase
-      .from('exercises')
-      .upsert(rows, { onConflict: 'exercise_id' });
-
-    if (!error) {
-      imported += batch.length;
-      console.log(`  ⬆️  Imported ${imported} exercises so far...`);
-    }
-
-    offset += limit;
-    if (batch.length < limit) break; // last page
-    await sleep(300); // respect rate limits
-  }
-
-  console.log(`\n✅  API import complete! Total: ${imported}`);
-}
-
-function fetchApiPage(apiKey: string, url: string, limit: number, offset: number): Promise<KaggleExercise[] | null> {
-  return new Promise((resolve) => {
-    const fullUrl = `${url}?limit=${limit}&offset=${offset}`;
-    const options = {
-      hostname: 'exercisedb.p.rapidapi.com',
-      path:     `/exercises?limit=${limit}&offset=${offset}`,
-      headers:  {
-        'X-RapidAPI-Key':  apiKey,
-        'X-RapidAPI-Host': 'exercisedb.p.rapidapi.com',
-      },
+    const get = (header: string): string => {
+      const idx = headers.indexOf(header);
+      return idx >= 0 ? (cols[idx] ?? '').trim() : '';
     };
-    const req = https.get(options, (res) => {
+
+    const bodyPart  = get('bodyPart').toLowerCase();
+    const equipment = get('equipment').toLowerCase();
+    const gifUrl    = get('gifUrl') || null;
+    const exId      = get('id');
+    const name      = get('name');
+    const target    = get('target').toLowerCase();
+
+    if (!name) continue;
+
+    const secondaryMuscles: string[] = [];
+    for (let j = 0; j <= 5; j++) {
+      const m = get(`secondaryMuscles/${j}`);
+      if (m) secondaryMuscles.push(m.toLowerCase());
+    }
+
+    const instructions: string[] = [];
+    for (let j = 0; j <= 10; j++) {
+      const inst = get(`instructions/${j}`);
+      if (inst) instructions.push(inst);
+    }
+
+    rows.push({
+      external_id:       exId || null,
+      name:              toTitleCase(name),
+      body_part:         bodyPart,
+      equipment,
+      target_muscle:     target,
+      secondary_muscles: secondaryMuscles,
+      instructions,
+      gif_url:           gifUrl,
+      image_url:         null,
+      category:          'strength',
+      difficulty:        'intermediate',
+      exercise_type:     inferExerciseType(equipment, bodyPart, 'strength'),
+      is_custom:         false,
+    });
+  }
+
+  return rows;
+}
+
+// ── Fetch free-exercise-db ────────────────────────────────────────────────────
+
+interface FreeExDBEntry {
+  name:             string;
+  level:            string;
+  equipment:        string | null;
+  primaryMuscles:   string[];
+  secondaryMuscles: string[];
+  instructions:     string[];
+  category:         string;
+  images:           string[];
+}
+
+const FREE_DB_URL =
+  'https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/dist/exercises.json';
+
+function fetchJson(url: string): Promise<FreeExDBEntry[] | null> {
+  return new Promise((resolve) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'import-script/1.0' } }, (res) => {
       let data = '';
       res.on('data', (chunk: string) => { data += chunk; });
       res.on('end', () => {
@@ -208,22 +206,139 @@ function fetchApiPage(apiKey: string, url: string, limit: number, offset: number
   });
 }
 
-// ── Entry point ──────────────────────────────────────────────────────────────
+function mapFreeExDBEntry(e: FreeExDBEntry): ExerciseRow {
+  const bodyPart  = (e.primaryMuscles?.[0] ?? 'full body').toLowerCase();
+  const equipment = (e.equipment ?? 'body weight').toLowerCase()
+    .replace('body only', 'body weight')
+    .replace('other', 'machine');
+  const cat       = mapCategory(e.category);
+  const imageUrl  = e.images?.[0]
+    ? `https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/${e.images[0]}`
+    : null;
 
-const args = process.argv.slice(2);
-
-if (args[0] === '--api' && args[1]) {
-  importFromAPI(args[1]);
-} else if (args[0]) {
-  importFromFile(args[0]);
-} else {
-  console.log('Usage:');
-  console.log('  # From Kaggle JSON file (recommended):');
-  console.log('  npx tsx scripts/import-exercises.ts ./exercises.json');
-  console.log('');
-  console.log('  # From RapidAPI (requires API key):');
-  console.log('  npx tsx scripts/import-exercises.ts --api YOUR_RAPIDAPI_KEY');
-  console.log('');
-  console.log('  Download dataset: https://www.kaggle.com/datasets/exercisedb/fitness-exercises-dataset');
-  process.exit(0);
+  return {
+    external_id:       null,
+    name:              toTitleCase(e.name),
+    body_part:         bodyPart,
+    equipment,
+    target_muscle:     bodyPart,
+    secondary_muscles: (e.secondaryMuscles ?? []).map((m: string) => m.toLowerCase()),
+    instructions:      e.instructions ?? [],
+    gif_url:           null,
+    image_url:         imageUrl,
+    category:          cat,
+    difficulty:        mapDifficulty(e.level),
+    exercise_type:     inferExerciseType(equipment, bodyPart, cat),
+    is_custom:         false,
+  };
 }
+
+// ── Merge + dedup ─────────────────────────────────────────────────────────────
+
+function mergeExercises(primary: ExerciseRow[], secondary: ExerciseRow[]): ExerciseRow[] {
+  const seen = new Map<string, ExerciseRow>();
+  for (const ex of primary)   seen.set(ex.name.toLowerCase(), ex);
+  for (const ex of secondary) {
+    if (!seen.has(ex.name.toLowerCase())) seen.set(ex.name.toLowerCase(), ex);
+  }
+  return Array.from(seen.values());
+}
+
+// ── Batch upsert ──────────────────────────────────────────────────────────────
+
+async function batchUpsert(exercises: ExerciseRow[]): Promise<{ imported: number; skipped: number }> {
+  let imported = 0;
+  let skipped  = 0;
+
+  for (let i = 0; i < exercises.length; i += BATCH_SIZE) {
+    const batch = exercises.slice(i, i + BATCH_SIZE);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase as any)
+      .from('exercises')
+      .upsert(batch, { onConflict: 'name' });
+
+    if (error) {
+      console.error(`\n  ⚠️  Batch ${Math.floor(i / BATCH_SIZE) + 1} error: ${error.message}`);
+      skipped += batch.length;
+    } else {
+      imported += batch.length;
+      const pct = Math.round((imported / exercises.length) * 100);
+      process.stdout.write(`\r  ⬆️  Progress: ${imported}/${exercises.length} (${pct}%)`);
+    }
+
+    await sleep(60);
+  }
+
+  return { imported, skipped };
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const csvPath = process.argv[2];
+  if (!csvPath) {
+    console.error('Usage: npx tsx scripts/import-exercises.ts ./exercises.csv');
+    process.exit(1);
+  }
+
+  const resolved = path.resolve(csvPath);
+  if (!fs.existsSync(resolved)) {
+    console.error(`❌  File not found: ${resolved}`);
+    process.exit(1);
+  }
+
+  // 1. Parse CSV
+  console.log(`📂 Parsing CSV: ${resolved}`);
+  const csvExercises = parseCSV(resolved);
+  console.log(`✅  Parsed ${csvExercises.length} exercises from CSV`);
+
+  // 2. Fetch free-exercise-db
+  console.log('\n📡 Fetching free-exercise-db from GitHub...');
+  const freeDbRaw = await fetchJson(FREE_DB_URL);
+  const freeDbExercises: ExerciseRow[] = freeDbRaw
+    ? freeDbRaw.map(mapFreeExDBEntry)
+    : [];
+  console.log(`✅  Fetched ${freeDbExercises.length} exercises from free-exercise-db`);
+
+  // 3. Merge
+  const merged = mergeExercises(csvExercises, freeDbExercises);
+  console.log(`\n🔀 Merged total: ${merged.length} unique exercises\n`);
+
+  // 4. Upsert
+  const { imported, skipped } = await batchUpsert(merged);
+  console.log('\n');
+
+  // 5. Verify
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { count } = await (supabase as any)
+    .from('exercises')
+    .select('*', { count: 'exact', head: true });
+
+  console.log('✅  Import complete!');
+  console.log(`   Imported : ${imported}`);
+  console.log(`   Skipped  : ${skipped}`);
+  console.log(`   DB total : ${count}`);
+
+  // 6. Distribution
+  console.log('\n📊 Body part distribution:');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: all } = await (supabase as any)
+    .from('exercises')
+    .select('body_part');
+
+  if (all) {
+    const grouped: Record<string, number> = {};
+    for (const r of all as { body_part: string }[]) {
+      grouped[r.body_part] = (grouped[r.body_part] ?? 0) + 1;
+    }
+    for (const [bp, cnt] of Object.entries(grouped).sort((a, b) => b[1] - a[1])) {
+      console.log(`   ${bp.padEnd(22)} ${cnt}`);
+    }
+  }
+}
+
+main().catch(err => {
+  console.error('Fatal:', err);
+  process.exit(1);
+});
