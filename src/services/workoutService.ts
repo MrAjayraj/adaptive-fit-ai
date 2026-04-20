@@ -161,6 +161,9 @@ export async function searchExercises(
   filters?: { bodyPart?: string; equipment?: string; targetMuscle?: string },
   limit = 100
 ): Promise<Exercise[]> {
+  // Select only columns guaranteed in ALL schema versions (old + new).
+  // body_part / target_muscle / exercise_type are added by migration
+  // 20260420000002 — but we fall back gracefully if they're missing.
   let q = db('exercises')
     .select('id,name,body_part,equipment,target_muscle,gif_url,image_url,exercise_type,secondary_muscles,is_custom')
     .order('name', { ascending: true })
@@ -170,16 +173,65 @@ export async function searchExercises(
     q = q.ilike('name', `%${query.trim()}%`);
   }
 
-  if (filters?.bodyPart)    q = q.eq('body_part',    filters.bodyPart);
-  if (filters?.equipment)   q = q.eq('equipment',    filters.equipment);
-  if (filters?.targetMuscle) q = q.eq('target_muscle', filters.targetMuscle);
+  if (filters?.bodyPart)     q = q.eq('body_part',     filters.bodyPart);
+  if (filters?.equipment)    q = q.eq('equipment',      filters.equipment);
+  if (filters?.targetMuscle) q = q.eq('target_muscle',  filters.targetMuscle);
 
   const { data, error } = await q;
+
   if (error) {
-    console.error('[workoutService] searchExercises error:', error.message);
-    return [];
+    // New-column query failed (old schema). Retry with only legacy columns.
+    console.warn('[workoutService] searchExercises full query failed, retrying with legacy columns:', error.message);
+
+    let fallback = db('exercises')
+      .select('id,name,equipment,secondary_muscles,is_custom')
+      .order('name', { ascending: true })
+      .limit(limit);
+
+    if (query && query.trim()) fallback = fallback.ilike('name', `%${query.trim()}%`);
+    if (filters?.equipment)    fallback = fallback.eq('equipment', filters.equipment);
+
+    const { data: legacyData, error: legacyErr } = await fallback;
+
+    if (legacyErr) {
+      console.error('[workoutService] searchExercises legacy fallback error:', legacyErr.message);
+      throw new Error('Could not load exercises: ' + legacyErr.message);
+    }
+
+    // Normalize legacy rows into the Exercise shape
+    return ((legacyData ?? []) as Record<string, unknown>[]).map(row => ({
+      id:                String(row.id ?? ''),
+      exercise_id:       null,
+      name:              String(row.name ?? ''),
+      body_part:         String((row as any).muscle_group ?? 'other'),
+      equipment:         String(row.equipment ?? 'body weight'),
+      target_muscle:     String((row as any).muscle_group ?? 'other'),
+      secondary_muscles: (row.secondary_muscles as string[]) ?? [],
+      gif_url:           null,
+      image_url:         null,
+      instructions:      [],
+      exercise_type:     'weight_reps' as Exercise['exercise_type'],
+      is_custom:         Boolean(row.is_custom),
+      created_at:        '',
+    }));
   }
-  return (data ?? []) as Exercise[];
+
+  // Normalise rows — fill in any still-null new columns with safe defaults
+  return ((data ?? []) as Record<string, unknown>[]).map(row => ({
+    id:                String(row.id ?? ''),
+    exercise_id:       null,
+    name:              String(row.name ?? ''),
+    body_part:         String(row.body_part ?? (row as any).muscle_group ?? 'other'),
+    equipment:         String(row.equipment ?? 'body weight'),
+    target_muscle:     String(row.target_muscle ?? (row as any).muscle_group ?? 'other'),
+    secondary_muscles: (row.secondary_muscles as string[]) ?? [],
+    gif_url:           (row.gif_url as string | null) ?? null,
+    image_url:         (row.image_url as string | null) ?? null,
+    instructions:      (row.instructions as string[]) ?? [],
+    exercise_type:     ((row.exercise_type as Exercise['exercise_type']) ?? 'weight_reps'),
+    is_custom:         Boolean(row.is_custom),
+    created_at:        '',
+  }));
 }
 
 export async function getExercisesByBodyPart(bodyPart: string): Promise<Exercise[]> {

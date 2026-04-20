@@ -29,6 +29,7 @@ export default function ExerciseLibrary() {
   const { user } = useAuth();
   const [exercises, setExercises]   = useState<Exercise[]>([]);
   const [loading, setLoading]       = useState(true);
+  const [loadError, setLoadError]   = useState<string | null>(null);
   const [search, setSearch]         = useState('');
   const [bodyFilter, setBodyFilter] = useState('all');
   const [favorites, setFavorites]   = useState<Set<string>>(() => {
@@ -46,10 +47,17 @@ export default function ExerciseLibrary() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoadError(null);
     const filters = bodyFilter !== 'all' ? { bodyPart: bodyFilter } : undefined;
     searchExercises(search, filters, 200)
       .then(data => { if (!cancelled) setExercises(data); })
-      .catch(() => {})
+      .catch(err => {
+        if (!cancelled) {
+          console.error('[ExerciseLibrary] load error:', err);
+          setLoadError(err instanceof Error ? err.message : 'Failed to load exercises');
+          setExercises([]);
+        }
+      })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [search, bodyFilter]);
@@ -277,6 +285,18 @@ export default function ExerciseLibrary() {
                 </div>
               </div>
             ))}
+          </div>
+        ) : loadError ? (
+          <div className="text-center py-16 px-6">
+            <Dumbbell className="w-12 h-12 text-text-3 mx-auto mb-4" />
+            <p className="text-text-1 font-semibold text-[16px] mb-2">Could not load exercises</p>
+            <p className="text-text-3 text-[13px] mb-4">{loadError}</p>
+            <button
+              onClick={() => { setSearch(''); setBodyFilter('all'); }}
+              className="text-primary-accent text-[13px] font-semibold underline"
+            >
+              Try again
+            </button>
           </div>
         ) : (
           <div className="px-5 space-y-6">
