@@ -181,32 +181,40 @@ function TodoRow({
 // ── Add-task bottom sheet ─────────────────────────────────────────────────────
 
 interface AddSheetProps {
-  onAdd:   (title: string, opts: AddTodoOptions) => void;
+  onAdd:   (title: string, opts: AddTodoOptions) => Promise<void>;
   onClose: () => void;
 }
 
 function AddSheet({ onAdd, onClose }: AddSheetProps) {
-  const [title,      setTitle]     = useState('');
-  const [category,   setCategory]  = useState<TodoCategory>('general');
+  const [title,       setTitle]     = useState('');
+  const [category,    setCategory]  = useState<TodoCategory>('general');
   const [isRecurring, setRecurring] = useState(false);
-  const [recurrence, setRecurrence] = useState<string>('daily');
-  const [customDays, setCustomDays] = useState<number[]>([]); // 1=Mon…7=Sun
+  const [recurrence,  setRecurrence] = useState<string>('daily');
+  const [customDays,  setCustomDays] = useState<number[]>([]); // 1=Mon…7=Sun
+  const [saving,      setSaving]    = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const DOW_LABELS = ['M','T','W','T','F','S','S'];
 
-  const handleSubmit = () => {
-    if (!title.trim()) return;
+  const handleSubmit = async () => {
+    if (!title.trim() || saving) return;
     const opts: AddTodoOptions = {
       category,
       isRecurring,
       recurrenceType: isRecurring ? recurrence : undefined,
       recurrenceDays: recurrence === 'custom' ? customDays : [],
     };
-    onAdd(title, opts);
-    onClose();
+    setSaving(true);
+    try {
+      await onAdd(title, opts);
+      onClose(); // only close after successful insert
+    } catch {
+      // error already toasted inside useTodos.add — keep sheet open
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -413,21 +421,21 @@ function AddSheet({ onAdd, onClose }: AddSheetProps) {
         {/* Submit */}
         <button
           onClick={handleSubmit}
-          disabled={!title.trim()}
+          disabled={!title.trim() || saving}
           style={{
             width:        '100%',
-            background:   title.trim() ? ACCENT : 'rgba(255,255,255,0.08)',
-            color:        title.trim() ? '#000' : T3,
+            background:   title.trim() && !saving ? ACCENT : 'rgba(255,255,255,0.08)',
+            color:        title.trim() && !saving ? '#000' : T3,
             border:       'none',
             borderRadius: 14,
             height:       50,
             fontSize:     15,
             fontWeight:   800,
-            cursor:       title.trim() ? 'pointer' : 'not-allowed',
+            cursor:       title.trim() && !saving ? 'pointer' : 'not-allowed',
             transition:   'all 0.15s ease',
           }}
         >
-          Add Task
+          {saving ? 'Adding…' : 'Add Task'}
         </button>
       </motion.div>
     </>
@@ -441,7 +449,7 @@ interface TodoListProps {
   isLoading: boolean;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
-  onAdd:    (title: string, opts: AddTodoOptions) => void;
+  onAdd:    (title: string, opts: AddTodoOptions) => Promise<void>;
 }
 
 export function TodoList({ todos, isLoading, onToggle, onDelete, onAdd }: TodoListProps) {

@@ -71,6 +71,8 @@ export async function getTodosForDate(userId: string, date: string): Promise<Tod
     .order('sort_order', { ascending: true });
 
   if (e1) {
+    // Table may not exist yet — return empty silently on schema errors
+    if (e1.code === '42P01' || e1.message?.includes('does not exist')) return [];
     console.error('[todoService] getTodosForDate (one-time):', e1.message);
     return [];
   }
@@ -83,6 +85,7 @@ export async function getTodosForDate(userId: string, date: string): Promise<Tod
     .order('sort_order', { ascending: true });
 
   if (e2) {
+    if (e2.code === '42P01' || e2.message?.includes('does not exist')) return onetime ?? [];
     console.error('[todoService] getTodosForDate (recurring):', e2.message);
   }
 
@@ -192,10 +195,15 @@ export async function updateTodoTitle(todoId: string, title: string): Promise<vo
 // ─── Default seeding ─────────────────────────────────────────────────────────
 
 export async function hasTodos(userId: string): Promise<boolean> {
-  const { count } = await tbl('user_todos')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', userId);
-  return (count ?? 0) > 0;
+  try {
+    const { count, error } = await tbl('user_todos')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId);
+    if (error) return false; // table may not exist yet
+    return (count ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 export async function createDefaultTodos(userId: string): Promise<void> {
