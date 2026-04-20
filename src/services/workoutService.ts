@@ -74,6 +74,7 @@ export interface Routine {
   user_id: string;
   name: string;
   notes: string | null;
+  workout_type: 'strength' | 'cardio' | 'skill' | 'custom';
   exercises: RoutineExercise[];
   times_performed: number;
   last_performed_at: string | null;
@@ -242,15 +243,24 @@ export async function getExerciseById(id: string): Promise<Exercise | null> {
 }
 
 export async function createCustomExercise(
-  data: Partial<Exercise>,
+  data: Partial<Exercise> & { name: string; body_part: string; equipment: string; target_muscle: string },
   userId: string
 ): Promise<Exercise | null> {
+  // RLS policy requires: auth.uid() = created_by AND is_custom = true
   const payload = {
-    ...data,
-    is_custom: true,
-    user_id: userId,
+    name:              data.name,
+    body_part:         data.body_part,
+    equipment:         data.equipment,
+    target_muscle:     data.target_muscle,
     secondary_muscles: data.secondary_muscles ?? [],
-    instructions: data.instructions ?? [],
+    instructions:      data.instructions ?? [],
+    exercise_type:     data.exercise_type ?? 'weight_reps',
+    gif_url:           data.gif_url ?? null,
+    image_url:         data.image_url ?? null,
+    category:          data.category ?? 'strength',
+    difficulty:        data.difficulty ?? 'intermediate',
+    is_custom:         true,
+    created_by:        userId,  // ← must match auth.uid() for RLS to pass
   };
 
   const { data: result, error } = await db('exercises')
@@ -284,14 +294,16 @@ export async function createRoutine(
   userId: string,
   name: string,
   exercises: RoutineExercise[],
-  notes?: string
+  notes?: string,
+  workoutType: 'strength' | 'cardio' | 'skill' | 'custom' = 'strength'
 ): Promise<Routine | null> {
   const { data, error } = await db('routines')
     .insert({
-      user_id: userId,
+      user_id:      userId,
       name,
       exercises,
-      notes: notes ?? null,
+      notes:        notes ?? null,
+      workout_type: workoutType,
       times_performed: 0,
       last_performed_at: null,
     })

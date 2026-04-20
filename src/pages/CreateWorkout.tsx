@@ -315,7 +315,8 @@ export default function CreateWorkout() {
   const [intensity, setIntensity]           = useState<Intensity>('high');
   const [notes, setNotes]                   = useState('');
 
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting]       = useState(false);
+  const [saveAsRoutine, setSaveAsRoutine] = useState(true);
 
   const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -385,11 +386,32 @@ export default function CreateWorkout() {
     if (!user?.id) { setSubmitting(false); return; }
 
     const name = workoutName || `${workoutType === 'cardio' ? 'Cardio' : 'Strength'} Workout`;
-    const workoutId = await startEmptyWorkout(user.id, name);
 
+    // Build routine exercises (used for both routine saving and live workout)
+    const routineExercises = selected.map(ex => ({
+      exercise_id:        ex.id,
+      exercise_name:      ex.name,
+      gif_url:            ex.gif_url ?? null,
+      body_part:          ex.body_part,
+      target_muscle:      ex.target_muscle,
+      exercise_type:      ex.exercise_type,
+      notes:              '',
+      rest_timer_seconds: 90,
+      sets:               buildDefaultSets(ex, 3).map(s => ({
+        reps:      s.reps,
+        weight_kg: s.weight_kg,
+      })),
+    }));
+
+    // Save as routine so it appears in My Routines
+    if (saveAsRoutine && selected.length > 0) {
+      await createRoutine(user.id, name, routineExercises, undefined, workoutType);
+    }
+
+    // Start the live workout session
+    const workoutId = await startEmptyWorkout(user.id, name);
     if (!workoutId) { setSubmitting(false); return; }
 
-    // Add exercises sequentially
     for (const ex of selected) {
       const entry: WorkoutExerciseEntry = {
         exercise_id:        ex.id,
@@ -674,6 +696,38 @@ export default function CreateWorkout() {
           </div>
         ) : null}
 
+        {/* Save as Routine toggle (hidden for skill workouts) */}
+        {!isSkill && (
+          <div
+            onClick={() => setSaveAsRoutine(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: SURFACE, borderRadius: 14, padding: '14px 16px', marginTop: 8,
+              border: `1px solid ${saveAsRoutine ? GREEN_BORDER : 'rgba(255,255,255,0.06)'}`,
+              cursor: 'pointer', transition: 'border-color 0.15s ease',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T1 }}>Save as Routine</div>
+              <div style={{ fontSize: 12, color: T2, marginTop: 2 }}>Appears in My Routines for reuse</div>
+            </div>
+            {/* Toggle pill */}
+            <div style={{
+              width: 44, height: 26, borderRadius: 13, flexShrink: 0,
+              background: saveAsRoutine ? ACCENT : SURFACE_UP,
+              border: `1px solid ${saveAsRoutine ? ACCENT : 'rgba(255,255,255,0.12)'}`,
+              position: 'relative', transition: 'background 0.18s ease',
+            }}>
+              <div style={{
+                position: 'absolute', top: 3,
+                left: saveAsRoutine ? 'calc(100% - 23px)' : 3,
+                width: 18, height: 18, borderRadius: '50%', background: '#fff',
+                transition: 'left 0.18s ease', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+              }} />
+            </div>
+          </div>
+        )}
+
         <motion.button
           whileTap={{ scale: 0.97 }}
           onClick={handleStart}
@@ -682,7 +736,7 @@ export default function CreateWorkout() {
             width: '100%', height: 56, background: submitting ? SURFACE_UP : ACCENT,
             color: submitting ? T3 : '#0C1015', border: 'none', borderRadius: 14,
             fontSize: 16, fontWeight: 800, cursor: submitting ? 'not-allowed' : 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 8,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12,
           }}
         >
           {submitting ? (

@@ -12,6 +12,7 @@ function Avatar({ src, name, size = 40 }: { src: string | null; name: string; si
   if (src) {
     return (
       <img
+        src={src}
         alt={name}
         className="rounded-[14px] object-cover flex-shrink-0"
         style={{ width: size, height: size, aspectRatio: '1/1' }}

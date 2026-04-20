@@ -14,10 +14,12 @@ import {
   Zap,
   Activity,
   X,
+  Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { getPrograms } from '@/services/workoutService';
-import type { WorkoutProgram } from '@/services/workoutService';
+import { getPrograms, createRoutine } from '@/services/workoutService';
+import type { WorkoutProgram, RoutineExercise } from '@/services/workoutService';
+import { useAuth } from '@/context/AuthContext';
 import BottomNav from '@/components/layout/BottomNav';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -315,11 +317,52 @@ function ProgramModal({
   program: SeededProgram;
   onClose: () => void;
 }) {
-  const [toastVisible, setToastVisible] = useState(false);
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [starting, setStarting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  function handleStart() {
-    setToastVisible(true);
-    setTimeout(() => setToastVisible(false), 2500);
+  async function handleStart() {
+    if (!user?.id || starting) return;
+    setStarting(true);
+    setErrorMsg('');
+
+    try {
+      // Each non-rest day in the schedule becomes a saved routine
+      const workoutDays = program._schedule.filter(d => d.exercises.length > 0);
+
+      for (const day of workoutDays) {
+        const routineExercises: RoutineExercise[] = day.exercises.map(exName => ({
+          exercise_id:        '',       // name-only reference; no DB id needed for routines
+          exercise_name:      exName,
+          gif_url:            null,
+          body_part:          'other',
+          target_muscle:      'other',
+          exercise_type:      'weight_reps',
+          notes:              '',
+          rest_timer_seconds: 90,
+          sets: [
+            { reps: 10, weight_kg: 0 },
+            { reps: 10, weight_kg: 0 },
+            { reps: 10, weight_kg: 0 },
+          ],
+        }));
+
+        await createRoutine(
+          user.id,
+          `${program.name} — ${day.focus}`,
+          routineExercises,
+          `Day: ${day.day}`,
+          'strength',
+        );
+      }
+
+      onClose();
+      navigate('/workout-hub');
+    } catch {
+      setErrorMsg('Failed to start program. Please try again.');
+      setStarting(false);
+    }
   }
 
   return (
@@ -498,58 +541,45 @@ function ProgramModal({
 
         {/* CTA */}
         <div style={{ padding: '0 20px' }}>
+          {errorMsg && (
+            <p style={{ fontSize: 13, color: '#F87171', textAlign: 'center', marginBottom: 10 }}>
+              {errorMsg}
+            </p>
+          )}
           <motion.button
-            whileTap={{ scale: 0.97 }}
+            whileTap={{ scale: starting ? 1 : 0.97 }}
             onClick={handleStart}
+            disabled={starting}
             style={{
               width: '100%',
               height: 52,
               borderRadius: 16,
-              background: ACCENT,
+              background: starting ? SURFACE_UP : ACCENT,
               border: 'none',
-              color: '#0C1015',
+              color: starting ? T3 : '#0C1015',
               fontSize: 16,
               fontWeight: 800,
-              cursor: 'pointer',
+              cursor: starting ? 'not-allowed' : 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
+              transition: 'background 0.15s ease',
             }}
           >
-            <Zap style={{ width: 18, height: 18, fill: '#0C1015' }} />
-            Start This Program
+            {starting ? (
+              <>
+                <Loader2 style={{ width: 18, height: 18, animation: 'spin 1s linear infinite' }} />
+                Creating routines…
+              </>
+            ) : (
+              <>
+                <Zap style={{ width: 18, height: 18, fill: '#0C1015' }} />
+                Start This Program
+              </>
+            )}
           </motion.button>
         </div>
-
-        {/* "Coming soon" toast */}
-        <AnimatePresence>
-          {toastVisible && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 20 }}
-              style={{
-                position: 'fixed',
-                bottom: 100,
-                left: '50%',
-                transform: 'translateX(-50%)',
-                background: SURFACE_UP,
-                border: `1px solid ${BORDER}`,
-                borderRadius: 12,
-                padding: '10px 18px',
-                fontSize: 13,
-                fontWeight: 600,
-                color: T1,
-                whiteSpace: 'nowrap',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                zIndex: 200,
-              }}
-            >
-              Coming soon!
-            </motion.div>
-          )}
-        </AnimatePresence>
       </motion.div>
     </motion.div>
   );
@@ -696,6 +726,7 @@ export default function ExplorePrograms() {
 
   return (
     <div style={{ background: BG, minHeight: '100dvh', paddingBottom: 108 }}>
+      <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
       {/* ── Header ── */}
       <div
         style={{
