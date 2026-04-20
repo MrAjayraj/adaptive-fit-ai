@@ -1,47 +1,97 @@
-// src/pages/ChatsScreen.tsx — Combined DMs + Groups inbox (WhatsApp-style)
+// src/pages/ChatsScreen.tsx — Unified DMs + Groups inbox
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, PenSquare, Search, MessageCircle, Users } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useConversations } from '@/hooks/useConversations';
 import { useGroups } from '@/hooks/useGroups';
 import { useAuth } from '@/context/AuthContext';
 import { useFitness } from '@/context/FitnessContext';
-import Avatar from '@/components/shared/Avatar';
 import BottomNav from '@/components/layout/BottomNav';
 
-// ─── Time formatting ──────────────────────────────────────────────────────────
+// ─── Avatar colour palette (consistent per-name) ──────────────────────────────
+const AVATAR_GRADIENTS = [
+  ['#FF6B6B','#FF8E53'],
+  ['#4ECDC4','#45B7D1'],
+  ['#A78BFA','#7C3AED'],
+  ['#F97316','#EF4444'],
+  ['#10B981','#059669'],
+  ['#3B82F6','#2563EB'],
+  ['#EC4899','#DB2777'],
+  ['#F59E0B','#D97706'],
+  ['#06B6D4','#0284C7'],
+  ['#8B5CF6','#6D28D9'],
+];
+
+function nameToGradient(name: string): [string, string] {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + (hash << 5) - hash;
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+}
+
+function initials(name: string) {
+  return name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+}
+
+// ─── Gradient avatar ──────────────────────────────────────────────────────────
+function GradAvatar({ name, src, size = 48, isGroup = false }: {
+  name: string; src?: string | null; size?: number; isGroup?: boolean;
+}) {
+  const [from, to] = nameToGradient(name);
+  return (
+    <div style={{ width: size, height: size, borderRadius: '50%', flexShrink: 0, position: 'relative' }}>
+      {src ? (
+        <img src={src} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }} />
+      ) : isGroup ? (
+        <div style={{
+          width: size, height: size, borderRadius: '50%',
+          background: 'rgba(0,230,118,0.12)',
+          border: '1px solid rgba(0,230,118,0.2)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <Users size={size * 0.42} color="#00E676" />
+        </div>
+      ) : (
+        <div style={{
+          width: size, height: size, borderRadius: '50%',
+          background: `linear-gradient(135deg, ${from}, ${to})`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <span style={{ fontSize: size * 0.35, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' }}>
+            {initials(name)}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Time format ──────────────────────────────────────────────────────────────
 function formatTime(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffDays = Math.floor(diffMs / 86400000);
-
-  if (diffDays === 0) {
-    return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  }
+  const diffDays = Math.floor((now.getTime() - d.getTime()) / 86400000);
+  if (diffDays === 0) return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   if (diffDays === 1) return 'Yesterday';
-  if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'long' });
+  if (diffDays < 7)   return d.toLocaleDateString([], { weekday: 'long' });
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-// ─── Unified chat item ────────────────────────────────────────────────────────
+// ─── Chat item type ───────────────────────────────────────────────────────────
 interface ChatItem {
-  id: string;
-  kind: 'dm' | 'group';
-  name: string;
-  avatarUrl: string | null;
-  lastMessage: string;
-  lastMessageAt: string;
-  unreadCount: number;
+  id:               string;
+  kind:             'dm' | 'group';
+  name:             string;
+  avatarUrl:        string | null;
+  lastMessage:      string;
+  lastMessageAt:    string;
+  unreadCount:      number;
   isLastMessageMine: boolean;
-  // DM-specific
-  friendId?: string;
-  // Group-specific
-  groupObj?: import('@/types/social').Group;
+  friendId?:        string;
+  groupObj?:        import('@/types/social').Group;
 }
 
-// ─── Row component ────────────────────────────────────────────────────────────
+// ─── Chat row ─────────────────────────────────────────────────────────────────
 function ChatRow({ item, onClick }: { item: ChatItem; onClick: () => void }) {
   const hasUnread = item.unreadCount > 0;
 
@@ -49,65 +99,67 @@ function ChatRow({ item, onClick }: { item: ChatItem; onClick: () => void }) {
     <motion.button
       onClick={onClick}
       whileTap={{ backgroundColor: 'rgba(255,255,255,0.04)' }}
-      className="w-full flex items-center gap-0 text-left transition-colors hover:bg-white/[0.025] active:bg-white/[0.04]"
-      style={{ height: 72 }}
+      style={{
+        width: '100%', display: 'flex', alignItems: 'center',
+        gap: 0, textAlign: 'left', height: 76,
+        background: 'transparent', border: 'none', cursor: 'pointer',
+        transition: 'background 0.12s',
+      }}
     >
       {/* Avatar */}
-      <div className="flex-shrink-0 pl-4 pr-3">
-        <div className="relative">
-          {item.kind === 'group' ? (
-            <div
-              className="w-12 h-12 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(0,230,118,0.12)', border: '1px solid rgba(0,230,118,0.2)' }}
-            >
-              {item.avatarUrl
-                ? <Avatar src={item.avatarUrl} name={item.name} size={48} />
-                : <Users size={20} className="text-[#00E676]" />
-              }
-            </div>
-          ) : (
-            <Avatar src={item.avatarUrl} name={item.name} size={48} />
-          )}
-          {hasUnread && item.unreadCount > 0 && (
-            <span
-              className="absolute -bottom-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full flex items-center justify-center"
-              style={{ background: '#00E676', color: '#06090D', border: '2px solid #06090D' }}
-            >
-              {item.unreadCount > 99 ? '99+' : item.unreadCount}
-            </span>
-          )}
-        </div>
+      <div style={{ flexShrink: 0, padding: '0 12px 0 16px', position: 'relative' }}>
+        <GradAvatar name={item.name} src={item.avatarUrl} size={50} isGroup={item.kind === 'group'} />
+        {hasUnread && (
+          <span style={{
+            position: 'absolute', bottom: 2, right: 10,
+            minWidth: 18, height: 18, padding: '0 4px',
+            background: '#00E676', color: '#06090D',
+            fontSize: 10, fontWeight: 800, borderRadius: 20,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: '2px solid #06090D',
+          }}>
+            {item.unreadCount > 99 ? '99+' : item.unreadCount}
+          </span>
+        )}
       </div>
 
-      {/* Middle: name + preview */}
-      <div
-        className="flex-1 flex flex-col justify-center min-w-0 py-4 pr-3"
-        style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-      >
-        <div className="flex items-center justify-between gap-2 mb-0.5">
-          <p
-            className="text-[15px] truncate"
-            style={{
-              fontWeight: hasUnread ? 700 : 600,
-              color: hasUnread ? '#FAFAFA' : '#D1D1D6',
-            }}
-          >
+      {/* Content */}
+      <div style={{
+        flex: 1, minWidth: 0,
+        display: 'flex', flexDirection: 'column', justifyContent: 'center',
+        padding: '0 16px 0 0',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        height: '100%',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 6, marginBottom: 3 }}>
+          <span style={{
+            fontSize: 15, fontWeight: hasUnread ? 700 : 600,
+            color: hasUnread ? '#FAFAFA' : '#C7C7CC',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex: 1,
+          }}>
             {item.name}
-          </p>
-          <span className="text-[11px] flex-shrink-0" style={{ color: hasUnread ? '#00E676' : 'rgba(255,255,255,0.3)' }}>
+          </span>
+          <span style={{
+            fontSize: 12, flexShrink: 0,
+            color: hasUnread ? '#00E676' : 'rgba(255,255,255,0.28)',
+            fontWeight: hasUnread ? 600 : 400,
+          }}>
             {formatTime(item.lastMessageAt)}
           </span>
         </div>
-        <p
-          className="text-[13px] truncate"
-          style={{
-            color: hasUnread ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.35)',
-            fontWeight: hasUnread ? 500 : 400,
-          }}
-        >
-          {item.isLastMessageMine ? <span style={{ color: 'rgba(255,255,255,0.45)' }}>You: </span> : null}
+        <span style={{
+          fontSize: 13,
+          color: hasUnread ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.32)',
+          fontWeight: hasUnread ? 500 : 400,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          display: 'block',
+        }}>
+          {item.isLastMessageMine
+            ? <span style={{ color: 'rgba(255,255,255,0.4)' }}>You: </span>
+            : null}
           {item.lastMessage}
-        </p>
+        </span>
       </div>
     </motion.button>
   );
@@ -117,35 +169,33 @@ function ChatRow({ item, onClick }: { item: ChatItem; onClick: () => void }) {
 export default function ChatsScreen() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { profile } = useFitness();
   const { conversations } = useConversations();
   const { myGroups } = useGroups();
   const [query, setQuery] = useState('');
 
-  // Build unified sorted list
   const items = useMemo<ChatItem[]>(() => {
-    const dmItems: ChatItem[] = conversations.map((conv) => ({
-      id: `dm-${conv.conversation_id}`,
-      kind: 'dm',
-      name: conv.friend_profile?.name ?? 'Unknown',
-      avatarUrl: conv.friend_profile?.avatar_url ?? null,
-      lastMessage: conv.last_message,
-      lastMessageAt: conv.last_message_at,
-      unreadCount: conv.unread_count,
-      isLastMessageMine: false, // simplified; we'd need sender_id in ConversationPreview
-      friendId: conv.friend_id,
+    const dmItems: ChatItem[] = conversations.map(conv => ({
+      id:                `dm-${conv.conversation_id}`,
+      kind:              'dm' as const,
+      name:              conv.friend_profile?.name ?? 'Unknown',
+      avatarUrl:         conv.friend_profile?.avatar_url ?? null,
+      lastMessage:       conv.last_message,
+      lastMessageAt:     conv.last_message_at,
+      unreadCount:       conv.unread_count,
+      isLastMessageMine: false,
+      friendId:          conv.friend_id,
     }));
 
-    const groupItems: ChatItem[] = myGroups.map((g) => ({
-      id: `grp-${g.id}`,
-      kind: 'group',
-      name: g.name,
-      avatarUrl: g.avatar_url ?? null,
-      lastMessage: g.description ?? 'No messages yet',
-      lastMessageAt: g.created_at,
-      unreadCount: 0,
+    const groupItems: ChatItem[] = myGroups.map(g => ({
+      id:                `grp-${g.id}`,
+      kind:              'group' as const,
+      name:              g.name,
+      avatarUrl:         g.avatar_url ?? null,
+      lastMessage:       g.description ?? 'No messages yet',
+      lastMessageAt:     g.created_at,
+      unreadCount:       0,
       isLastMessageMine: false,
-      groupObj: g,
+      groupObj:          g,
     }));
 
     const all = [...dmItems, ...groupItems].sort(
@@ -154,38 +204,45 @@ export default function ChatsScreen() {
 
     if (!query.trim()) return all;
     const q = query.toLowerCase();
-    return all.filter((item) => item.name.toLowerCase().includes(q));
+    return all.filter(item => item.name.toLowerCase().includes(q));
   }, [conversations, myGroups, query]);
 
   const totalUnread = items.reduce((sum, i) => sum + i.unreadCount, 0);
 
   function handleItemClick(item: ChatItem) {
     if (item.kind === 'dm' && item.friendId) {
-      navigate(`/chat/${item.friendId}`);
+      // Pass friendName so DMScreen can show the correct name immediately,
+      // before the async profile fetch completes (prevents "User" flash)
+      navigate(`/chat/${item.friendId}`, { state: { friendName: item.name } });
     } else {
       navigate('/social', { state: { openGroup: item.groupObj } });
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#06090D] flex flex-col">
-      {/* Header */}
-      <div
-        className="sticky top-0 z-20 px-4 pt-5 pb-2"
-        style={{ background: 'rgba(6,9,13,0.96)', backdropFilter: 'blur(12px)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-3">
+    <div style={{ minHeight: '100dvh', background: '#06090D', display: 'flex', flexDirection: 'column', fontFamily: "'Inter','Manrope',system-ui,sans-serif" }}>
+
+      {/* ── Header ── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 20,
+        background: 'rgba(6,9,13,0.97)', backdropFilter: 'blur(16px)',
+        borderBottom: '1px solid rgba(255,255,255,0.05)',
+        padding: 'max(16px,env(safe-area-inset-top)) 16px 10px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button
               onClick={() => navigate('/social')}
-              className="p-2 -ml-2 rounded-full text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '6px 8px 6px 0', display: 'flex', alignItems: 'center', color: 'rgba(255,255,255,0.45)' }}
             >
               <ArrowLeft size={22} />
             </button>
             <div>
-              <h1 className="text-[22px] font-bold text-white leading-none">Chats</h1>
+              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                Chats
+              </h1>
               {totalUnread > 0 && (
-                <p className="text-[12px] font-semibold mt-0.5" style={{ color: '#00E676' }}>
+                <p style={{ margin: '2px 0 0', fontSize: 12, fontWeight: 600, color: '#00E676' }}>
                   {totalUnread} unread
                 </p>
               )}
@@ -193,56 +250,64 @@ export default function ChatsScreen() {
           </div>
           <button
             onClick={() => navigate('/social')}
-            className="p-2.5 rounded-full hover:bg-white/5 transition-colors text-white/40 hover:text-white/70"
+            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '50%', width: 38, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.5)' }}
           >
-            <PenSquare size={20} />
+            <PenSquare size={18} />
           </button>
         </div>
 
         {/* Search */}
-        <div className="relative mb-1">
-          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/25 pointer-events-none" />
+        <div style={{ position: 'relative' }}>
+          <Search size={15} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.25)', pointerEvents: 'none' }} />
           <input
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={e => setQuery(e.target.value)}
             placeholder="Search chats..."
-            className="w-full pl-9 pr-4 py-2.5 rounded-2xl text-[14px] text-white placeholder:text-white/25 outline-none"
-            style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.07)' }}
+            style={{
+              width: '100%', boxSizing: 'border-box',
+              background: 'rgba(255,255,255,0.06)',
+              border: '1px solid rgba(255,255,255,0.07)',
+              borderRadius: 14, padding: '10px 14px 10px 38px',
+              fontSize: 14, color: '#fff', outline: 'none',
+              fontFamily: 'inherit',
+            }}
           />
         </div>
       </div>
 
-      {/* List */}
-      <div className="flex-1 overflow-y-auto pb-28">
-        {items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 px-6 text-center gap-5">
-            <div
-              className="w-20 h-20 rounded-full flex items-center justify-center"
-              style={{ background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.15)' }}
+      {/* ── List ── */}
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 110 }}>
+        <AnimatePresence>
+          {items.length === 0 ? (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '80px 24px 24px', textAlign: 'center', gap: 16 }}
             >
-              <MessageCircle size={32} className="text-[#00E676]" />
-            </div>
+              <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(0,230,118,0.08)', border: '1px solid rgba(0,230,118,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <MessageCircle size={30} color="#00E676" />
+              </div>
+              <div>
+                <p style={{ fontSize: 17, fontWeight: 700, color: '#fff', margin: '0 0 6px' }}>No chats yet</p>
+                <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)', margin: 0, lineHeight: 1.6, maxWidth: 220 }}>
+                  Add friends and say hi, or join a group to get started.
+                </p>
+              </div>
+              <button
+                onClick={() => navigate('/social')}
+                style={{ background: '#00E676', color: '#06090D', border: 'none', borderRadius: 20, padding: '10px 24px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+              >
+                Find Friends
+              </button>
+            </motion.div>
+          ) : (
             <div>
-              <p className="text-[17px] font-bold text-white">No chats yet</p>
-              <p className="text-[13px] text-white/40 mt-1.5 max-w-[220px] leading-relaxed">
-                Add friends and say hi, or join a group to get started.
-              </p>
+              {items.map(item => (
+                <ChatRow key={item.id} item={item} onClick={() => handleItemClick(item)} />
+              ))}
             </div>
-            <button
-              onClick={() => navigate('/social')}
-              className="px-6 py-2.5 rounded-2xl font-bold text-[14px]"
-              style={{ background: '#00E676', color: '#06090D' }}
-            >
-              Find Friends
-            </button>
-          </div>
-        ) : (
-          <div>
-            {items.map((item) => (
-              <ChatRow key={item.id} item={item} onClick={() => handleItemClick(item)} />
-            ))}
-          </div>
-        )}
+          )}
+        </AnimatePresence>
       </div>
 
       <BottomNav />
