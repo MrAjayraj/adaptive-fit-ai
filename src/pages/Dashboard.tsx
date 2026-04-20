@@ -5,22 +5,15 @@ import { detectFatigue } from '@/lib/workout-generator';
 import { calculateBMR, calculateFullCalories } from '@/lib/calories';
 import { xpForNextLevel, xpForLevel, getLevelTier } from '@/lib/gamification';
 import {
-  Bell, Play, TrendingUp, Flame, Dumbbell, ChevronRight,
-  Star, Footprints, Zap, AlertTriangle, Users, Trophy, CalendarDays, Plus, Minus,
+  Bell, Flame, ChevronRight,
+  Star, Footprints, CalendarDays, Plus, Minus,
 } from 'lucide-react';
 import BottomNav from '@/components/layout/BottomNav';
 import DailyMissions from '@/components/gamification/DailyMissions';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { upsertTodaySteps } from '@/services/api';
 import { useNotifications } from '@/hooks/useNotifications';
 
-const CATEGORIES = ['All', 'Chest', 'Arms', 'Back', 'Legs', 'Shoulders', 'Core'];
-
-const EXERCISE_CARDS = [
-  { name: 'Chest Day Mass', count: 6, rating: 4.9, gradient: 'from-[#E2FF31]/20 to-transparent', bento: 'col-span-2 row-span-2' },
-  { name: 'Arm Blaster',    count: 4,  rating: 4.8, gradient: 'from-[#FFB800]/20 to-transparent', bento: 'col-span-1 row-span-1' },
-  { name: 'Core Crusher',   count: 5, rating: 4.7, gradient: 'from-blue-500/20 to-transparent', bento: 'col-span-1 row-span-1' },
-];
 
 const containerVariants: any = {
   hidden: { opacity: 0 },
@@ -238,43 +231,73 @@ function MetricCounters({ steps, onStepChange, calories }: { steps: number; onSt
   );
 }
 
-// ── Bento Grid Workouts ─────────────────────────────────
+// ── Exercise Library Card ────────────────────────────────
 function WorkoutBento() {
   const navigate = useNavigate();
 
   return (
-    <motion.div variants={itemVariants} className="grid grid-cols-2 gap-3 auto-rows-[120px]">
-      {EXERCISE_CARDS.map((card, i) => (
-        <MagneticButton
-          key={card.name}
-          onClick={() => navigate('/exercises')}
-          className={`text-left relative overflow-hidden rounded-2xl border border-white/10 backdrop-blur-md ${card.bento} group shadow-[0_8px_30px_rgba(0,0,0,0.4)]`}
-          style={{ background: 'rgba(20,20,20,0.6)' }}
-        >
-          <div className={`absolute inset-0 bg-gradient-to-br ${card.gradient} opacity-50 transition-opacity group-hover:opacity-80`} />
-          <div className="relative z-10 p-5 h-full flex flex-col justify-between">
+    <motion.div variants={itemVariants}>
+      <MagneticButton
+        onClick={() => navigate('/exercises')}
+        className="w-full text-left relative overflow-hidden rounded-2xl border border-white/10 backdrop-blur-md group shadow-[0_8px_30px_rgba(0,0,0,0.4)]"
+        style={{ background: 'rgba(20,20,20,0.6)', minHeight: 148 }}
+      >
+        {/* Lime glow top-left */}
+        <div className="absolute -top-8 -left-8 w-48 h-48 bg-[#E2FF31]/10 blur-[40px] rounded-full pointer-events-none transition-opacity group-hover:opacity-150" />
+        {/* Subtle grid texture */}
+        <div
+          className="absolute inset-0 opacity-[0.04] pointer-events-none"
+          style={{
+            backgroundImage: 'repeating-linear-gradient(0deg,transparent,transparent 23px,rgba(255,255,255,0.5) 24px),repeating-linear-gradient(90deg,transparent,transparent 23px,rgba(255,255,255,0.5) 24px)',
+          }}
+        />
+        {/* Gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-br from-[#E2FF31]/15 via-transparent to-transparent opacity-60 transition-opacity group-hover:opacity-90" />
+
+        <div className="relative z-10 p-5 h-full flex flex-col justify-between" style={{ minHeight: 148 }}>
+          {/* Top: label + count */}
+          <div className="flex items-start justify-between">
             <div>
-               <h4 className="text-lg font-black text-white tracking-tight uppercase" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.8)' }}>
-                 {card.name}
-               </h4>
-               <p className="text-xs font-semibold text-white/60 tracking-wider">
-                 {card.count} EXERCISES
-               </p>
+              <p className="text-[10px] font-bold text-[#E2FF31]/70 uppercase tracking-[0.14em] mb-1">Browse All</p>
+              <h4
+                className="text-2xl font-black text-white tracking-tight uppercase leading-tight"
+                style={{ textShadow: '0 2px 6px rgba(0,0,0,0.8)' }}
+              >
+                Exercise Library
+              </h4>
+              <p className="text-xs font-semibold text-white/50 tracking-wider mt-1">
+                290+ exercises · All muscle groups
+              </p>
             </div>
-            <div className="flex items-center justify-between">
-               <div className="flex bg-black/40 backdrop-blur border border-white/10 px-2 py-1 rounded-full items-center gap-1">
-                 <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />
-                 <span className="text-[10px] font-bold text-white max-w-[200px] tabular-nums">{card.rating}</span>
-               </div>
-               {i === 0 && (
-                 <div className="w-12 h-12 rounded-full bg-[#E2FF31] text-black flex items-center justify-center transform transition-transform group-hover:scale-110 shadow-[0_0_20px_rgba(226,255,49,0.4)]">
-                   <Play className="w-5 h-5 ml-1 fill-black" />
-                 </div>
-               )}
+            {/* Category pills preview */}
+            <div className="flex flex-col gap-1 items-end">
+              {['Chest', 'Back', 'Legs', 'Arms'].map(cat => (
+                <span
+                  key={cat}
+                  className="text-[9px] font-bold px-2 py-0.5 rounded-full border border-white/10 text-white/40 bg-white/5"
+                  style={{ letterSpacing: '0.08em' }}
+                >
+                  {cat}
+                </span>
+              ))}
             </div>
           </div>
-        </MagneticButton>
-      ))}
+
+          {/* Bottom: rating + CTA */}
+          <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center gap-3">
+              <div className="flex bg-black/40 backdrop-blur border border-white/10 px-2 py-1 rounded-full items-center gap-1">
+                <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />
+                <span className="text-[10px] font-bold text-white tabular-nums">4.9</span>
+              </div>
+              <span className="text-[10px] text-white/30 font-semibold">Strength · Cardio · Yoga</span>
+            </div>
+            <div className="w-12 h-12 rounded-full bg-[#E2FF31] text-black flex items-center justify-center transform transition-transform group-hover:scale-110 shadow-[0_0_20px_rgba(226,255,49,0.4)]">
+              <ChevronRight className="w-5 h-5 fill-black stroke-black" />
+            </div>
+          </div>
+        </div>
+      </MagneticButton>
     </motion.div>
   );
 }
