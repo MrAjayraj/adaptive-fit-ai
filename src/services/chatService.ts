@@ -151,8 +151,10 @@ export async function getDirectMessages(
 ): Promise<DirectMessage[]> {
   const conversationId = getConversationId(userId, friendId);
 
+  // NOTE: message_type and metadata are NOT selected here — they may not exist
+  // in all database deployments. They are added as safe defaults after fetch.
   let query = tbl('direct_messages')
-    .select('id, conversation_id, sender_id, receiver_id, content, message_type, metadata, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at')
+    .select('id, conversation_id, sender_id, receiver_id, content, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -197,6 +199,9 @@ export async function getDirectMessages(
 
   return visible.map((row) => ({
     ...row,
+    // Add safe defaults for optional columns that may not exist in all DB deployments
+    message_type: (row as DirectMessage).message_type ?? 'text',
+    metadata:     (row as DirectMessage).metadata     ?? {},
     sender_profile: profileMap.get(row.sender_id),
     reply_message: row.reply_to ? replyMap.get(row.reply_to) : undefined,
   }));
@@ -209,27 +214,33 @@ export async function sendDirectMessage(
   receiverId: string,
   content: string,
   replyTo?: string,
-  messageType: MessageType = 'text',
-  metadata: Record<string, unknown> = {}
+  // message_type / metadata intentionally omitted from INSERT —
+  // those columns may not exist in all DB deployments. DB defaults apply.
+  _messageType: MessageType = 'text',
+  _metadata: Record<string, unknown> = {}
 ): Promise<DirectMessage> {
   const conversationId = getConversationId(senderId, receiverId);
 
+  // Only insert columns guaranteed to exist in the base schema
   const { data, error } = await tbl('direct_messages').insert({
     conversation_id: conversationId,
-    sender_id: senderId,
-    receiver_id: receiverId,
-    content: content.trim(),
-    reply_to: replyTo ?? null,
-    message_type: messageType,
-    metadata,
-  }).select('id, conversation_id, sender_id, receiver_id, content, message_type, metadata, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at').single();
+    sender_id:       senderId,
+    receiver_id:     receiverId,
+    content:         content.trim(),
+    reply_to:        replyTo ?? null,
+  }).select('id, conversation_id, sender_id, receiver_id, content, reply_to, is_read, deleted_for_sender, deleted_for_receiver, deleted_for_everyone, created_at').single();
 
   if (error) {
     console.error('[chatService] sendDirectMessage error:', JSON.stringify(error));
     throw new Error(error.message);
   }
 
-  return data as DirectMessage;
+  // Merge safe defaults for optional columns
+  return {
+    ...(data as DirectMessage),
+    message_type: 'text',
+    metadata:     {},
+  };
 }
 
 // ─── Delete ─────────────────────────────────────────────────────────────────────

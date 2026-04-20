@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 import {
   getDirectMessages,
   sendDirectMessage as svcSend,
@@ -46,7 +47,9 @@ export function useDirectMessages(friendId: string): UseDirectMessagesReturn {
       // Mark as read
       await markConversationRead(getConversationId(user.id, friendId), user.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load messages');
+      const msg = err instanceof Error ? err.message : 'Failed to load messages';
+      setError(msg);
+      console.error('[useDirectMessages] load failed:', msg);
     } finally {
       setIsLoading(false);
     }
@@ -110,8 +113,11 @@ export function useDirectMessages(friendId: string): UseDirectMessagesReturn {
       // Reload to get server-generated id and timestamp
       await load();
     } catch (err) {
-      // Remove optimistic on failure
+      // Remove optimistic message and show visible error to the user
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[useDirectMessages] sendMessage failed:', msg);
+      toast.error('Failed to send message. Please try again.');
       throw err;
     }
   }, [user, friendId, conversationId, load]);
