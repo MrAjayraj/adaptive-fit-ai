@@ -5,13 +5,14 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { FitnessProvider } from "@/context/FitnessContext";
-import { AuthProvider } from "@/context/AuthContext";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 import ProtectedRoute from "@/components/layout/ProtectedRoute";
 import OfflineIndicator from "@/components/layout/OfflineIndicator";
 import GuestBanner from "@/components/layout/GuestBanner";
 import { initErrorLogger } from "@/lib/errorLogger";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
 
 // ── Error Boundary ────────────────────────────────────────────────────────────
 class ErrorBoundary extends Component<
@@ -99,9 +100,11 @@ function PageLoader() {
 
 // ── App Initializer (side effects that need to run once) ─────────────────────
 function AppInit() {
+  const { user } = useAuth();
   useEffect(() => {
     initErrorLogger();
   }, []);
+  usePushNotifications(user?.id);
   return null;
 }
 
