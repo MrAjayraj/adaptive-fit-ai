@@ -648,7 +648,7 @@ export default function GroupChatView({ group, onBack, onClose, onLeave }: Group
       <div style={{ background: 'rgba(10,14,18,0.8)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center' }}>
         {[
           { icon: '🏋️', label: 'Workouts', val: String(group.workouts_count ?? '—') },
-          { icon: '👥', label: 'Members',  val: String(group.member_count ?? stackMembers.length || '—') },
+          { icon: '👥', label: 'Members',  val: String((group.member_count ?? stackMembers.length) || '—') },
           { icon: '🔥', label: 'Streak',   val: group.streak_days ? `${group.streak_days}d` : '—' },
         ].map((s, i) => (
           <div key={i} style={{ flex: 1, padding: '8px 6px', textAlign: 'center', borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
