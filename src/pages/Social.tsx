@@ -393,46 +393,43 @@ function SearchRow({ profile, isFriend, onAdd }: { profile: UserProfileSummary; 
   );
 }
 
-// ── Squad card (in Friends tab) ───────────────────────────────────────────────
+// ── Squad card (in Friends tab) — horizontal scroll item ─────────────────────
 function SquadCard({ group, onChat }: { group: Group; onChat: (g: Group) => void }) {
   const mc = (group as any).member_count ?? 0;
   const [from, to] = nameGrad(group.name);
   return (
     <motion.div
-      whileTap={{ scale: 0.97 }}
+      whileTap={{ scale: 0.96 }}
       onClick={() => onChat(group)}
       style={{
+        flexShrink: 0, width: 140,
         background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 16,
-        padding: '12px 14px', marginBottom: 8, cursor: 'pointer',
-        display: 'flex', alignItems: 'center', gap: 12, position: 'relative', overflow: 'hidden',
+        padding: '14px 12px', cursor: 'pointer',
       }}
     >
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: `linear-gradient(to bottom, ${from}, ${to})`, borderRadius: '16px 0 0 16px' }} />
       <div style={{
-        width: 44, height: 44, borderRadius: 12,
+        width: 40, height: 40, borderRadius: 12,
         background: group.avatar_url ? 'transparent' : `linear-gradient(135deg, ${from}, ${to})`,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 20, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden',
+        fontSize: 18, fontWeight: 800, color: '#fff', marginBottom: 10, overflow: 'hidden',
       }}>
         {group.avatar_url
           ? <img src={group.avatar_url} alt={group.name} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 12 }} />
           : group.name.charAt(0).toUpperCase()}
       </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, color: T1, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {group.name}
-        </span>
-        <span style={{ fontSize: 11, color: T3, display: 'flex', alignItems: 'center', gap: 4, marginTop: 3 }}>
-          <Users size={10} /> {mc} member{mc !== 1 ? 's' : ''}
-        </span>
+      <div style={{ fontSize: 14, fontWeight: 700, color: T1, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {group.name}
+      </div>
+      <div style={{ fontSize: 11, color: T3, marginBottom: 10 }}>
+        {mc} member{mc !== 1 ? 's' : ''}
       </div>
       <div style={{
-        height: 30, padding: '0 12px', borderRadius: 20,
+        width: '100%', padding: '7px 0', borderRadius: 20,
         background: A_GLOW, border: `1px solid ${A_BORDER}`,
-        display: 'flex', alignItems: 'center', gap: 5,
-        fontSize: 11, fontWeight: 700, color: ACCENT, flexShrink: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+        fontSize: 11, fontWeight: 700, color: ACCENT,
       }}>
-        <MessageCircle size={12} /> Chat
+        <MessageCircle size={11} /> Chat
       </div>
     </motion.div>
   );
@@ -452,6 +449,49 @@ function FriendSkeleton() {
         </div>
       ))}
     </>
+  );
+}
+
+// ── People You May Know ────────────────────────────────────────────────────────
+const SUGGEST_STATIC = [
+  { id: 'sug1', name: 'Karan', username: 'karan', mutual: 3 },
+  { id: 'sug2', name: 'Sneha', username: 'sneha', mutual: 1 },
+  { id: 'sug3', name: 'Vikram', username: 'vikram', mutual: 5 },
+];
+
+function PeopleYouMayKnow({ onAdd, friendIds }: { onAdd: (id: string) => void; friendIds: Set<string> }) {
+  const [sent, setSent] = useState<Set<string>>(new Set());
+  const visible = SUGGEST_STATIC.filter(s => !friendIds.has(s.id));
+  if (!visible.length) return null;
+
+  return (
+    <div>
+      <SectionLabel title="People You May Know" />
+      <div style={{ background: SURFACE, borderTop: `1px solid ${BORDER}`, borderBottom: `1px solid ${BORDER}` }}>
+        {visible.map((s, i) => (
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', borderBottom: i < visible.length - 1 ? `1px solid ${BORDER}` : 'none' }}>
+            <GAvatar name={s.name} size={44} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: T1 }}>{s.name}</div>
+              <div style={{ fontSize: 12, color: T3 }}>{s.mutual} mutual friend{s.mutual > 1 ? 's' : ''}</div>
+            </div>
+            {sent.has(s.id) ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: ACCENT, fontSize: 12, fontWeight: 700 }}>
+                <UserCheck size={14} /> Friends
+              </div>
+            ) : (
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { setSent(prev => new Set([...prev, s.id])); onAdd(s.id); }}
+                style={{ height: 32, padding: '0 14px', borderRadius: 20, background: A_GLOW, border: `1px solid ${A_BORDER}`, color: ACCENT, fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}
+              >
+                <UserPlus size={12} /> Add
+              </motion.button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -536,12 +576,23 @@ function FriendsTab({ activeFriends, onGroupsTab, openGroupChat }: {
         )}
       </AnimatePresence>
 
-      {/* Squads */}
+      {/* Squads — horizontal scroll */}
       {myGroups.length > 0 && (
         <div>
           <SectionLabel title="Your Squads" count={myGroups.length} action="All" onAction={onGroupsTab} />
-          <div style={{ padding: '0 16px' }}>
-            {myGroups.slice(0, 3).map(g => <SquadCard key={g.id} group={g} onChat={openGroupChat} />)}
+          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', padding: '0 16px 4px', scrollbarWidth: 'none' }}>
+            {myGroups.map(g => <SquadCard key={g.id} group={g} onChat={openGroupChat} />)}
+            {/* Create new squad CTA */}
+            <motion.div
+              whileTap={{ scale: 0.96 }}
+              onClick={onGroupsTab}
+              style={{ flexShrink: 0, width: 80, background: 'transparent', borderRadius: 16, border: `1.5px dashed ${BORDER}`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6, cursor: 'pointer', padding: 12 }}
+            >
+              <div style={{ width: 36, height: 36, borderRadius: '50%', background: SURF2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Users size={16} color={T3} />
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 600, color: T3, textAlign: 'center' }}>New Squad</span>
+            </motion.div>
           </div>
         </div>
       )}
@@ -587,6 +638,11 @@ function FriendsTab({ activeFriends, onGroupsTab, openGroupChat }: {
             </AnimatePresence>
           )}
       </div>
+
+      {/* People You May Know — shown when search is empty + results available */}
+      {!query && results.length === 0 && !srching && (
+        <PeopleYouMayKnow onAdd={handleAdd} friendIds={friendIds} />
+      )}
 
       {/* Outgoing */}
       {pendingOutgoing.length > 0 && (
@@ -820,7 +876,7 @@ export default function Social() {
             transition={{ type: 'spring', stiffness: 320, damping: 32 }}
             style={{ position: 'fixed', inset: 0, zIndex: 100 }}
           >
-            <GroupChatView group={openGroupChat} onClose={() => setOpenGroupChat(null)} />
+            <GroupChatView group={openGroupChat} onBack={() => setOpenGroupChat(null)} />
           </motion.div>
         )}
       </AnimatePresence>

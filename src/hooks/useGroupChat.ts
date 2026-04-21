@@ -3,6 +3,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/context/AuthContext';
 import type { GroupMessage, UserProfileSummary } from '@/types/social';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+type _GMsg = GroupMessage;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = (table: string) => supabase.from(table as never) as any;
@@ -18,7 +20,7 @@ export function useGroupChat(groupId: string | null) {
     try {
       // ── STEP 1: fetch raw message rows (no embedded join) ────────────────
       const { data, error } = await db('group_messages')
-        .select('id,group_id,user_id,message,created_at')
+        .select('id,group_id,user_id,message,message_type,metadata,created_at')
         .eq('group_id', groupId)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -30,6 +32,8 @@ export function useGroupChat(groupId: string | null) {
         group_id: string;
         user_id: string;
         message: string;
+        message_type: string;
+        metadata: Record<string, unknown>;
         created_at: string;
       }>;
 
@@ -59,6 +63,8 @@ export function useGroupChat(groupId: string | null) {
           group_id: row.group_id,
           user_id: row.user_id,
           message: row.message,
+          message_type: (row.message_type ?? 'text') as GroupMessage['message_type'],
+          metadata: row.metadata ?? {},
           created_at: row.created_at,
           user_profile: profileMap.get(row.user_id),
         }))
@@ -99,6 +105,8 @@ export function useGroupChat(groupId: string | null) {
             group_id: newMsg.group_id,
             user_id: newMsg.user_id,
             message: newMsg.message,
+            message_type: newMsg.message_type ?? 'text',
+            metadata: newMsg.metadata ?? {},
             created_at: newMsg.created_at,
             user_profile: profile as UserProfileSummary ?? undefined,
           };
@@ -120,6 +128,8 @@ export function useGroupChat(groupId: string | null) {
       group_id: groupId,
       user_id: user.id,
       message: text.trim(),
+      message_type: 'text',
+      metadata: {},
       created_at: new Date().toISOString(),
       user_profile: {
         user_id: user.id,
@@ -136,6 +146,8 @@ export function useGroupChat(groupId: string | null) {
       group_id: groupId,
       user_id: user.id,
       message: text.trim(),
+      message_type: 'text',
+      metadata: {},
     });
 
     if (error) {
@@ -143,10 +155,37 @@ export function useGroupChat(groupId: string | null) {
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       throw error;
     } else {
-      // Replace optimistic message with real data
       await fetchMessages();
     }
   };
 
-  return { messages, isLoading, sendMessage };
+  const sendShare = async (type: 'workout_share' | 'calorie_share', meta: Record<string, unknown>, label: string) => {
+    if (!groupId || !user) return;
+    const tempId = `temp-share-${Date.now()}`;
+    const optimistic: GroupMessage = {
+      id: tempId,
+      group_id: groupId,
+      user_id: user.id,
+      message: label,
+      message_type: type,
+      metadata: meta,
+      created_at: new Date().toISOString(),
+      user_profile: { user_id: user.id, name: 'You', username: null, avatar_url: null, goal: null },
+    };
+    setMessages((prev) => [...prev, optimistic]);
+    const { error } = await db('group_messages').insert({
+      group_id: groupId,
+      user_id: user.id,
+      message: label,
+      message_type: type,
+      metadata: meta,
+    });
+    if (error) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+    } else {
+      await fetchMessages();
+    }
+  };
+
+  return { messages, isLoading, sendMessage, sendShare };
 }

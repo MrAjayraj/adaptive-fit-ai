@@ -66,6 +66,8 @@ export interface Group {
   created_at: string;
   member_count?: number;
   is_member?: boolean;
+  streak_days?: number;
+  workouts_count?: number;
 }
 
 export interface GroupMember {
@@ -82,8 +84,15 @@ export interface GroupMessage {
   group_id: string;
   user_id: string;
   message: string;
+  message_type: 'text' | 'workout_share' | 'calorie_share' | 'system';
+  metadata: Record<string, unknown>;
   created_at: string;
   user_profile?: UserProfileSummary;
+}
+
+export interface GroupLastMessage {
+  text: string;
+  time: string;
 }
 
 export interface SharedWorkoutCard {

@@ -27,7 +27,51 @@ const T3         = '#4A5568';
 // ─── Props ─────────────────────────────────────────────────────────────────────
 interface GroupChatViewProps {
   group: Group;
-  onClose: () => void;
+  onBack: () => void;
+  onLeave?: () => void;
+  /** @deprecated use onBack */
+  onClose?: () => void;
+}
+
+// ─── Workout share card ────────────────────────────────────────────────────────
+function ShareCard({ type, meta }: { type: 'workout_share' | 'calorie_share'; meta: Record<string, unknown> }) {
+  const isWorkout = type === 'workout_share';
+  const accent  = isWorkout ? '#31A24C' : '#F7B928';
+  const bg      = isWorkout ? 'rgba(49,162,76,0.12)' : 'rgba(247,185,40,0.12)';
+  const border  = isWorkout ? 'rgba(49,162,76,0.3)'  : 'rgba(247,185,40,0.3)';
+
+  const wStats = isWorkout
+    ? [
+        [meta.name as string ?? 'Workout',       'Name'],
+        [(meta.duration_min as string ?? '—') + ' min', 'Duration'],
+        [(meta.calories as string ?? '—') + ' kcal',    'Burned'],
+      ]
+    : [
+        [(meta.calories as string ?? '—'), 'kcal'],
+        [(meta.protein as string ?? '—') + 'g', 'Protein'],
+        [(meta.carbs as string ?? '—') + 'g',   'Carbs'],
+      ];
+
+  return (
+    <div style={{ background: bg, borderRadius: 16, border: `1px solid ${border}`, padding: '12px 14px', maxWidth: '85%' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <div style={{ width: 28, height: 28, borderRadius: 8, background: `${accent}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>
+          {isWorkout ? '🏋️' : '🔥'}
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: accent, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+          {isWorkout ? 'Workout Shared' : 'Calories Log'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {wStats.map(([v, l], i) => (
+          <div key={i} style={{ flex: 1, background: 'rgba(255,255,255,0.05)', borderRadius: 10, padding: '8px 6px', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#E4E6EA', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v}</div>
+            <div style={{ fontSize: 9, fontWeight: 500, color: '#65676B', textTransform: 'uppercase', letterSpacing: 0.3 }}>{l}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -349,7 +393,8 @@ function GroupInfoPanel({
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
-export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
+export default function GroupChatView({ group, onBack, onClose, onLeave }: GroupChatViewProps) {
+  const handleBack = onBack ?? onClose ?? (() => {});
   // allow useNavigate to not throw if router context is absent (it may already be in one)
   let navigate: ReturnType<typeof useNavigate> | null = null;
   try {
@@ -360,7 +405,7 @@ export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
   }
 
   const { user } = useAuth();
-  const { messages, isLoading, sendMessage } = useGroupChat(group.id);
+  const { messages, isLoading, sendMessage, sendShare } = useGroupChat(group.id);
   const { myGroups } = useGroups();
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -478,18 +523,8 @@ export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
         {/* Back */}
         <motion.button
           whileTap={{ scale: 0.88 }}
-          onClick={onClose}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 4,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: '4px 6px 4px 0',
-            color: T2,
-            flexShrink: 0,
-          }}
+          onClick={handleBack}
+          style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px 4px 0', color: T2, flexShrink: 0 }}
         >
           <ArrowLeft size={20} color={T2} />
           <span style={{ fontSize: 13, color: T2, fontWeight: 500 }}>Back</span>
@@ -590,39 +625,40 @@ export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
         </div>
       </div>
 
-      {/* ── STATS RIBBON ────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: SURFACE,
-          borderBottom: '1px solid rgba(255,255,255,0.06)',
-          padding: '8px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: 0,
-        }}
-      >
-        <div style={{ flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 10, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Total Group Workouts
+      {/* ── MEMBER AVATAR ROW ──────────────────────────────────────────────── */}
+      <div style={{ background: SURFACE, borderBottom: '1px solid rgba(255,255,255,0.06)', padding: '8px 16px 10px', display: 'flex', gap: 12, overflowX: 'auto', scrollbarWidth: 'none' }}>
+        {stackMembers.map((m, i) => (
+          <div key={m.user_id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <div style={{ position: 'relative' }}>
+              <Avatar src={m.avatar_url ?? undefined} name={m.name} size={32} />
+              {i < 2 && <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: ACCENT, border: '1.5px solid #141A1F' }} />}
+            </div>
+            <span style={{ fontSize: 9, fontWeight: 500, color: T2, maxWidth: 36, textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name.split(' ')[0]}</span>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T1, marginTop: 1 }}>—</div>
+        ))}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, flexShrink: 0, cursor: 'pointer' }} onClick={() => setShowInfo(true)}>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: '1.5px dashed rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T3} strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </div>
+          <span style={{ fontSize: 9, fontWeight: 500, color: T3 }}>Add</span>
         </div>
-        <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 10, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Members
+      </div>
+
+      {/* ── STATS RIBBON ──────────────────────────────────────────────────────── */}
+      <div style={{ background: 'rgba(10,14,18,0.8)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center' }}>
+        {[
+          { icon: '🏋️', label: 'Workouts', val: String(group.workouts_count ?? '—') },
+          { icon: '👥', label: 'Members',  val: String(group.member_count ?? stackMembers.length || '—') },
+          { icon: '🔥', label: 'Streak',   val: group.streak_days ? `${group.streak_days}d` : '—' },
+        ].map((s, i) => (
+          <div key={i} style={{ flex: 1, padding: '8px 6px', textAlign: 'center', borderRight: i < 2 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, marginBottom: 2 }}>
+              <span style={{ fontSize: 11 }}>{s.icon}</span>
+              <span style={{ fontSize: 15, fontWeight: 700, color: T1 }}>{s.val}</span>
+            </div>
+            <div style={{ fontSize: 9, fontWeight: 600, letterSpacing: '0.05em', color: T3, textTransform: 'uppercase' }}>{s.label}</div>
           </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T1, marginTop: 1 }}>
-            {group.member_count ?? stackMembers.length ?? '—'}
-          </div>
-        </div>
-        <div style={{ width: 1, height: 28, background: 'rgba(255,255,255,0.06)' }} />
-        <div style={{ flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 10, color: T3, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-            Keep It Up 💪
-          </div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T1, marginTop: 1 }}>—</div>
-        </div>
+        ))}
       </div>
 
       {/* ── PINNED CHALLENGE CARD ────────────────────────────────────────────── */}
@@ -748,18 +784,26 @@ export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
           const isLast = !next || !withinGroup(msg, next);
           const bubble = toBubble(msg);
 
+          const isShareCard = msg.message_type === 'workout_share' || msg.message_type === 'calorie_share';
+
           return (
             <div key={msg.id}>
               {showDate && <DateSeparator label={fmtDateLabel(msg.created_at)} />}
-              <ChatBubble
-                msg={bubble}
-                isMine={isMine}
-                isFirst={isFirst}
-                isLast={isLast}
-                showSenderName={true}
-                onLongPress={(m, rect) => setContextMsg({ msg: m, rect })}
-                onReplyTo={(m) => setReplyTo(m)}
-              />
+              {isShareCard ? (
+                <div style={{ display: 'flex', justifyContent: isMine ? 'flex-end' : 'flex-start', padding: '4px 16px' }}>
+                  <ShareCard type={msg.message_type as 'workout_share' | 'calorie_share'} meta={msg.metadata} />
+                </div>
+              ) : (
+                <ChatBubble
+                  msg={bubble}
+                  isMine={isMine}
+                  isFirst={isFirst}
+                  isLast={isLast}
+                  showSenderName={true}
+                  onLongPress={(m, rect) => setContextMsg({ msg: m, rect })}
+                  onReplyTo={(m) => setReplyTo(m)}
+                />
+              )}
             </div>
           );
         })}
@@ -962,6 +1006,20 @@ export default function GroupChatView({ group, onClose }: GroupChatViewProps) {
           </>
         )}
       </AnimatePresence>
+
+      {/* ── SHARE STRIP ───────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 8, padding: '6px 16px', borderTop: '1px solid rgba(255,255,255,0.06)', overflowX: 'auto', scrollbarWidth: 'none', flexShrink: 0 }}>
+        {[
+          { label: 'Workout',   icon: '🏋️', onClick: () => sendShare?.('workout_share', { name: 'Today\'s Workout', duration_min: '—', calories: '—' }, 'Shared a workout') },
+          { label: 'Calories',  icon: '🔥', onClick: () => sendShare?.('calorie_share', { calories: '—', protein: '—', carbs: '—' }, 'Shared calories') },
+          { label: 'Challenge', icon: '🏆', onClick: () => {} },
+          { label: 'Photo',     icon: '📸', onClick: () => {} },
+        ].map((s, i) => (
+          <button key={i} onClick={s.onClick} style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 20, padding: '6px 12px', cursor: 'pointer', color: T2, fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 13 }}>{s.icon}</span> {s.label}
+          </button>
+        ))}
+      </div>
 
       {/* ── CHAT INPUT ───────────────────────────────────────────────────────── */}
       <ChatInput

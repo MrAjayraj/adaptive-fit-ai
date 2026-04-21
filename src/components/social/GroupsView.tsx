@@ -1,25 +1,149 @@
-// src/components/social/GroupsView.tsx
-import { useState } from 'react';
+// src/components/social/GroupsView.tsx — Social v2 (Meta DS)
+import { useState, useEffect, useCallback } from 'react';
 import { useGroups } from '@/hooks/useGroups';
-import type { Group } from '@/types/social';
-import { Users, Plus, Hash, ChevronRight, X, Globe, Lock } from 'lucide-react';
+import type { Group, GroupMember } from '@/types/social';
 import { toast } from 'sonner';
+import GroupChatView from './GroupChatView';
 
-function CreateGroupSheet({ onClose, createGroup }: { onClose: () => void, createGroup: any }) {
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [isPublic, setIsPublic] = useState(true);
-  const [loading, setLoading] = useState(false);
+// ── Design tokens ──────────────────────────────────────────────────────────────
+const BG      = '#111213';
+const SURF    = '#1C1E21';
+const SURF2   = '#242628';
+const BORDER  = 'rgba(255,255,255,0.08)';
+const BLUE    = '#0064E0';
+const BLUEL   = '#47A5FA';
+const GREEN   = '#31A24C';
+const T1      = '#E4E6EA';
+const T2      = '#B0B3B8';
+const TMUT    = '#65676B';
+
+// Deterministic colour per group name
+const GROUP_COLORS = ['#E8613C','#0064E0','#31A24C','#A121CE','#F7B928','#2ABBA7','#FB724B'];
+function groupColor(name: string) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = name.charCodeAt(i) + (h << 5) - h;
+  return GROUP_COLORS[Math.abs(h) % GROUP_COLORS.length];
+}
+
+// ── Avatar stack ───────────────────────────────────────────────────────────────
+function AvatarStack({ members, size = 22, max = 3 }: { members: GroupMember[]; size?: number; max?: number }) {
+  const shown = members.slice(0, max);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center' }}>
+      {shown.map((m, i) => {
+        const name = m.profile?.name ?? '?';
+        const bg = groupColor(name);
+        return (
+          <div key={m.id} style={{
+            width: size, height: size, borderRadius: '50%',
+            background: bg, border: `2px solid ${SURF}`,
+            marginLeft: i > 0 ? -size * 0.35 : 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: size * 0.4, fontWeight: 700, color: '#fff',
+            zIndex: shown.length - i, position: 'relative', flexShrink: 0,
+          }}>
+            {name[0]?.toUpperCase()}
+          </div>
+        );
+      })}
+      {members.length > max && (
+        <div style={{
+          width: size, height: size, borderRadius: '50%',
+          background: 'rgba(255,255,255,0.1)', border: `2px solid ${SURF}`,
+          marginLeft: -size * 0.35,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: size * 0.38, fontWeight: 600, color: T2, zIndex: 0, flexShrink: 0,
+        }}>
+          +{members.length - max}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Rich Group Card ────────────────────────────────────────────────────────────
+function RichGroupCard({ group, members, onClick }: { group: Group; members: GroupMember[]; onClick: () => void }) {
+  const color    = groupColor(group.name);
+  const streak   = group.streak_days ?? 0;
+  const workouts = group.workouts_count ?? 0;
+  const mc       = group.member_count ?? members.length;
+
+  return (
+    <div
+      onClick={onClick}
+      style={{ background: SURF, borderRadius: 20, border: `1px solid ${BORDER}`, overflow: 'hidden', cursor: 'pointer', transition: 'transform 0.15s' }}
+      onMouseEnter={e => (e.currentTarget as HTMLElement).style.transform = 'translateY(-1px)'}
+      onMouseLeave={e => (e.currentTarget as HTMLElement).style.transform = 'translateY(0)'}
+    >
+      {/* Gradient banner */}
+      <div style={{ height: 56, position: 'relative', background: `linear-gradient(135deg, ${color}cc, ${color}44)`, overflow: 'hidden' }}>
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.08 }} viewBox="0 0 300 56" preserveAspectRatio="xMidYMid slice">
+          {[0,1,2,3,4,5].map(i => <circle key={i} cx={i*60} cy={28} r={30+i*10} fill="none" stroke="white" strokeWidth="1.5" />)}
+        </svg>
+        {streak > 0 && (
+          <div style={{ position: 'absolute', top: 10, right: 12, display: 'flex', alignItems: 'center', gap: 4, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', borderRadius: 20, padding: '4px 10px' }}>
+            <span style={{ fontSize: 12 }}>🔥</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>{streak}d streak</span>
+          </div>
+        )}
+        <div style={{ position: 'absolute', bottom: -18, left: 16, width: 44, height: 44, borderRadius: 14, background: color, border: `3px solid ${SURF}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700, color: '#fff', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+          {group.name[0]?.toUpperCase()}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: '24px 16px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div>
+            <span style={{ fontSize: 15, fontWeight: 700, color: T1 }}>{group.name}</span>
+            <div style={{ fontSize: 12, color: TMUT, marginTop: 2 }}>
+              {mc} member{mc !== 1 ? 's' : ''} · {workouts} workout{workouts !== 1 ? 's' : ''}
+            </div>
+          </div>
+          {members.length > 0 && <AvatarStack members={members} size={24} max={3} />}
+        </div>
+
+        {group.description && (
+          <div style={{ background: BG, borderRadius: 10, padding: '8px 12px', marginBottom: 12 }}>
+            <span style={{ fontSize: 12, color: T2, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {group.description}
+            </span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={e => { e.stopPropagation(); onClick(); }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: GREEN, color: '#fff', border: 'none', borderRadius: 100, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            Open Chat
+          </button>
+          <button onClick={e => e.stopPropagation()} style={{ width: 34, height: 34, borderRadius: '50%', background: 'rgba(255,255,255,0.06)', border: `1px solid ${BORDER}`, cursor: 'pointer', color: T2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Create Group Sheet ─────────────────────────────────────────────────────────
+function CreateGroupSheet({ onClose, createGroup }: { onClose: () => void; createGroup: (n: string, d: string, pub: boolean) => Promise<Group> }) {
+  const [name, setName]         = useState('');
+  const [desc, setDesc]         = useState('');
+  const [isPublic, setIsPublic] = useState(false);
+  const [loading, setLoading]   = useState(false);
 
   async function handleCreate() {
-    if (!name.trim()) { toast.error('Group name is required'); return; }
+    if (!name.trim()) { toast.error('Name required'); return; }
     setLoading(true);
     try {
-      await createGroup(name.trim(), description.trim(), isPublic);
-      toast.success('Group created!');
+      await createGroup(name.trim(), desc.trim(), isPublic);
+      toast.success('Squad created!');
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create group');
+      toast.error(err instanceof Error ? err.message : 'Failed');
     } finally {
       setLoading(false);
     }
@@ -27,235 +151,190 @@ function CreateGroupSheet({ onClose, createGroup }: { onClose: () => void, creat
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/60 z-40"
-        onClick={onClose}
-      />
-      {/* Sheet */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#0E1117] border-t border-[#1E2330] rounded-t-3xl p-6 safe-bottom">
-        {/* Handle */}
-        <div className="w-10 h-1 bg-[#2D3446] rounded-full mx-auto mb-5" />
-
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-base font-bold text-[#E5E7EB]">Create Group</h3>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-[#6B7280] hover:text-[#E5E7EB] transition"
-          >
-            <X size={18} />
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 100 }} />
+      <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101, background: SURF, borderRadius: '20px 20px 0 0', padding: '16px 16px 40px', maxHeight: '85dvh', overflowY: 'auto' }}>
+        <div style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.15)', margin: '0 auto 16px' }} />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <span style={{ fontSize: 17, fontWeight: 700, color: T1 }}>New Squad</span>
+          <button onClick={onClose} style={{ background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '50%', width: 30, height: 30, cursor: 'pointer', color: T2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs text-[#6B7280] font-semibold uppercase tracking-wider mb-1.5 block">
-              Group Name
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Morning Grind Squad"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={50}
-              className="w-full bg-[#06090D] border border-[#1E2330] rounded-xl px-4 py-3 text-sm text-[#E5E7EB] placeholder-[#4B5563] focus:outline-none focus:border-[#00E676]/50"
-            />
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
+          <div style={{ width: 80, height: 80, borderRadius: 24, background: name ? `linear-gradient(135deg,${groupColor(name)},${GREEN})` : SURF2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32, fontWeight: 700, color: '#fff', transition: 'background 0.3s' }}>
+            {name[0]?.toUpperCase() || '?'}
           </div>
-          <div>
-            <label className="text-xs text-[#6B7280] font-semibold uppercase tracking-wider mb-1.5 block">
-              Description (optional)
-            </label>
-            <textarea
-              placeholder="What's this group about?"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              maxLength={200}
-              rows={3}
-              className="w-full bg-[#06090D] border border-[#1E2330] rounded-xl px-4 py-3 text-sm text-[#E5E7EB] placeholder-[#4B5563] focus:outline-none focus:border-[#00E676]/50 resize-none"
-            />
-          </div>
-          {/* Public toggle */}
-          <button
-            onClick={() => setIsPublic((p) => !p)}
-            className="flex items-center gap-3 w-full py-3 px-4 bg-[#06090D] border border-[#1E2330] rounded-xl"
-          >
-            {isPublic ? (
-              <Globe size={16} className="text-[#00E676]" />
-            ) : (
-              <Lock size={16} className="text-[#F59E0B]" />
-            )}
-            <div className="flex-1 text-left">
-              <p className="text-sm font-medium text-[#E5E7EB]">{isPublic ? 'Public' : 'Private'}</p>
-              <p className="text-xs text-[#6B7280]">
-                {isPublic ? 'Anyone with invite code can join' : 'Invite only'}
-              </p>
-            </div>
-            <div
-              className={`w-10 h-5.5 rounded-full transition-colors ${isPublic ? 'bg-[#00E676]' : 'bg-[#2D3446]'}`}
-              style={{ height: 22, width: 40 }}
-            >
-              <div
-                className={`w-4 h-4 bg-white rounded-full shadow transition-transform mt-[3px] ${isPublic ? 'translate-x-5' : 'translate-x-0.5'}`}
-              />
-            </div>
-          </button>
         </div>
 
-        <button
-          onClick={handleCreate}
-          disabled={loading || !name.trim()}
-          className="w-full mt-5 py-3.5 rounded-2xl bg-[#00E676] text-[#06090D] font-bold text-sm hover:bg-[#00E676]/90 transition disabled:opacity-50"
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Squad Name</div>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Morning Warriors"
+              style={{ width: '100%', boxSizing: 'border-box', background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '12px 16px', fontSize: 15, fontWeight: 500, color: T1, outline: 'none', fontFamily: 'inherit' }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Description (optional)</div>
+            <textarea value={desc} onChange={e => setDesc(e.target.value)} placeholder="What's this squad about?" rows={2}
+              style={{ width: '100%', boxSizing: 'border-box', background: SURF2, border: `1px solid ${BORDER}`, borderRadius: 12, padding: '12px 16px', fontSize: 14, color: T1, outline: 'none', fontFamily: 'inherit', resize: 'none' }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Privacy</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {(['private', 'public'] as const).map(p => (
+                <button key={p} onClick={() => setIsPublic(p === 'public')} style={{ flex: 1, padding: 10, borderRadius: 12, border: `1.5px solid ${(p === 'public') === isPublic ? GREEN : BORDER}`, background: (p === 'public') === isPublic ? 'rgba(49,162,76,0.1)' : SURF, cursor: 'pointer', fontSize: 13, fontWeight: 600, color: (p === 'public') === isPublic ? GREEN : T2, textTransform: 'capitalize' }}>
+                  {p === 'private' ? '🔒 Private' : '🌐 Public'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <button onClick={handleCreate} disabled={loading || !name.trim()}
+          style={{ width: '100%', marginTop: 20, padding: '14px', borderRadius: 20, background: GREEN, color: '#fff', border: 'none', fontSize: 15, fontWeight: 700, cursor: 'pointer', opacity: name.trim() ? 1 : 0.4 }}
         >
-          {loading ? 'Creating…' : 'Create Group'}
+          {loading ? 'Creating…' : 'Create Squad'}
         </button>
       </div>
     </>
   );
 }
 
-// ── Group Card ────────────────────────────────────────────────────────────────
-function GroupCard({ group }: { group: Group }) {
-  return (
-    <div className="flex items-center gap-3 bg-[#0E1117] border border-[#1E2330] rounded-2xl p-4">
-      {group.avatar_url ? (
-        <img
-          src={group.avatar_url}
-          alt={group.name}
-          className="w-12 h-12 rounded-xl object-cover shrink-0"
-        />
-      ) : (
-        <div className="w-12 h-12 rounded-xl bg-[#1E2330] flex items-center justify-center shrink-0">
-          <Users size={20} className="text-[#00E676]" />
-        </div>
-      )}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-semibold text-[#E5E7EB] truncate">{group.name}</p>
-          {group.is_public ? (
-            <Globe size={11} className="text-[#6B7280] shrink-0" />
-          ) : (
-            <Lock size={11} className="text-[#6B7280] shrink-0" />
-          )}
-        </div>
-        {group.description && (
-          <p className="text-xs text-[#6B7280] truncate mt-0.5">{group.description}</p>
-        )}
-        <div className="flex items-center gap-2 mt-1">
-          <span className="text-xs text-[#4B5563]">
-            {group.member_count ?? 0} member{(group.member_count ?? 0) !== 1 ? 's' : ''}
-          </span>
-          <span className="text-xs text-[#2D3446]">·</span>
-          <span className="text-xs text-[#4B5563] font-mono uppercase tracking-wider">
-            {group.invite_code}
-          </span>
-        </div>
-      </div>
-      <ChevronRight size={16} className="text-[#2D3446] shrink-0" />
-    </div>
-  );
-}
+// ── Discover squads ────────────────────────────────────────────────────────────
+const DISCOVER = [
+  { name: 'Morning Runners', members: 24, tag: 'Running',  color: '#2ABBA7' },
+  { name: 'Gym Bros',        members: 18, tag: 'Strength', color: '#E8613C' },
+  { name: 'Yoga Vibes',      members: 31, tag: 'Yoga',     color: '#A121CE' },
+  { name: 'HIIT Squad',      members: 12, tag: 'HIIT',     color: '#F7B928' },
+];
 
-// ── Main Component ────────────────────────────────────────────────────────────
-import GroupChatView from './GroupChatView';
-
+// ── Main ───────────────────────────────────────────────────────────────────────
 export default function GroupsView() {
-  const { myGroups, isLoading, joinByInviteCode, leaveGroup, createGroup } = useGroups();
-  const [showCreate, setShowCreate] = useState(false);
-  const [inviteCode, setInviteCode] = useState('');
-  const [joining, setJoining] = useState(false);
+  const { myGroups, isLoading, joinByInviteCode, createGroup, getGroupMembers } = useGroups();
+  const [showCreate,  setShowCreate]  = useState(false);
+  const [inviteCode,  setInviteCode]  = useState('');
+  const [codeError,   setCodeError]   = useState(false);
+  const [joining,     setJoining]     = useState(false);
   const [activeGroup, setActiveGroup] = useState<Group | null>(null);
+  const [membersMap,  setMembersMap]  = useState<Record<string, GroupMember[]>>({});
 
-  async function handleJoin() {
+  useEffect(() => {
+    if (!myGroups.length) return;
+    Promise.all(
+      myGroups.map(async g => {
+        try { return [g.id, await getGroupMembers(g.id)] as [string, GroupMember[]]; }
+        catch { return [g.id, []] as [string, GroupMember[]]; }
+      })
+    ).then(pairs => setMembersMap(Object.fromEntries(pairs)));
+  }, [myGroups, getGroupMembers]);
+
+  const handleJoin = useCallback(async () => {
     if (!inviteCode.trim()) return;
     setJoining(true);
     try {
-      await joinByInviteCode(inviteCode.trim());
-      toast.success('Joined group!');
-      setInviteCode('');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Invalid invite code');
+      await joinByInviteCode(inviteCode.trim().toUpperCase());
+      toast.success('Joined squad!');
+      setInviteCode(''); setCodeError(false);
+    } catch {
+      setCodeError(true);
+      setTimeout(() => setCodeError(false), 1500);
     } finally {
       setJoining(false);
     }
-  }
+  }, [inviteCode, joinByInviteCode]);
 
   if (activeGroup) {
-    return (
-      <GroupChatView
-        group={activeGroup}
-        onBack={() => setActiveGroup(null)}
-        onLeave={async () => {
-          if (window.confirm(`Leave group "${activeGroup.name}"?`)) {
-            await leaveGroup(activeGroup.id);
-            setActiveGroup(null);
-          }
-        }}
-      />
-    );
+    return <GroupChatView group={activeGroup} onBack={() => setActiveGroup(null)} onLeave={() => setActiveGroup(null)} />;
   }
 
   return (
-    <div className="px-4 pt-4 space-y-4">
-      {/* Actions Row */}
-      <div className="flex gap-3">
-        {/* Join by code */}
-        <div className="flex-1 flex gap-2">
-          <div className="relative flex-1">
-            <Hash size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4B5563]" />
-            <input
-              type="text"
-              placeholder="Invite code"
-              value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-              maxLength={10}
-              className="w-full bg-[#0E1117] border border-[#1E2330] rounded-xl pl-8 pr-3 py-2.5 text-sm text-[#E5E7EB] placeholder-[#4B5563] focus:outline-none focus:border-[#00E676]/50 font-mono tracking-widest uppercase"
-            />
+    <div style={{ padding: '16px 0 110px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+      {/* Join a Squad */}
+      <div style={{ padding: '0 16px' }}>
+        <div style={{ background: 'linear-gradient(135deg, rgba(0,100,224,0.15), rgba(49,162,76,0.1))', borderRadius: 20, border: '1px solid rgba(0,100,224,0.2)', padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(0,100,224,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={BLUEL} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+            </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T1 }}>Join a Squad</div>
+              <div style={{ fontSize: 11, color: TMUT }}>Enter an invite code from a friend</div>
+            </div>
           </div>
-          <button
-            onClick={handleJoin}
-            disabled={joining || !inviteCode.trim()}
-            className="px-4 py-2.5 rounded-xl bg-[#00E676]/10 text-[#00E676] border border-[#00E676]/30 text-sm font-semibold hover:bg-[#00E676]/20 transition disabled:opacity-50 whitespace-nowrap"
-          >
-            {joining ? '…' : 'Join'}
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={inviteCode}
+              onChange={e => { setInviteCode(e.target.value); setCodeError(false); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleJoin(); }}
+              placeholder="e.g. CBD1832C"
+              style={{ flex: 1, background: 'rgba(255,255,255,0.06)', border: `1.5px solid ${codeError ? '#E41E3F' : inviteCode ? BLUEL : BORDER}`, borderRadius: 12, padding: '11px 14px', fontSize: 14, fontWeight: 600, color: T1, outline: 'none', fontFamily: 'inherit', letterSpacing: 1, transition: 'border 0.2s' }}
+            />
+            <button onClick={handleJoin} disabled={joining || !inviteCode.trim()}
+              style={{ background: codeError ? 'rgba(228,30,63,0.15)' : BLUE, color: codeError ? '#E41E3F' : '#fff', border: 'none', borderRadius: 12, padding: '0 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer', flexShrink: 0, opacity: inviteCode.trim() ? 1 : 0.5 }}
+            >
+              {joining ? '…' : codeError ? '✗ Invalid' : 'Join →'}
+            </button>
+          </div>
+          {codeError && <div style={{ fontSize: 11, color: '#E41E3F', marginTop: 6 }}>No squad found with that code.</div>}
         </div>
-        {/* Create button */}
-        <button
-          onClick={() => setShowCreate(true)}
-          className="p-2.5 rounded-xl bg-[#00E676] text-[#06090D] hover:bg-[#00E676]/90 transition"
-        >
-          <Plus size={18} />
-        </button>
       </div>
 
-      {/* Groups list */}
-      {isLoading ? (
-        <div className="flex justify-center py-10">
-          <div className="w-8 h-8 border-t-2 border-[#00E676] rounded-full animate-spin" />
+      {/* My Squads */}
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 16px', marginBottom: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>My Squads</span>
+            {myGroups.length > 0 && <span style={{ background: GREEN, color: '#fff', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{myGroups.length}</span>}
+          </div>
+          <button onClick={() => setShowCreate(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(255,255,255,0.07)', border: `1px solid ${BORDER}`, borderRadius: 100, padding: '6px 12px', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: T2 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Squad
+          </button>
         </div>
-      ) : myGroups.length === 0 ? (
-        <div className="text-center py-12">
-          <Users size={40} className="text-[#2D3446] mx-auto mb-3" />
-          <p className="text-sm text-[#6B7280]">No groups yet</p>
-          <p className="text-xs text-[#4B5563] mt-1">Create a group or join one with an invite code.</p>
+
+        {isLoading ? (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+            <div style={{ width: 28, height: 28, borderRadius: '50%', border: `2.5px solid ${GREEN}`, borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+          </div>
+        ) : myGroups.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '40px 16px' }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🏋️</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: T2, marginBottom: 4 }}>No squads yet</div>
+            <div style={{ fontSize: 12, color: TMUT }}>Create one or join with an invite code above</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '0 16px' }}>
+            {myGroups.map(g => <RichGroupCard key={g.id} group={g} members={membersMap[g.id] ?? []} onClick={() => setActiveGroup(g)} />)}
+          </div>
+        )}
+      </div>
+
+      {/* Discover Squads */}
+      <div>
+        <div style={{ padding: '0 16px', marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Discover Squads</span>
         </div>
-      ) : (
-        <div className="space-y-3 pb-8">
-          <h2 className="text-[16px] font-bold text-[#E5E7EB] px-1 mb-1">My Groups</h2>
-          {myGroups.map((group) => (
-             <button
-               key={group.id}
-               className="w-full text-left bg-transparent border-none p-0 outline-none block"
-               onClick={() => setActiveGroup(group)}
-             >
-              <GroupCard group={group} />
-            </button>
+        <div style={{ display: 'flex', gap: 10, padding: '0 16px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+          {DISCOVER.map((s, i) => (
+            <div key={i} style={{ flexShrink: 0, width: 130, background: SURF, borderRadius: 16, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
+              <div style={{ height: 44, background: `linear-gradient(135deg, ${s.color}99, ${s.color}33)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase' }}>{s.tag}</span>
+              </div>
+              <div style={{ padding: '10px 12px' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T1, marginBottom: 2 }}>{s.name}</div>
+                <div style={{ fontSize: 11, color: TMUT, marginBottom: 8 }}>{s.members} members</div>
+                <button style={{ width: '100%', padding: '7px', borderRadius: 100, background: 'transparent', border: `1.5px solid ${BLUEL}`, color: BLUEL, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Request</button>
+              </div>
+            </div>
           ))}
         </div>
-      )}
+      </div>
 
-      {/* Create Group Sheet */}
       {showCreate && <CreateGroupSheet onClose={() => setShowCreate(false)} createGroup={createGroup} />}
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   );
 }
