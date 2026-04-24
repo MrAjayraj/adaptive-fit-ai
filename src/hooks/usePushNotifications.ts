@@ -4,66 +4,91 @@ import { Capacitor } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { supabase } from '@/integrations/supabase/client';
 
+// Holds the token once received so token-saving effect can read it
+let _cachedToken: string | null = null;
+
 export function usePushNotifications(userId?: string) {
+
+  // ── Effect 1: register once on mount, listeners BEFORE register() ──────────
   useEffect(() => {
-    // Only run on native platforms (Android/iOS), not on web
     if (!Capacitor.isNativePlatform()) return;
 
-    const setupPush = async () => {
-      // Request permission
-      const permission = await PushNotifications.requestPermissions();
-      if (permission.receive !== 'granted') {
-        console.log('[Push] Permission denied');
+    const initPush = async () => {
+      console.log('🚀 PUSH INIT STARTED');
+
+      const perm = await PushNotifications.requestPermissions();
+      console.log('Permission:', perm);
+
+      if (perm.receive !== 'granted') {
+        console.log('❌ Permission denied');
         return;
       }
 
-      // Register with FCM
-      await PushNotifications.register();
+      // ── Attach listeners BEFORE calling register() ───────────────────────
+      // FCM fires 'registration' immediately when register() resolves;
+      // if the listener is added after, the token event is missed.
+      await PushNotifications.addListener('registration', async (token) => {
+        console.log('🔥🔥🔥 FCM TOKEN:', token.value);
+        _cachedToken = token.value;
 
-      // Save FCM token to Supabase so backend can send targeted notifications
-      PushNotifications.addListener('registration', async (token) => {
-        console.log('[Push] FCM token:', token.value);
+        // Save immediately if userId is already known
         if (userId) {
-          const { error } = await supabase
-            .from('user_profiles' as never)
-            .update({ fcm_token: token.value } as never)
-            .eq('user_id', userId);
-          if (error) console.error('[Push] Failed to save FCM token:', error);
+          await saveToken(token.value, userId);
         }
       });
 
-      // Notification received while app is in foreground
-      PushNotifications.addListener('pushNotificationReceived', (notification) => {
-        console.log('[Push] Received in foreground:', notification.title);
-        // The in-app toast/banner can be handled here if needed
+      await PushNotifications.addListener('registrationError', (err) => {
+        console.error('❌ Registration Error:', err);
       });
 
-      // User tapped the notification (app was background/closed)
-      PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+      await PushNotifications.addListener('pushNotificationReceived', (notification) => {
+        console.log('📩 Notification:', notification);
+      });
+
+      await PushNotifications.addListener('pushNotificationActionPerformed', (action) => {
+        console.log('👉 Action:', action);
         const data = action.notification.data as Record<string, string> | undefined;
         if (!data) return;
-
         if (data.type === 'chat_message' && data.chatId) {
           window.location.href = `/chat/${data.chatId}`;
         } else if (data.type === 'friend_request') {
           window.location.href = '/social';
-        } else if (data.type === 'group_message' && data.groupId) {
+        } else if (data.type === 'group_message') {
           window.location.href = '/social';
         } else if (data.type === 'achievement') {
           window.location.href = '/achievements';
         }
       });
 
-      // Token registration failure
-      PushNotifications.addListener('registrationError', (err) => {
-        console.error('[Push] Registration error:', err.error);
-      });
+      // ── register() AFTER listeners are attached ──────────────────────────
+      await PushNotifications.register();
+      console.log('📲 PushNotifications.register() called');
     };
 
-    setupPush();
+    initPush();
 
     return () => {
       PushNotifications.removeAllListeners();
+      _cachedToken = null;
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ← run once only on mount, NOT on userId change
+
+  // ── Effect 2: save token to Supabase when userId becomes available ─────────
+  useEffect(() => {
+    if (!userId || !_cachedToken) return;
+    saveToken(_cachedToken, userId);
   }, [userId]);
+}
+
+async function saveToken(token: string, userId: string) {
+  const { error } = await supabase
+    .from('user_profiles' as never)
+    .update({ fcm_token: token } as never)
+    .eq('user_id', userId);
+  if (error) {
+    console.error('[Push] Failed to save FCM token:', error);
+  } else {
+    console.log('[Push] FCM token saved for user', userId);
+  }
 }
