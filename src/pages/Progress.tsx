@@ -6,6 +6,8 @@ import { useFitness } from '@/context/FitnessContext';
 import { useAuth } from '@/context/AuthContext';
 import { getWeeklyProgress, getActivityBreakdown } from '@/services/workoutService';
 import type { WeeklyProgress, ActivityBreakdown } from '@/services/workoutService';
+import { getMoodHistory, getScoreHistory } from '@/services/dailyTrackerService';
+import type { MoodLog, DailyScore } from '@/services/dailyTrackerService';
 import BottomNav from '@/components/layout/BottomNav';
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -166,6 +168,8 @@ export default function Progress() {
   const [weeklyProgress, setWeeklyProgress] = useState<WeeklyProgress | null>(null);
   const [breakdown, setBreakdown]           = useState<ActivityBreakdown | null>(null);
   const [isLoading, setIsLoading]           = useState(true);
+  const [moodHistory, setMoodHistory]       = useState<MoodLog[]>([]);
+  const [scoreHistory, setScoreHistory]     = useState<DailyScore[]>([]);
 
   // Derived: week ago date string
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -177,9 +181,13 @@ export default function Progress() {
     Promise.all([
       getWeeklyProgress(user.id),
       getActivityBreakdown(user.id, days),
-    ]).then(([wp, bd]) => {
+      getMoodHistory(user.id, days),
+      getScoreHistory(user.id, days),
+    ]).then(([wp, bd, mh, sh]) => {
       setWeeklyProgress(wp);
       setBreakdown(bd);
+      setMoodHistory(mh);
+      setScoreHistory(sh);
       setIsLoading(false);
     }).catch(() => setIsLoading(false));
   }, [user, activePeriod]);
@@ -449,7 +457,203 @@ export default function Progress() {
           )}
         </motion.div>
 
-        {/* ── SECTION 4: Recent Workouts ──────────────────────────────────────── */}
+        {/* ── SECTION 4: Mood Trend ──────────────────────────────────────────── */}
+        {moodHistory.length > 0 && (() => {
+          const W = 308, H = 80;
+          const pts = moodHistory.map((d, i) => ({
+            x: (i / Math.max(moodHistory.length - 1, 1)) * (W - 20) + 10,
+            y: H - 10 - ((d.mood_score - 1) / 4) * (H - 20),
+            score: d.mood_score,
+            date: d.log_date,
+          }));
+          const MOOD_COLORS = ['', '#EF4444', '#F97316', '#EAB308', '#22C55E', '#0CFF9C'];
+          const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+          const avg = moodHistory.reduce((s, m) => s + m.mood_score, 0) / moodHistory.length;
+          const trend = moodHistory.length > 1
+            ? moodHistory[moodHistory.length - 1].mood_score - moodHistory[0].mood_score
+            : 0;
+          return (
+            <>
+              <div style={sectionLabel}>Mood Trend</div>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: 0.15 }}
+                style={card}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: T1 }}>{avg.toFixed(1)}</div>
+                    <div style={{ fontSize: 11, color: T3, marginTop: 2 }}>Avg mood (1–5)</div>
+                  </div>
+                  <div style={{
+                    fontSize: 14, fontWeight: 700,
+                    color: trend > 0 ? '#22C55E' : trend < 0 ? '#EF4444' : T3,
+                    background: trend > 0 ? 'rgba(34,197,94,0.1)' : trend < 0 ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.05)',
+                    padding: '4px 10px', borderRadius: 8,
+                  }}>
+                    {trend > 0 ? '↑ Improving' : trend < 0 ? '↓ Declining' : '→ Stable'}
+                  </div>
+                </div>
+                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', overflow: 'visible' }}>
+                  {/* Y grid lines */}
+                  {[1,2,3,4,5].map(v => {
+                    const y = H - 10 - ((v - 1) / 4) * (H - 20);
+                    return <line key={v} x1={10} y1={y} x2={W - 10} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth={1} />;
+                  })}
+                  {/* Smooth line */}
+                  <path d={linePath} stroke={ACCENT} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  {/* Colored dots */}
+                  {pts.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={5} fill={MOOD_COLORS[p.score]} stroke={BG} strokeWidth={2} />
+                  ))}
+                </svg>
+                {/* Legend */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 6 }}>
+                  {['😫','😟','😐','😊','🤩'].map((e, i) => (
+                    <span key={i} style={{ fontSize: 14 }}>{e}</span>
+                  ))}
+                </div>
+              </motion.div>
+            </>
+          );
+        })()}
+
+        {/* ── SECTION 5: Daily Score Trend ───────────────────────────────────── */}
+        {scoreHistory.length > 0 && (() => {
+          const W = 308, H = 80;
+          const pts = scoreHistory.map((d, i) => ({
+            x: (i / Math.max(scoreHistory.length - 1, 1)) * (W - 20) + 10,
+            y: H - 10 - (d.total_score / 100) * (H - 20),
+            score: d.total_score,
+          }));
+          const scoreColor = (s: number) => s >= 70 ? '#0CFF9C' : s >= 40 ? '#EAB308' : '#EF4444';
+          const linePath = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+          const avgScore = Math.round(scoreHistory.reduce((s, d) => s + d.total_score, 0) / scoreHistory.length);
+          const best = Math.max(...scoreHistory.map(d => d.total_score));
+          return (
+            <>
+              <div style={sectionLabel}>Daily Wellness Score</div>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: 0.2 }}
+                style={card}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: scoreColor(avgScore) }}>{avgScore}</div>
+                    <div style={{ fontSize: 11, color: T3, marginTop: 2 }}>Avg score</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#0CFF9C' }}>🏆 {best}</div>
+                    <div style={{ fontSize: 11, color: T3, marginTop: 2 }}>Best day</div>
+                  </div>
+                </div>
+                <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', overflow: 'visible' }}>
+                  <defs>
+                    <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={ACCENT} stopOpacity={0.2} />
+                      <stop offset="100%" stopColor={ACCENT} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    d={`${linePath} L ${pts[pts.length-1].x} ${H} L ${pts[0].x} ${H} Z`}
+                    fill="url(#scoreGrad)"
+                  />
+                  <path d={linePath} stroke={ACCENT} strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                  {pts.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={4} fill={scoreColor(p.score)} stroke={BG} strokeWidth={2} />
+                  ))}
+                </svg>
+                {/* Tracker completion mini stats */}
+                {scoreHistory.length > 0 && (
+                  <div style={{ display: 'flex', gap: 16, marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T1 }}>
+                        {Math.round(scoreHistory.reduce((s, d) => s + d.task_completion_pct, 0) / scoreHistory.length)}%
+                      </div>
+                      <div style={{ fontSize: 10, color: T3, marginTop: 1 }}>Avg tracker completion</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: T1 }}>
+                        {scoreHistory.filter(d => d.workout_completed).length}/{scoreHistory.length}
+                      </div>
+                      <div style={{ fontSize: 10, color: T3, marginTop: 1 }}>Days with workout</div>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </>
+          );
+        })()}
+
+        {/* ── SECTION 6: Mood Heatmap ────────────────────────────────────────── */}
+        {moodHistory.length > 0 && (() => {
+          const MOOD_BG: Record<number, string> = {
+            1: '#7F1D1D', 2: '#C2410C', 3: '#A16207', 4: '#166534', 5: '#0CFF9C',
+          };
+          // Build last 5 weeks grid (Sun-Sat)
+          const today = new Date();
+          const days: { date: string; mood: number | null }[] = [];
+          for (let i = 34; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(today.getDate() - i);
+            const ds = d.toISOString().split('T')[0];
+            const found = moodHistory.find(m => m.log_date === ds);
+            days.push({ date: ds, mood: found?.mood_score ?? null });
+          }
+          const weeks: typeof days[] = [];
+          for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+          return (
+            <>
+              <div style={sectionLabel}>Mood Heatmap</div>
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.28, delay: 0.25 }}
+                style={{ ...card, padding: '14px 12px' }}
+              >
+                <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+                  {['M','T','W','T','F','S','S'].map((d, i) => (
+                    <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 9, color: T3, fontWeight: 700 }}>{d}</div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {weeks.map((week, wi) => (
+                    <div key={wi} style={{ display: 'flex', gap: 4 }}>
+                      {week.map((day, di) => (
+                        <div
+                          key={di}
+                          title={day.date}
+                          style={{
+                            flex: 1, aspectRatio: '1', borderRadius: 4,
+                            background: day.mood ? MOOD_BG[day.mood] : 'rgba(255,255,255,0.05)',
+                            border: '1px solid rgba(255,255,255,0.04)',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+                {/* Legend */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10 }}>
+                  <span style={{ fontSize: 10, color: T3 }}>😫</span>
+                  {[1,2,3,4,5].map(v => (
+                    <div key={v} style={{ width: 14, height: 14, borderRadius: 3, background: MOOD_BG[v] }} />
+                  ))}
+                  <span style={{ fontSize: 10, color: T3 }}>🤩</span>
+                  <div style={{ marginLeft: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <div style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(255,255,255,0.05)' }} />
+                    <span style={{ fontSize: 10, color: T3 }}>No data</span>
+                  </div>
+                </div>
+              </motion.div>
+            </>
+          );
+        })()}
+
+        {/* ── SECTION 7: Recent Workouts ──────────────────────────────────────── */}
         <div style={sectionLabel}>Recent Workouts</div>
 
         {recentWorkouts.length === 0 ? (

@@ -13,9 +13,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { upsertTodaySteps } from '@/services/api';
 import { useNotifications } from '@/hooks/useNotifications';
 import { useTodos } from '@/hooks/useTodos';
+import { useDailyTracker } from '@/hooks/useDailyTracker';
 import { CalendarStrip } from '@/components/home/CalendarStrip';
 import { DayDetail } from '@/components/home/DayDetail';
 import { TodoList } from '@/components/home/TodoList';
+import { DailyScoreRing } from '@/components/home/DailyScoreRing';
+import { EmotionTracker } from '@/components/home/EmotionTracker';
+import { DailyTrackerSection } from '@/components/home/DailyTrackerSection';
 import type { DayActivity } from '@/components/home/CalendarStrip';
 
 const containerVariants: any = {
@@ -286,6 +290,13 @@ export default function Dashboard() {
   // ── Todos for selected date ──────────────────────────────
   const { todos, isLoading: todosLoading, toggle: toggleTodo, remove: removeTodo, add: addTodo } = useTodos(selectedDate);
 
+  // ── Daily tracker + mood + score (today only) ─────────────
+  const {
+    trackers, score, mood, isLoading: trackerLoading,
+    completedCount, totalCount,
+    toggle: toggleTracker, updateValue, addTracker, removeTracker, saveMood,
+  } = useDailyTracker(today);
+
   // ── Steps ────────────────────────────────────────────────
   const { xp, level, streak, stepsToday, stepDate } = gamification;
   const steps = stepDate === today ? stepsToday : 0;
@@ -410,17 +421,23 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <button
-            onClick={() => navigate('/notifications')}
-            className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center relative shadow-[0_4px_10px_rgba(0,0,0,0.3)] backdrop-blur-md"
-          >
-            <Bell className="w-5 h-5 text-white/80" strokeWidth={2} />
-            {unreadCount > 0 && (
-              <span className="absolute top-0 right-0 w-4 h-4 bg-[#F5C518] rounded-full border-2 border-[#050505] flex items-center justify-center shadow-[0_0_10px_rgba(245,197,24,0.5)]">
-                <span className="text-[8px] font-black text-black leading-none">{unreadCount > 9 ? '9+' : unreadCount}</span>
-              </span>
+          {/* Daily score ring + notification bell */}
+          <div className="flex flex-col items-end gap-3">
+            <button
+              onClick={() => navigate('/notifications')}
+              className="w-12 h-12 rounded-full bg-white/5 border border-white/10 flex items-center justify-center relative shadow-[0_4px_10px_rgba(0,0,0,0.3)] backdrop-blur-md"
+            >
+              <Bell className="w-5 h-5 text-white/80" strokeWidth={2} />
+              {unreadCount > 0 && (
+                <span className="absolute top-0 right-0 w-4 h-4 bg-[#F5C518] rounded-full border-2 border-[#050505] flex items-center justify-center shadow-[0_0_10px_rgba(245,197,24,0.5)]">
+                  <span className="text-[8px] font-black text-black leading-none">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                </span>
+              )}
+            </button>
+            {isToday && (
+              <DailyScoreRing score={score?.total_score ?? null} size={60} />
             )}
-          </button>
+          </div>
         </motion.div>
 
         {/* ── PAST / FUTURE DAY DETAIL ──────────────────────────────────── */}
@@ -465,6 +482,27 @@ export default function Dashboard() {
               transition={{ duration: 0.18 }}
               className="space-y-6"
             >
+              {/* ── EMOTION TRACKER ────────────────────────────────────── */}
+              <motion.div variants={itemVariants}>
+                <EmotionTracker
+                  existingMood={mood}
+                  onSave={saveMood}
+                />
+              </motion.div>
+
+              {/* ── DAILY TRACKERS ──────────────────────────────────────── */}
+              <motion.div variants={itemVariants}>
+                <DailyTrackerSection
+                  trackers={trackers}
+                  completedCount={completedCount}
+                  onToggle={toggleTracker}
+                  onUpdate={updateValue}
+                  onAdd={addTracker}
+                  onDelete={removeTracker}
+                  isLoading={trackerLoading}
+                />
+              </motion.div>
+
               {/* Rank Badge */}
               <EnhancedRankCard gamification={gamification} onClick={() => navigate('/rank')} />
 
