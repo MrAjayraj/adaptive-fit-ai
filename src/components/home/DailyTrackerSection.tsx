@@ -258,10 +258,12 @@ function AddTrackerSheet({
   const [icon,      setIcon]      = useState('✓');
   const [recur,     setRecur]     = useState<'daily' | 'weekdays' | 'weekends'>('daily');
   const [saving,    setSaving]    = useState(false);
+  const [addError,  setAddError]  = useState<string | null>(null);
 
   const handleAdd = useCallback(async () => {
     if (!title.trim()) return;
     setSaving(true);
+    setAddError(null);
     try {
       await onAdd({
         title: title.trim(),
@@ -275,6 +277,8 @@ function AddTrackerSheet({
         recurrence_days: recur === 'weekdays' ? [1,2,3,4,5] : recur === 'weekends' ? [6,7] : [1,2,3,4,5,6,7],
       });
       onClose();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Failed to create tracker. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -494,6 +498,20 @@ function AddTrackerSheet({
             </div>
             <div style={{ marginLeft: 'auto', width: 12, height: 12, borderRadius: '50%', background: color }} />
           </div>
+
+          {addError && (
+            <div style={{
+              background: 'rgba(239,68,68,0.1)',
+              border: '1px solid rgba(239,68,68,0.3)',
+              borderRadius: 10,
+              padding: '10px 12px',
+              fontSize: 12,
+              color: '#EF4444',
+              fontWeight: 600,
+            }}>
+              ⚠️ {addError}
+            </div>
+          )}
 
           <motion.button
             onClick={handleAdd}

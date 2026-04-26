@@ -111,7 +111,8 @@ export function EmotionTracker({ existingMood, onSave }: EmotionTrackerProps) {
   const [stress,   setStress]   = useState(existingMood?.stress_level   ?? 5);
   const [soreness, setSoreness] = useState(existingMood?.soreness_level ?? 5);
   const [note, setNote]         = useState(existingMood?.note ?? '');
-  const [saving, setSaving]     = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [saveError, setSaveError]   = useState<string | null>(null);
   const [noteExpanded, setNoteExpanded] = useState(false);
 
   const toggleTag = useCallback((key: string) => {
@@ -125,6 +126,7 @@ export function EmotionTracker({ existingMood, onSave }: EmotionTrackerProps) {
   const handleSave = useCallback(async () => {
     if (!selectedMood) return;
     setSaving(true);
+    setSaveError(null);
     try {
       await onSave({
         mood_score: selectedMood,
@@ -136,6 +138,8 @@ export function EmotionTracker({ existingMood, onSave }: EmotionTrackerProps) {
         note,
       });
       setExpanded(false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save. Please try again.');
     } finally {
       setSaving(false);
     }
@@ -403,6 +407,22 @@ export function EmotionTracker({ existingMood, onSave }: EmotionTrackerProps) {
                   />
                 )}
               </div>
+
+              {/* Error message */}
+              {saveError && (
+                <div style={{
+                  background: 'rgba(239,68,68,0.1)',
+                  border: '1px solid rgba(239,68,68,0.3)',
+                  borderRadius: 10,
+                  padding: '10px 12px',
+                  marginBottom: 10,
+                  fontSize: 12,
+                  color: '#EF4444',
+                  fontWeight: 600,
+                }}>
+                  ⚠️ {saveError}
+                </div>
+              )}
 
               {/* Save button */}
               <motion.button

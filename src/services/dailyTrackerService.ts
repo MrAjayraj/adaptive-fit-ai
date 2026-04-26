@@ -114,7 +114,7 @@ export async function logMood(
     .select()
     .maybeSingle();
 
-  if (error) { console.error('[Mood] logMood:', error); return null; }
+  if (error) { console.error('[Mood] logMood:', error); throw new Error(error.message); }
   await calculateDailyScore(userId, date);
   return result as MoodLog;
 }
@@ -168,10 +168,12 @@ export async function getUserTrackers(userId: string, date = todayStr()): Promis
     }
   }
 
-  return ((items ?? []) as TrackerItem[]).map(t => ({
-    ...t,
-    completion: completionMap.get(t.id) ?? null,
-  }));
+  return ((items ?? []) as TrackerItem[])
+    .filter(t => isActiveForDate(t, date))
+    .map(t => ({
+      ...t,
+      completion: completionMap.get(t.id) ?? null,
+    }));
 }
 
 export async function createTracker(userId: string, data: Partial<TrackerItem>): Promise<TrackerItem | null> {
@@ -194,7 +196,7 @@ export async function createTracker(userId: string, data: Partial<TrackerItem>):
     .select()
     .maybeSingle();
 
-  if (error) { console.error('[Tracker] createTracker:', error); return null; }
+  if (error) { console.error('[Tracker] createTracker:', error); throw new Error(error.message); }
   return result as TrackerItem;
 }
 
