@@ -814,6 +814,8 @@ export default function CreateRoutine() {
             style={{ position: 'fixed', inset: 0, zIndex: 100 }}
           >
             <ExercisePicker
+              multiSelect={true}
+              alreadyAdded={exercises.map(e => e.exercise_id)}
               onAdd={(exercise: Exercise) => {
                 const newEx: RoutineExercise = {
                   exercise_id: exercise.id,
@@ -827,7 +829,6 @@ export default function CreateRoutine() {
                   sets: [{ reps: 10, weight_kg: 0 }],
                 };
                 setExercises(prev => [...prev, newEx]);
-                setShowPicker(false);
               }}
               onClose={() => setShowPicker(false)}
             />

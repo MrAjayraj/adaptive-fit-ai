@@ -33,41 +33,48 @@ export function useActiveWorkout() {
   const [userId, setUserId] = useState<string | null>(null);
   const workoutIdRef = useRef<string | null>(null);
 
-  // ── Resolve current user ──────────────────────────────────────────────────
+  // ── Resolve user + load any existing active workout together ─────────────
+  // Both must complete before loading=false so startFromRoutine always has userId.
 
   useEffect(() => {
-    supabase.auth
-      .getSession()
-      .then(({ data }) => setUserId(data.session?.user.id ?? null));
-  }, []);
+    let cancelled = false;
 
-  // ── Load active workout from localStorage / Supabase on mount ─────────────
+    async function init() {
+      // 1. Get auth session
+      const { data: sessionData } = await supabase.auth.getSession();
+      const uid = sessionData.session?.user.id ?? null;
+      if (cancelled) return;
+      setUserId(uid);
 
-  useEffect(() => {
-    const storedId = localStorage.getItem(STORAGE_KEY);
+      // 2. Check for a stored active workout
+      const storedId = localStorage.getItem(STORAGE_KEY);
+      if (!storedId) {
+        setLoading(false);
+        return;
+      }
 
-    if (!storedId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data, error } = await (supabase.from('workouts' as never) as any)
+        .select('*')
+        .eq('id', storedId)
+        .eq('status', 'active')
+        .single();
+
+      if (cancelled) return;
+
+      if (error || !data) {
+        console.error('[useActiveWorkout] Could not resume workout:', error?.message ?? 'not found');
+        localStorage.removeItem(STORAGE_KEY);
+        setWorkout(null);
+      } else {
+        workoutIdRef.current = storedId;
+        setWorkout(data as ActiveWorkout);
+      }
       setLoading(false);
-      return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase.from('workouts' as never) as any)
-      .select('*')
-      .eq('id', storedId)
-      .eq('status', 'active')
-      .single()
-      .then(({ data, error }: { data: ActiveWorkout | null; error: { message: string } | null }) => {
-        if (error || !data) {
-          console.error('[useActiveWorkout] Could not resume workout:', error?.message ?? 'not found');
-          localStorage.removeItem(STORAGE_KEY);
-          setWorkout(null);
-        } else {
-          workoutIdRef.current = storedId;
-          setWorkout(data);
-        }
-        setLoading(false);
-      });
+    init();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Helpers ───────────────────────────────────────────────────────────────
