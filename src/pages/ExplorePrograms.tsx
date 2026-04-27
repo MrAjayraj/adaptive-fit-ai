@@ -17,6 +17,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import { getPrograms, createRoutine } from '@/services/workoutService';
 import type { WorkoutProgram, RoutineExercise } from '@/services/workoutService';
 import { useAuth } from '@/context/AuthContext';
@@ -358,7 +359,8 @@ function ProgramModal({
       }
 
       onClose();
-      navigate('/workout-hub');
+      toast.success(`${program.name} added! Your routines are ready.`);
+      navigate('/workouts');
     } catch {
       setErrorMsg('Failed to start program. Please try again.');
       setStarting(false);

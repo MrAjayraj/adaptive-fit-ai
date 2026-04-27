@@ -428,6 +428,146 @@ export async function duplicateRoutine(
   return data as Routine;
 }
 
+// ─── Shared Routines ──────────────────────────────────────────────────────────
+
+export interface SharedRoutineRow {
+  id: string;
+  routine_id: string | null;
+  shared_by: string;
+  sharer_name: string | null;
+  sharer_avatar: string | null;
+  routine_name: string;
+  exercise_count: number;
+  routine_exercises: RoutineExercise[];
+  share_type: 'public' | 'friend';
+  friend_id: string | null;
+  message: string | null;
+  clone_count: number;
+  created_at: string;
+}
+
+export async function shareRoutinePublic(
+  routineId: string,
+  userId: string,
+  opts: {
+    routineName: string;
+    exercises: RoutineExercise[];
+    sharerName?: string;
+    sharerAvatar?: string;
+    message?: string;
+  }
+): Promise<void> {
+  const { error } = await db('shared_routines').insert({
+    routine_id:        routineId,
+    shared_by:         userId,
+    sharer_name:       opts.sharerName ?? null,
+    sharer_avatar:     opts.sharerAvatar ?? null,
+    routine_name:      opts.routineName,
+    exercise_count:    opts.exercises.length,
+    routine_exercises: opts.exercises,
+    share_type:        'public',
+    message:           opts.message ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function shareRoutineToFriend(
+  routineId: string,
+  userId: string,
+  friendId: string,
+  opts: {
+    routineName: string;
+    exercises: RoutineExercise[];
+    sharerName?: string;
+    sharerAvatar?: string;
+    message?: string;
+  }
+): Promise<void> {
+  const { error } = await db('shared_routines').insert({
+    routine_id:        routineId,
+    shared_by:         userId,
+    sharer_name:       opts.sharerName ?? null,
+    sharer_avatar:     opts.sharerAvatar ?? null,
+    routine_name:      opts.routineName,
+    exercise_count:    opts.exercises.length,
+    routine_exercises: opts.exercises,
+    share_type:        'friend',
+    friend_id:         friendId,
+    message:           opts.message ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function getCommunityRoutines(excludeUserId?: string): Promise<SharedRoutineRow[]> {
+  let q = db('shared_routines')
+    .select('*')
+    .eq('share_type', 'public')
+    .order('created_at', { ascending: false })
+    .limit(30);
+
+  if (excludeUserId) q = q.neq('shared_by', excludeUserId);
+
+  const { data, error } = await q;
+  if (error) { console.error('[workoutService] getCommunityRoutines:', error.message); return []; }
+  return (data ?? []) as SharedRoutineRow[];
+}
+
+export async function getRoutinesSharedWithMe(userId: string): Promise<SharedRoutineRow[]> {
+  const { data, error } = await db('shared_routines')
+    .select('*')
+    .eq('friend_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (error) { console.error('[workoutService] getRoutinesSharedWithMe:', error.message); return []; }
+  return (data ?? []) as SharedRoutineRow[];
+}
+
+export async function cloneSharedRoutine(
+  sharedId: string,
+  userId: string
+): Promise<Routine | null> {
+  const { data: shared, error: sharedErr } = await db('shared_routines')
+    .select('*')
+    .eq('id', sharedId)
+    .single();
+
+  if (sharedErr || !shared) {
+    console.error('[workoutService] cloneSharedRoutine: fetch failed', sharedErr?.message);
+    return null;
+  }
+
+  const row = shared as SharedRoutineRow;
+
+  const { data, error } = await db('routines')
+    .insert({
+      user_id:           userId,
+      name:              `${row.routine_name} (Copy)`,
+      exercises:         row.routine_exercises ?? [],
+      notes:             null,
+      workout_type:      'strength',
+      times_performed:   0,
+      last_performed_at: null,
+    })
+    .select('*')
+    .single();
+
+  if (error || !data) {
+    console.error('[workoutService] cloneSharedRoutine: insert failed', error?.message);
+    return null;
+  }
+
+  // Bump clone count (best-effort)
+  await db('shared_routines')
+    .update({ clone_count: (row.clone_count || 0) + 1 })
+    .eq('id', sharedId);
+
+  return data as Routine;
+}
+
+export async function removeSharedRoutine(sharedId: string): Promise<void> {
+  await db('shared_routines').delete().eq('id', sharedId);
+}
+
 // ─── Workout Sessions (JSONB-based) ───────────────────────────────────────────
 
 export async function startEmptyWorkout(
