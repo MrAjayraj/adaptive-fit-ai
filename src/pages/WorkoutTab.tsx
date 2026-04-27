@@ -218,7 +218,7 @@ function RoutineCard({ routine, index, onStart, onEdit, onDuplicate, onShare, on
       transition={{ duration: 0.22, delay: index * 0.05, ease: 'easeOut' }}
       style={{
         background: SURFACE, borderRadius: 16, border: `1px solid ${BORDER}`,
-        marginBottom: 12, overflow: 'hidden', position: 'relative',
+        marginBottom: 12, position: 'relative',
       }}
     >
       {/* Card header */}
@@ -655,7 +655,7 @@ export default function WorkoutTab() {
                 routine={routine}
                 index={i}
                 onStart={() => navigate('/workout/active', { state: { routineId: routine.id, routineName: routine.name } })}
-                onEdit={() => navigate('/routine/new', { state: { routineId: routine.id } })}
+                onEdit={() => navigate('/routine/new', { state: { existingRoutine: { id: routine.id, name: routine.name, exercises: routine.exercises, notes: routine.notes ?? '' } } })}
                 onDuplicate={() => duplicate(routine.id)}
                 onShare={() => setShareTarget(routine)}
                 onDelete={() => setDeleteTarget({ id: routine.id, name: routine.name })}
