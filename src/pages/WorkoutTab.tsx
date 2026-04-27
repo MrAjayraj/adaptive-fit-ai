@@ -206,7 +206,10 @@ interface RoutineCardProps {
 
 function RoutineCard({ routine, index, onStart, onEdit, onDuplicate, onShare, onDelete }: RoutineCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const exerciseCount = Array.isArray(routine.exercises) ? routine.exercises.length : 0;
+  const exercises = Array.isArray(routine.exercises) ? routine.exercises : [];
+  const preview = exercises.map((e: { exercise_name?: string; name?: string }) =>
+    e.exercise_name ?? e.name ?? ''
+  ).filter(Boolean).join(', ');
 
   return (
     <motion.div
@@ -214,68 +217,74 @@ function RoutineCard({ routine, index, onStart, onEdit, onDuplicate, onShare, on
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, delay: index * 0.05, ease: 'easeOut' }}
       style={{
-        background: SURFACE, borderRadius: 14, border: `1px solid ${BORDER}`,
-        marginBottom: 10, padding: '0 14px', height: 76,
-        display: 'flex', alignItems: 'center', gap: 12, position: 'relative',
+        background: SURFACE, borderRadius: 16, border: `1px solid ${BORDER}`,
+        marginBottom: 12, overflow: 'hidden', position: 'relative',
       }}
     >
-      <div style={{ flex: 1, minWidth: 0 }}>
+      {/* Card header */}
+      <div style={{ padding: '14px 14px 10px', paddingRight: 42 }}>
         <p style={{
-          fontSize: 15, fontWeight: 700, color: T1, margin: 0,
+          fontSize: 16, fontWeight: 700, color: T1, margin: '0 0 4px',
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
           {routine.name}
         </p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
-          <span style={{
-            fontSize: 11, fontWeight: 600, color: T3,
-            background: SURFACE_UP, borderRadius: 6, padding: '2px 7px',
+        {preview ? (
+          <p style={{
+            fontSize: 12, color: T2, margin: '0 0 2px',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {exerciseCount} {exerciseCount === 1 ? 'exercise' : 'exercises'}
-          </span>
-          <span style={{ fontSize: 11, color: T3 }}>Last: {daysAgo(routine.last_performed_at)}</span>
-        </div>
+            {preview}
+          </p>
+        ) : null}
+        <p style={{ fontSize: 11, color: T3, margin: 0 }}>
+          Last performed: {daysAgo(routine.last_performed_at)}
+        </p>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-        <motion.button whileTap={{ scale: 0.9 }} onClick={e => { e.stopPropagation(); onStart(); }}
+      {/* Three-dot menu — top right */}
+      <div style={{ position: 'absolute', top: 10, right: 8 }}>
+        <motion.button whileTap={{ scale: 0.9 }}
+          onClick={e => { e.stopPropagation(); setMenuOpen(o => !o); }}
           style={{
-            height: 36, paddingLeft: 14, paddingRight: 14, borderRadius: 18,
-            background: ACCENT, border: 'none', color: '#0C1015',
-            fontSize: 13, fontWeight: 700,
-            display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer',
+            width: 32, height: 32, borderRadius: 8,
+            background: menuOpen ? SURFACE_UP : 'transparent',
+            border: 'none', display: 'flex', alignItems: 'center',
+            justifyContent: 'center', cursor: 'pointer',
           }}
         >
-          <Play style={{ width: 12, height: 12, fill: '#0C1015' }} />
-          Start
+          <MoreHorizontal style={{ width: 18, height: 18, color: T2 }} />
         </motion.button>
+        <AnimatePresence>
+          {menuOpen && (
+            <RoutineMenu
+              routineId={routine.id}
+              onEdit={onEdit}
+              onDuplicate={onDuplicate}
+              onShare={onShare}
+              onDelete={onDelete}
+              onClose={() => setMenuOpen(false)}
+            />
+          )}
+        </AnimatePresence>
+      </div>
 
-        <div style={{ position: 'relative' }}>
-          <motion.button whileTap={{ scale: 0.9 }}
-            onClick={e => { e.stopPropagation(); setMenuOpen(o => !o); }}
-            style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: menuOpen ? SURFACE_UP : 'transparent',
-              border: 'none', display: 'flex', alignItems: 'center',
-              justifyContent: 'center', cursor: 'pointer',
-            }}
-          >
-            <MoreHorizontal style={{ width: 18, height: 18, color: T2 }} />
-          </motion.button>
-
-          <AnimatePresence>
-            {menuOpen && (
-              <RoutineMenu
-                routineId={routine.id}
-                onEdit={onEdit}
-                onDuplicate={onDuplicate}
-                onShare={onShare}
-                onDelete={onDelete}
-                onClose={() => setMenuOpen(false)}
-              />
-            )}
-          </AnimatePresence>
-        </div>
+      {/* Start Routine button */}
+      <div style={{ padding: '0 14px 14px' }}>
+        <motion.button
+          whileTap={{ scale: 0.98 }}
+          onClick={e => { e.stopPropagation(); onStart(); }}
+          style={{
+            width: '100%', height: 42, borderRadius: 10,
+            background: ACCENT, border: 'none', color: '#0C1015',
+            fontSize: 14, fontWeight: 700,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 6, cursor: 'pointer',
+          }}
+        >
+          <Play style={{ width: 14, height: 14, fill: '#0C1015' }} />
+          Start Routine
+        </motion.button>
       </div>
     </motion.div>
   );
@@ -375,7 +384,7 @@ export default function WorkoutTab() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { profile } = useFitness();
-  const { routines, loading, remove, duplicate } = useRoutines();
+  const { routines, loading, remove, duplicate, refresh } = useRoutines();
 
   const [activeWorkout, setActiveWorkout]   = useState<ActiveWorkout | null>(null);
   const [elapsedLabel, setElapsedLabel]     = useState('');
@@ -434,6 +443,7 @@ export default function WorkoutTab() {
       const cloned = await cloneSharedRoutine(shared.id, user.id);
       if (cloned) {
         toast.success(`"${shared.routine_name}" added to your routines!`);
+        refresh();       // update My Routines list
         loadCommunity(); // refresh clone count
       } else {
         toast.error('Failed to add routine. Please try again.');
@@ -587,7 +597,7 @@ export default function WorkoutTab() {
             }}
           >
             <Clipboard style={{ width: 22, height: 22, color: ACCENT }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: T2 }}>New Routine</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: T2 }}>Create Routine</span>
           </motion.button>
 
           <motion.button whileTap={{ scale: 0.96 }} onClick={() => navigate('/programs')}

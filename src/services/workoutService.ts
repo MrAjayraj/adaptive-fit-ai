@@ -43,6 +43,9 @@ export interface WorkoutSet {
   is_pr: boolean;
   pr_type: 'weight' | 'reps' | 'volume' | null;
   rest_seconds: number;
+  is_warmup?: boolean;
+  target_reps_min?: number;
+  target_reps_max?: number;
 }
 
 export interface WorkoutExerciseEntry {
@@ -55,6 +58,7 @@ export interface WorkoutExerciseEntry {
   notes: string;
   rest_timer_seconds: number;
   sets: WorkoutSet[];
+  instructions?: string[];
 }
 
 export interface ActiveWorkout {

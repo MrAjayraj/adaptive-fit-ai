@@ -248,7 +248,7 @@ export function useActiveWorkout() {
   // ── Add set ───────────────────────────────────────────────────────────────
 
   const addSetHook = useCallback(
-    async (exerciseIndex: number): Promise<void> => {
+    async (exerciseIndex: number, customSet?: Partial<WorkoutSet>): Promise<void> => {
       const workoutId = workoutIdRef.current;
       if (!workoutId || !workout) return;
 
@@ -256,18 +256,21 @@ export function useActiveWorkout() {
       if (!targetExercise) return;
 
       const prevSets = targetExercise.sets;
-      const lastSet = prevSets[prevSets.length - 1];
+      const lastWorkSet = [...prevSets].reverse().find(s => !s.is_warmup);
+      const warmupCount = prevSets.filter(s => s.is_warmup).length;
+      const workSetCount = prevSets.filter(s => !s.is_warmup).length;
 
       const newSet: WorkoutSet = {
-        set_number: (lastSet?.set_number ?? prevSets.length) + 1,
-        weight_kg: lastSet?.weight_kg ?? 0,
-        reps: lastSet?.reps ?? 10,
+        set_number: customSet?.is_warmup ? warmupCount + 1 : workSetCount + 1,
+        weight_kg: lastWorkSet?.weight_kg ?? 0,
+        reps: lastWorkSet?.reps ?? 10,
         duration_sec: null,
         distance_km: null,
         is_completed: false,
         is_pr: false,
         pr_type: null,
-        rest_seconds: lastSet?.rest_seconds ?? 90,
+        rest_seconds: lastWorkSet?.rest_seconds ?? 90,
+        ...customSet,
       };
 
       // Optimistic update
