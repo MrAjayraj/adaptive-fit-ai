@@ -165,63 +165,55 @@ export async function searchExercises(
   filters?: { bodyPart?: string; equipment?: string; targetMuscle?: string },
   limit = 100
 ): Promise<Exercise[]> {
-  // Select only columns guaranteed in ALL schema versions (old + new).
-  // body_part / target_muscle / exercise_type are added by migration
-  // 20260420000002 — but we fall back gracefully if they're missing.
   let q = db('exercises')
-    .select('id,name,body_part,equipment,target_muscle,gif_url,image_url,exercise_type,secondary_muscles,is_custom')
+    .select(EXERCISE_SELECT)
     .order('name', { ascending: true })
     .limit(limit);
 
-  if (query && query.trim()) {
-    q = q.ilike('name', `%${query.trim()}%`);
-  }
-
-  if (filters?.bodyPart)     q = q.eq('body_part',     filters.bodyPart);
-  if (filters?.equipment)    q = q.eq('equipment',      filters.equipment);
-  if (filters?.targetMuscle) q = q.eq('target_muscle',  filters.targetMuscle);
+  if (query && query.trim()) q = q.ilike('name', `%${query.trim()}%`);
+  if (filters?.bodyPart)     q = q.eq('body_part',    filters.bodyPart);
+  if (filters?.equipment)    q = q.eq('equipment',     filters.equipment);
+  if (filters?.targetMuscle) q = q.eq('target_muscle', filters.targetMuscle);
 
   const { data, error } = await q;
 
   if (error) {
-    // New-column query failed (old schema). Retry with only legacy columns.
-    console.warn('[workoutService] searchExercises full query failed, retrying with legacy columns:', error.message);
-
+    console.warn('[workoutService] searchExercises failed, trying legacy columns:', error.message);
     let fallback = db('exercises')
       .select('id,name,equipment,secondary_muscles,is_custom')
       .order('name', { ascending: true })
       .limit(limit);
-
     if (query && query.trim()) fallback = fallback.ilike('name', `%${query.trim()}%`);
     if (filters?.equipment)    fallback = fallback.eq('equipment', filters.equipment);
-
     const { data: legacyData, error: legacyErr } = await fallback;
-
-    if (legacyErr) {
-      console.error('[workoutService] searchExercises legacy fallback error:', legacyErr.message);
-      throw new Error('Could not load exercises: ' + legacyErr.message);
-    }
-
-    // Normalize legacy rows into the Exercise shape
-    return ((legacyData ?? []) as Record<string, unknown>[]).map(row => ({
-      id:                String(row.id ?? ''),
-      exercise_id:       null,
-      name:              String(row.name ?? ''),
-      body_part:         String((row as any).muscle_group ?? 'other'),
-      equipment:         String(row.equipment ?? 'body weight'),
-      target_muscle:     String((row as any).muscle_group ?? 'other'),
-      secondary_muscles: (row.secondary_muscles as string[]) ?? [],
-      gif_url:           null,
-      image_url:         null,
-      instructions:      [],
-      exercise_type:     'weight_reps' as Exercise['exercise_type'],
-      is_custom:         Boolean(row.is_custom),
-      created_at:        '',
-    }));
+    if (legacyErr) throw new Error('Could not load exercises: ' + legacyErr.message);
+    return normalizeExerciseRows((legacyData ?? []) as Record<string, unknown>[]);
   }
 
-  // Normalise rows — fill in any still-null new columns with safe defaults
-  return ((data ?? []) as Record<string, unknown>[]).map(row => ({
+  return normalizeExerciseRows((data ?? []) as Record<string, unknown>[]);
+}
+
+export async function getExercisesByBodyPart(bodyPart: string): Promise<Exercise[]> {
+  const { data, error } = await db('exercises')
+    .select(EXERCISE_SELECT)
+    .eq('body_part', bodyPart)
+    .limit(30);
+  if (error) { console.error('[workoutService] getExercisesByBodyPart error:', error.message); return []; }
+  return normalizeExerciseRows((data ?? []) as Record<string, unknown>[]);
+}
+
+const POPULAR_NAMES = [
+  'Barbell Bench Press', 'Barbell Squat', 'Barbell Deadlift', 'Barbell Row',
+  'Overhead Press', 'Pull Up', 'Dumbbell Bench Press', 'Lat Pulldown',
+  'Romanian Deadlift', 'Leg Press', 'Barbell Curl', 'Triceps Rope Pushdown',
+  'Dumbbell Shoulder Press', 'Lateral Raise (Dumbbell)', 'Leg Curl (Machine)',
+  'Hip Thrust (Barbell)', 'Bulgarian Split Squat', 'Cable Crossover', 'Face Pull', 'Plank',
+];
+
+const EXERCISE_SELECT = 'id,name,body_part,equipment,target_muscle,gif_url,image_url,exercise_type,secondary_muscles,is_custom,instructions';
+
+function normalizeExerciseRows(rows: Record<string, unknown>[]): Exercise[] {
+  return rows.map(row => ({
     id:                String(row.id ?? ''),
     exercise_id:       null,
     name:              String(row.name ?? ''),
@@ -238,51 +230,33 @@ export async function searchExercises(
   }));
 }
 
-export async function getExercisesByBodyPart(bodyPart: string): Promise<Exercise[]> {
-  const { data, error } = await db('exercises')
-    .select('*')
-    .eq('body_part', bodyPart)
-    .limit(30);
-
-  if (error) {
-    console.error('[workoutService] getExercisesByBodyPart error:', error.message);
-    return [];
-  }
-  return (data ?? []) as Exercise[];
-}
-
 export async function getPopularExercises(): Promise<Exercise[]> {
+  // Try named popular exercises first
   const { data, error } = await db('exercises')
-    .select('*')
-    .in('name', [
-      'Barbell Bench Press',
-      'Barbell Squat',
-      'Barbell Deadlift',
-      'Barbell Row',
-      'Overhead Press',
-      'Pull Up',
-      'Dumbbell Bench Press',
-      'Lat Pulldown',
-      'Romanian Deadlift',
-      'Leg Press',
-      'Barbell Curl',
-      'Tricep Pushdown',
-      'Dumbbell Shoulder Press',
-      'Lateral Raise',
-      'Leg Curl',
-      'Hip Thrust',
-      'Bulgarian Split Squat',
-      'Cable Crossover',
-      'Face Pull',
-      'Plank',
-    ])
+    .select(EXERCISE_SELECT)
+    .in('name', POPULAR_NAMES)
+    .order('name', { ascending: true })
     .limit(20);
 
+  if (!error && data && data.length > 0) {
+    return normalizeExerciseRows(data as Record<string, unknown>[]);
+  }
+
   if (error) {
-    console.error('[workoutService] getPopularExercises error:', error.message);
+    console.warn('[workoutService] getPopularExercises named query failed:', error.message);
+  }
+
+  // Fallback: return any 30 exercises ordered by name
+  const { data: fallback, error: fallbackErr } = await db('exercises')
+    .select(EXERCISE_SELECT)
+    .order('name', { ascending: true })
+    .limit(30);
+
+  if (fallbackErr) {
+    console.error('[workoutService] getPopularExercises fallback error:', fallbackErr.message);
     return [];
   }
-  return (data ?? []) as Exercise[];
+  return normalizeExerciseRows((fallback ?? []) as Record<string, unknown>[]);
 }
 
 export async function getExerciseById(id: string): Promise<Exercise | null> {
@@ -321,14 +295,15 @@ export async function createCustomExercise(
 
   const { data: result, error } = await db('exercises')
     .insert(payload)
-    .select('*')
+    .select(EXERCISE_SELECT)
     .single();
 
   if (error || !result) {
-    console.error('[workoutService] createCustomExercise error:', error?.message);
-    return null;
+    const msg = error?.message ?? 'Insert returned no data';
+    console.error('[workoutService] createCustomExercise error:', msg);
+    throw new Error(msg);
   }
-  return result as Exercise;
+  return normalizeExerciseRows([result as Record<string, unknown>])[0];
 }
 
 // ─── Routines ─────────────────────────────────────────────────────────────────

@@ -298,7 +298,7 @@ export default function CreateCustomExercise() {
         return;
       }
 
-      const result = await createCustomExercise(
+      const result = await createCustomExercise(  // throws on error
         {
           name: name.trim(),
           equipment: equipment || 'none',
@@ -311,15 +311,19 @@ export default function CreateCustomExercise() {
         userId
       );
 
-      if (result) {
-        toast.success(`"${result.name}" added to your library!`);
-        navigate(-1);
-      } else {
-        toast.error('Failed to create exercise. Please try again.');
-      }
+      toast.success(`"${result.name}" added to your library!`);
+      navigate(-1);
     } catch (err) {
       console.error('[CreateCustomExercise] save error:', err);
-      toast.error('Something went wrong.');
+      const msg = err instanceof Error ? err.message : 'Something went wrong.';
+      // Surface the most common failure reason clearly
+      if (msg.includes('row-level security') || msg.includes('RLS') || msg.includes('policy')) {
+        toast.error('Permission error — make sure you are signed in.');
+      } else if (msg.includes('already exists') || msg.includes('duplicate')) {
+        toast.error('An exercise with that name already exists.');
+      } else {
+        toast.error(`Failed to save: ${msg}`);
+      }
     } finally {
       setSaving(false);
     }
