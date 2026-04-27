@@ -125,6 +125,7 @@ export interface WorkoutSummaryData {
   prCount: number;
   xpEarned: number;
   rpEarned: number;
+  shareToken?: string;
 }
 
 // ─── JSONB Helpers (private) ──────────────────────────────────────────────────
@@ -841,9 +842,12 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   const rpEarned = 15 + prCount * 25;
   const exerciseCount = exercises.length;
 
+  const endedAt = new Date().toISOString();
+
   // Persist summary columns and status
   const { error: updateErr } = await db('workouts').update({
     status: 'completed',
+    ended_at: endedAt,
     duration,
     total_volume_kg: totalVolume,
     total_sets: totalSets,
@@ -856,6 +860,41 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
     console.error('[workoutService] completeWorkout update error:', updateErr.message);
     return null;
   }
+
+  // Create shareable card
+  const shareToken = `${workout.id.slice(0, 8)}-${Math.random().toString(36).slice(2, 8)}`;
+  const cardData = {
+    workout_name: workout.name,
+    duration,
+    total_volume_kg: totalVolume,
+    total_sets: totalSets,
+    total_reps: totalReps,
+    exercise_count: exerciseCount,
+    calories_burned: caloriesBurned,
+    pr_count: prCount,
+    xp_earned: xpEarned,
+    rp_earned: rpEarned,
+    completed_at: endedAt,
+    exercises: exercises.map(ex => ({ name: ex.name, sets: ex.sets.filter(s => s.is_completed).length })),
+  };
+
+  await db('shared_workout_cards').insert({
+    user_id: workout.user_id,
+    workout_id: workout.id,
+    card_data: cardData,
+    share_token: shareToken,
+    view_count: 0,
+  });
+
+  // Post to activity feed
+  await db('activity_feed').insert({
+    user_id: workout.user_id,
+    activity_type: 'workout_completed',
+    title: `Completed "${workout.name}"`,
+    description: `${exerciseCount} exercises · ${totalSets} sets · ${totalVolume.toFixed(0)} kg`,
+    metadata: { workout_id: workout.id, share_token: shareToken, duration, total_volume_kg: totalVolume },
+    is_public: true,
+  });
 
   console.log('[workoutService] completeWorkout: workoutId=', workoutId, 'sets=', totalSets, 'volume=', totalVolume, 'prs=', prCount);
 
@@ -871,6 +910,7 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
     prCount,
     xpEarned,
     rpEarned,
+    shareToken,
   };
 }
 
@@ -975,18 +1015,21 @@ export async function getWorkoutHistory(
 // ─── Progress & Analytics (types exported for Progress.tsx) ──────────────────
 
 export interface WeeklyProgress {
-  weekLabel:  string;
-  workouts:   number;
-  volume:     number;
-  duration:   number;
-  days:       { date: string; hasWorkout: boolean }[];
+  weekLabel:      string;
+  workoutCount:   number;
+  totalVolume:    number;
+  totalMinutes:   number;
+  totalCalories:  number;
+  consistencyPct: number;
+  days:           { date: string; hasWorkout: boolean }[];
 }
 
 export interface ActivityBreakdown {
-  strength:   number;
-  cardio:     number;
-  skill:      number;
-  other:      number;
+  strength:     number;
+  cardio:       number;
+  skill:        number;
+  other:        number;
+  totalMinutes: number;
 }
 
 export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress | null> {
@@ -995,7 +1038,7 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
   startOfWeek.setHours(0, 0, 0, 0);
 
   const { data, error } = await db('workouts')
-    .select('date,duration,total_volume_kg')
+    .select('date,duration,total_volume_kg,calories_burned')
     .eq('user_id', userId)
     .eq('status', 'completed')
     .gte('date', startOfWeek.toISOString().split('T')[0]);
@@ -1005,7 +1048,7 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
     return null;
   }
 
-  const rows = (data ?? []) as { date: string; duration: number | null; total_volume_kg: number | null }[];
+  const rows = (data ?? []) as { date: string; duration: number | null; total_volume_kg: number | null; calories_burned: number | null }[];
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(startOfWeek);
@@ -1014,11 +1057,17 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
     return { date: dayNames[i], hasWorkout: rows.some(r => r.date === dateStr) };
   });
 
+  const totalMinutes = rows.reduce((n, r) => n + (r.duration ?? 0), 0);
+  const workoutsThisWeek = rows.length;
+  const consistencyPct = Math.round((workoutsThisWeek / 7) * 100);
+
   return {
-    weekLabel: 'This Week',
-    workouts:  rows.length,
-    volume:    rows.reduce((n, r) => n + (r.total_volume_kg ?? 0), 0),
-    duration:  rows.reduce((n, r) => n + (r.duration ?? 0), 0),
+    weekLabel:      'This Week',
+    workoutCount:   workoutsThisWeek,
+    totalVolume:    rows.reduce((n, r) => n + (r.total_volume_kg ?? 0), 0),
+    totalMinutes,
+    totalCalories:  rows.reduce((n, r) => n + (r.calories_burned ?? 0), 0),
+    consistencyPct,
     days,
   };
 }
@@ -1028,7 +1077,7 @@ export async function getActivityBreakdown(userId: string, days = 30): Promise<A
   since.setDate(since.getDate() - days);
 
   const { data, error } = await db('workouts')
-    .select('name,routine_id')
+    .select('name,duration')
     .eq('user_id', userId)
     .eq('status', 'completed')
     .gte('date', since.toISOString().split('T')[0]);
@@ -1038,15 +1087,20 @@ export async function getActivityBreakdown(userId: string, days = 30): Promise<A
     return null;
   }
 
-  const rows = (data ?? []) as { name: string }[];
-  const breakdown: ActivityBreakdown = { strength: 0, cardio: 0, skill: 0, other: 0 };
+  const rows = (data ?? []) as { name: string; duration: number | null }[];
+  const breakdown: ActivityBreakdown = { strength: 0, cardio: 0, skill: 0, other: 0, totalMinutes: 0 };
 
   for (const r of rows) {
+    const mins = r.duration ?? 0;
+    breakdown.totalMinutes += mins;
     const n = r.name.toLowerCase();
-    if (n.includes('cardio') || n.includes('hiit') || n.includes('run'))   breakdown.cardio++;
-    else if (n.includes('box') || n.includes('skill') || n.includes('mma')) breakdown.skill++;
-    else if (n.includes('strength') || n.includes('lift') || n.includes('gym')) breakdown.strength++;
-    else breakdown.strength++; // default
+    if (n.includes('cardio') || n.includes('hiit') || n.includes('run'))    breakdown.cardio    += mins || 1;
+    else if (n.includes('box') || n.includes('skill') || n.includes('mma')) breakdown.skill     += mins || 1;
+    else                                                                      breakdown.strength  += mins || 1;
+  }
+
+  if (breakdown.totalMinutes === 0) {
+    breakdown.totalMinutes = breakdown.strength + breakdown.cardio + breakdown.skill + breakdown.other;
   }
 
   return breakdown;

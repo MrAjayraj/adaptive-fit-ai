@@ -5,7 +5,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
   Plus, Check, Clock, ChevronDown, MoreHorizontal,
-  Trash2, Dumbbell, Trophy, Zap, Flame, BarChart2, AlertTriangle,
+  Trash2, Dumbbell, Trophy, Zap, Flame, BarChart2, AlertTriangle, Share2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useActiveWorkout } from '@/hooks/useActiveWorkout';
@@ -760,11 +760,24 @@ function CancelConfirmSheet({ onKeep, onCancel }: { onKeep: () => void; onCancel
 interface CompleteSummary {
   duration: number; totalVolume: number; totalSets: number;
   exerciseCount: number; xpEarned: number; rpEarned: number;
+  shareToken?: string;
 }
 
 function WorkoutCompleteScreen({ summary, onBack }: { summary: CompleteSummary; onBack: () => void }) {
   const min = Math.floor(summary.duration / 60);
   const sec = summary.duration % 60;
+  const [shared, setShared] = useState(false);
+
+  const handleShare = () => {
+    if (summary.shareToken) {
+      const url = `${window.location.origin}/share/${summary.shareToken}`;
+      if (navigator.share) {
+        navigator.share({ title: 'My Workout', url }).catch(() => {});
+      } else {
+        navigator.clipboard?.writeText(url).then(() => setShared(true));
+      }
+    }
+  };
 
   return (
     <div style={{
@@ -801,6 +814,7 @@ function WorkoutCompleteScreen({ summary, onBack }: { summary: CompleteSummary; 
         Great session. Keep pushing!
       </motion.p>
 
+      {/* Stats grid */}
       <motion.div
         initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
@@ -828,10 +842,11 @@ function WorkoutCompleteScreen({ summary, onBack }: { summary: CompleteSummary; 
         ))}
       </motion.div>
 
+      {/* XP + RP badges */}
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }}
         transition={{ delay: 0.5 }}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 32 }}
+        style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}
       >
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -839,9 +854,7 @@ function WorkoutCompleteScreen({ summary, onBack }: { summary: CompleteSummary; 
           background: BLUE_DIM, border: `1px solid ${BLUE}40`,
         }}>
           <Zap size={14} color={BLUE} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: BLUE }}>
-            +{summary.xpEarned} XP
-          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: BLUE }}>+{summary.xpEarned} XP</span>
         </div>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6,
@@ -849,11 +862,30 @@ function WorkoutCompleteScreen({ summary, onBack }: { summary: CompleteSummary; 
           background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
         }}>
           <Trophy size={14} color="#8B5CF6" />
-          <span style={{ fontSize: 13, fontWeight: 700, color: '#8B5CF6' }}>
-            +{summary.rpEarned} RP
-          </span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#8B5CF6' }}>+{summary.rpEarned} RP</span>
         </div>
       </motion.div>
+
+      {/* Share card button */}
+      {summary.shareToken && (
+        <motion.button
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.52 }}
+          onClick={handleShare}
+          style={{
+            width: '100%', maxWidth: 360, padding: '14px 0',
+            background: shared ? GREEN_DIM : SURFACE_UP,
+            border: `1px solid ${shared ? GREEN : BORDER}`,
+            borderRadius: 14, fontSize: 14, fontWeight: 700,
+            color: shared ? GREEN : T1, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            marginBottom: 10,
+          }}
+        >
+          <Share2 size={16} />
+          {shared ? 'Link copied!' : 'Share Workout Card'}
+        </motion.button>
+      )}
 
       <motion.button
         initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
@@ -988,6 +1020,7 @@ export default function ActiveWorkout() {
         duration: summary.duration, totalVolume: summary.totalVolume,
         totalSets: summary.totalSets, exerciseCount: summary.exerciseCount,
         xpEarned: summary.xpEarned, rpEarned: summary.rpEarned,
+        shareToken: summary.shareToken,
       });
     } else {
       navigate('/workouts');
