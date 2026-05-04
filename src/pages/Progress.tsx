@@ -9,7 +9,10 @@ import type { WeeklyProgress, ActivityBreakdown } from '@/services/workoutServic
 import { getMoodHistory, getScoreHistory } from '@/services/dailyTrackerService';
 import type { MoodLog, DailyScore } from '@/services/dailyTrackerService';
 import BottomNav from '@/components/layout/BottomNav';
-
+import { ExerciseProgressChart } from '@/components/progress/ExerciseProgressChart';
+import { MuscleVolumeBreakdown } from '@/components/progress/MuscleVolumeBreakdown';
+import { MuscleFrequencyHeatmap } from '@/components/progress/MuscleFrequencyHeatmap';
+import { PersonalRecordsBoard } from '@/components/progress/PersonalRecordsBoard';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const ACCENT      = '#0CFF9C';
 const BG          = '#0C1015';
@@ -659,6 +662,27 @@ export default function Progress() {
             );
           })()}
         </motion.div>
+
+        {/* ── NEW SECTIONS: Strength, Volume, PRs ─────────────────────────────── */}
+        <div style={sectionLabel}>Strength Progress</div>
+        <div style={{ padding: '0 16px' }}>
+          <ExerciseProgressChart />
+        </div>
+
+        <div style={sectionLabel}>Muscle Volume</div>
+        <div style={{ padding: '0 16px' }}>
+          <MuscleVolumeBreakdown />
+        </div>
+
+        <div style={sectionLabel}>Muscle Heatmap</div>
+        <div style={{ padding: '0 16px' }}>
+          <MuscleFrequencyHeatmap />
+        </div>
+
+        <div style={sectionLabel}>Personal Records</div>
+        <div style={{ padding: '0 16px' }}>
+          <PersonalRecordsBoard />
+        </div>
 
         {/* ── SECTION 7: Recent Workouts ──────────────────────────────────────── */}
         <div style={sectionLabel}>Recent Workouts</div>
