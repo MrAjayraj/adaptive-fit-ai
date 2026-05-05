@@ -1045,7 +1045,7 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
   const { data, error } = await db('workouts')
     .select('date,duration,total_volume_kg,calories_burned')
     .eq('user_id', userId)
-    .eq('status', 'completed')
+    .or('status.eq.completed,completed.eq.true')
     .gte('date', startOfWeek.toISOString().split('T')[0]);
 
   if (error) {
@@ -1084,7 +1084,7 @@ export async function getActivityBreakdown(userId: string, days = 30): Promise<A
   const { data, error } = await db('workouts')
     .select('name,duration')
     .eq('user_id', userId)
-    .eq('status', 'completed')
+    .or('status.eq.completed,completed.eq.true')
     .gte('date', since.toISOString().split('T')[0]);
 
   if (error) {

@@ -204,7 +204,7 @@ export function usePersonalRecordsBoard(userId: string | undefined) {
     // Joining with exercises to get name and muscle group
     supabase
       .from('personal_records' as any)
-      .select('id, exercise_id, record_type, value, achieved_at, exercises(name, primary_muscle)')
+      .select('id, exercise_id, record_type, value, achieved_at, exercises(name, target_muscle, body_part)')
       .eq('user_id', userId)
       .order('achieved_at', { ascending: false })
       .then(({ data, error: err }) => {
@@ -214,7 +214,7 @@ export function usePersonalRecordsBoard(userId: string | undefined) {
             id: r.id,
             exercise_id: r.exercise_id,
             exercise_name: r.exercises?.name ?? 'Unknown',
-            muscle_group: r.exercises?.primary_muscle ?? 'Other',
+            muscle_group: r.exercises?.target_muscle ?? r.exercises?.body_part ?? 'Other',
             record_type: r.record_type,
             value: r.value,
             achieved_at: r.achieved_at
@@ -273,6 +273,18 @@ export function useUserExercises(userId: string | undefined) {
       }
 
       setExercises(Array.from(fallbackMap.entries()).map(([id, name]) => ({ id, name })));
+
+      // If still empty, load ALL exercises from the exercises table as last resort
+      // This ensures the dropdown is never empty even before any workout is completed
+      if (fallbackMap.size === 0) {
+        const { data: exRows } = await supabase
+          .from('exercises' as any)
+          .select('id, name, target_muscle, body_part')
+          .order('name', { ascending: true })
+          .limit(500);
+        const exList = (exRows as any[]) ?? [];
+        setExercises(exList.map((e: any) => ({ id: e.id, name: e.name })));
+      }
     }
 
     load();
