@@ -915,6 +915,7 @@ export default function ActiveWorkout() {
     routineId?: string;
     routineName?: string;
     mode?: string;
+    workoutId?: string;   // ← from CreateWorkout: pre-built workout to resume
   };
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -942,7 +943,7 @@ export default function ActiveWorkout() {
   // ── Initialization ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (hook.loading || initialized) return;
-    const { routineId, routineName, mode } = locationState;
+    const { routineId, routineName, mode, workoutId } = locationState;
 
     if (hook.workout) {
       setWorkoutName(hook.workout.name ?? 'Log Workout');
@@ -950,7 +951,12 @@ export default function ActiveWorkout() {
       return;
     }
 
-    if (routineId) {
+    if (workoutId) {
+      // Resume a pre-built workout created by CreateWorkout flow
+      hook.resumeWorkout(workoutId).then(() => {
+        setInitialized(true);
+      });
+    } else if (routineId) {
       hook.startFromRoutine(routineId).then(() => {
         setWorkoutName(routineName ?? 'Log Workout');
         setInitialized(true);

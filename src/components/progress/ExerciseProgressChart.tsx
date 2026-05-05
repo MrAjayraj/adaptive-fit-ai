@@ -23,7 +23,12 @@ export function ExerciseProgressChart() {
   const formattedData = data.map(d => ({
     ...d,
     dateLabel: format(parseISO(d.week_start), 'MMM d'),
-    value: metric === 'estimated_1rm' ? d.estimated_1rm : metric === 'total_volume' ? d.total_volume : d.estimated_1rm // Fallback for max_weight if needed
+    // Use the correct column for each metric (max_weight is now in the view)
+    value: metric === 'estimated_1rm'
+      ? (d.estimated_1rm ?? 0)
+      : metric === 'total_volume'
+        ? (d.total_volume ?? 0)
+        : ((d as any).max_weight ?? d.estimated_1rm ?? 0),
   }));
 
   const bestValue = formattedData.length > 0 ? Math.max(...formattedData.map(d => d.value)) : 0;

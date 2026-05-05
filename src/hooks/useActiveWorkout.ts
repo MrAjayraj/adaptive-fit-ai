@@ -153,6 +153,36 @@ export function useActiveWorkout() {
     [userId]
   );
 
+  // ── Resume an existing workout by ID (from CreateWorkout flow) ─────────────
+
+  const resumeWorkout = useCallback(
+    async (workoutId: string): Promise<string | null> => {
+      setSaving(true);
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { data, error } = await (supabase.from('workouts' as never) as any)
+          .select('*')
+          .eq('id', workoutId)
+          .single();
+
+        if (error || !data) {
+          console.error('[useActiveWorkout] resumeWorkout: not found', error?.message);
+          return null;
+        }
+
+        storeWorkoutId(workoutId);
+        setWorkout(data as ActiveWorkout);
+        return workoutId;
+      } catch (e) {
+        console.error('[useActiveWorkout] resumeWorkout failed:', e);
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    },
+    []
+  );
+
   // ── Add exercise ──────────────────────────────────────────────────────────
 
   const addExercise = useCallback(
@@ -479,6 +509,7 @@ export function useActiveWorkout() {
     saving,
     startEmpty,
     startFromRoutine: startFromRoutineHook,
+    resumeWorkout,
     addExercise,
     removeExercise,
     updateSet: updateSetHook,

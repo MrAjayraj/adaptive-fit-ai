@@ -428,7 +428,9 @@ export default function CreateWorkout() {
     }
 
     setSubmitting(false);
-    navigate('/workout', { state: { workoutId } });
+    // Navigate to the Hevy-style active workout logger (System B)
+    // This ensures completion is tracked via status='completed' and appears in history
+    navigate('/workout/active', { state: { workoutId } });
   }
 
   // ── Input style ───────────────────────────────────────────────────────────────

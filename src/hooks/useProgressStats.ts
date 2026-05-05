@@ -109,35 +109,80 @@ export function useMuscleFrequency(userId: string | undefined) {
 
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - 7);
+    const startStr = startDate.toISOString().split('T')[0];
 
-    supabase
-      .from('muscle_volume_view' as any)
-      .select('muscle, volume, frequency, week_start')
-      .eq('user_id', userId)
-      .gte('week_start', startDate.toISOString())
-      .then(({ data, error: err }) => {
-        const res = data as any[];
-        if (!err && res) {
-          const map: Record<string, MuscleFrequency> = {};
-          res.forEach(row => {
-            if (!map[row.muscle]) {
-              map[row.muscle] = { sessions_this_week: 0, last_trained: null, total_volume: 0 };
-            }
-            map[row.muscle].sessions_this_week += row.frequency;
-            map[row.muscle].total_volume += row.volume;
-            // Best effort last trained based on week_start
-            if (!map[row.muscle].last_trained || new Date(row.week_start) > new Date(map[row.muscle].last_trained as string)) {
-              map[row.muscle].last_trained = row.week_start;
-            }
-          });
-          setData(map);
-        }
+    async function load() {
+      // Primary: muscle_volume_view (needs workout_sets populated by trigger)
+      const { data: viewRows, error: viewErr } = await supabase
+        .from('muscle_volume_view' as any)
+        .select('muscle, volume, frequency, week_start')
+        .eq('user_id', userId)
+        .gte('week_start', startDate.toISOString());
+
+      const rows = (viewRows as any[]) ?? [];
+
+      if (!viewErr && rows.length > 0) {
+        const map: Record<string, MuscleFrequency> = {};
+        rows.forEach(row => {
+          if (!map[row.muscle]) {
+            map[row.muscle] = { sessions_this_week: 0, last_trained: null, total_volume: 0 };
+          }
+          map[row.muscle].sessions_this_week += row.frequency;
+          map[row.muscle].total_volume += row.volume;
+          if (!map[row.muscle].last_trained || new Date(row.week_start) > new Date(map[row.muscle].last_trained as string)) {
+            map[row.muscle].last_trained = row.week_start;
+          }
+        });
+        setData(map);
         setLoading(false);
-      });
+        return;
+      }
+
+      // Fallback: derive muscle frequency from completed workouts' JSONB
+      // Counts the number of distinct workout sessions each muscle appears in this week
+      const { data: workoutRows } = await supabase
+        .from('workouts' as any)
+        .select('id, exercises, date')
+        .eq('user_id', userId)
+        .or('status.eq.completed,completed.eq.true')
+        .gte('date', startStr)
+        .not('exercises', 'is', null);
+
+      const fallback: Record<string, MuscleFrequency> = {};
+      const muscleWorkoutIds: Record<string, Set<string>> = {};
+
+      for (const w of (workoutRows as any[]) ?? []) {
+        for (const ex of (w.exercises ?? []) as any[]) {
+          const muscle: string = ex.target_muscle || ex.body_part || '';
+          if (!muscle) continue;
+          const hasCompletedSet = (ex.sets ?? []).some((s: any) => s.is_completed);
+          if (!hasCompletedSet) continue;
+
+          if (!muscleWorkoutIds[muscle]) muscleWorkoutIds[muscle] = new Set();
+          muscleWorkoutIds[muscle].add(w.id);
+
+          if (!fallback[muscle]) fallback[muscle] = { sessions_this_week: 0, last_trained: null, total_volume: 0 };
+          fallback[muscle].last_trained = fallback[muscle].last_trained
+            ? (w.date > fallback[muscle].last_trained! ? w.date : fallback[muscle].last_trained)
+            : w.date;
+        }
+      }
+
+      // sessions_this_week = number of distinct workouts that included this muscle
+      for (const muscle of Object.keys(fallback)) {
+        fallback[muscle].sessions_this_week = muscleWorkoutIds[muscle]?.size ?? 0;
+      }
+
+      setData(fallback);
+      setLoading(false);
+    }
+
+    load();
   }, [userId]);
 
   return { data, loading };
 }
+
 
 export interface PersonalRecordBoardItem {
   id: string;
@@ -188,19 +233,49 @@ export function useUserExercises(userId: string | undefined) {
 
   useEffect(() => {
     if (!userId) return;
-    // Fast way: query distinct exercises from workout_sets
-    supabase
-      .from('exercise_progress_view' as any)
-      .select('exercise_id, exercise_name')
-      .eq('user_id', userId)
-      .then(({ data, error }) => {
-        const res = data as any[];
-        if (!error && res) {
-          const uniqueMap = new Map();
-          res.forEach((r: any) => uniqueMap.set(r.exercise_id, r.exercise_name));
-          setExercises(Array.from(uniqueMap.entries()).map(([id, name]) => ({ id, name })));
+
+    async function load() {
+      // Primary source: exercise_progress_view (requires workout_sets to be populated)
+      const { data: viewData, error: viewErr } = await supabase
+        .from('exercise_progress_view' as any)
+        .select('exercise_id, exercise_name')
+        .eq('user_id', userId);
+
+      const viewRows = (viewData as any[]) ?? [];
+
+      if (!viewErr && viewRows.length > 0) {
+        const uniqueMap = new Map<string, string>();
+        viewRows.forEach((r: any) => uniqueMap.set(r.exercise_id, r.exercise_name));
+        setExercises(Array.from(uniqueMap.entries()).map(([id, name]) => ({ id, name })));
+        return;
+      }
+
+      // Fallback: pull distinct exercises from completed workouts' JSONB
+      // This covers the case where workout_sets hasn't been populated yet
+      // (e.g., the trigger backfill hasn't run, or workout_sets is empty).
+      const { data: workoutData } = await supabase
+        .from('workouts' as any)
+        .select('exercises')
+        .eq('user_id', userId)
+        .or('status.eq.completed,completed.eq.true')
+        .not('exercises', 'is', null);
+
+      const workoutRows = (workoutData as any[]) ?? [];
+      const fallbackMap = new Map<string, string>();
+
+      for (const row of workoutRows) {
+        const exList: any[] = row.exercises ?? [];
+        for (const ex of exList) {
+          if (ex.exercise_id && ex.name) {
+            fallbackMap.set(ex.exercise_id, ex.name);
+          }
         }
-      });
+      }
+
+      setExercises(Array.from(fallbackMap.entries()).map(([id, name]) => ({ id, name })));
+    }
+
+    load();
   }, [userId]);
 
   return exercises;

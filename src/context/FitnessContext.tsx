@@ -236,17 +236,18 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
             next.profile = null;
           }
 
-          // ── Workouts: merge DB into localStorage state (DB wins for completed, LS wins for active) ──
+          // ── Workouts: merge DB into state (accept both completed=true AND status='completed') ──
           if (dbWorkouts.length > 0) {
             const dbMapped: Workout[] = dbWorkouts
-              .filter(w => w.completed)
+              // Accept workouts from EITHER system
+              .filter(w => w.completed || (w as unknown as Record<string, unknown>)['status'] === 'completed')
               .map(w => ({
                 id: w.id,
                 date: w.date,
                 name: w.name,
                 exercises: (w.exercises as Workout['exercises']) ?? [],
                 duration: w.duration ?? undefined,
-                completed: w.completed,
+                completed: true,   // normalise — both systems consider it done
                 rating: w.rating ?? undefined,
               }));
             // Merge: keep localStorage active workouts, add any DB workouts not already present

@@ -847,6 +847,7 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   // Persist summary columns and status
   const { error: updateErr } = await db('workouts').update({
     status: 'completed',
+    completed: true,           // ← keep System A (FitnessContext) in sync
     ended_at: endedAt,
     duration,
     total_volume_kg: totalVolume,
@@ -995,10 +996,14 @@ export async function getWorkoutHistory(
   limit = 20,
   offset = 0
 ): Promise<ActiveWorkout[]> {
+  // Accept workouts from BOTH systems:
+  // • System B sets status='completed'
+  // • System A (legacy) sets completed=true but may leave status='active'
+  // After our unified migration both should be in sync, but we keep the OR as a safety net.
   const { data, error } = await db('workouts')
-    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration')
+    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration,total_volume_kg,total_sets,total_reps,calories_burned,completed')
     .eq('user_id', userId)
-    .eq('status', 'completed')
+    .or('status.eq.completed,completed.eq.true')
     .order('date', { ascending: false })
     .range(offset, offset + limit - 1);
 

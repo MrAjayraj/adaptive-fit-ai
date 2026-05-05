@@ -195,8 +195,12 @@ export default function Progress() {
     }).catch(() => setIsLoading(false));
   }, [user, activePeriod]);
 
-  // Derived workout data
-  const completedWorkouts = workouts.filter(w => w.completed);
+  // Derived workout data — normalise across BOTH systems
+  // System A sets completed=true; System B sets status='completed'.
+  // After our fix both flags should be in sync, but keep both checks as a safety net.
+  const completedWorkouts = workouts.filter(
+    w => w.completed || (w as unknown as Record<string, unknown>)['status'] === 'completed'
+  );
   const weekWorkouts      = completedWorkouts.filter(w => w.date >= weekAgo);
 
   // Stat values

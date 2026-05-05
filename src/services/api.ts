@@ -383,6 +383,8 @@ export async function upsertWorkout(workout: {
     name: workout.name,
     date: workout.date,
     completed: workout.completed,
+    // ← keep System B in sync: status mirrors the completed boolean
+    status: workout.completed ? 'completed' : 'active',
     duration: workout.duration ?? null,
     rating: workout.rating ?? null,
     split_type: workout.splitType ?? null,
