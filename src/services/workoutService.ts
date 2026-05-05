@@ -161,17 +161,57 @@ async function saveWorkoutExercises(
 
 // ─── Exercise Library ─────────────────────────────────────────────────────────
 
+const EXERCISE_SELECT = 'id,name,body_part,equipment,target_muscle,gif_url,image_url,exercise_type,secondary_muscles,is_custom,instructions';
+
+// Map common user-typed terms to actual DB body_part / target_muscle values
+const BODY_PART_ALIASES: Record<string, string[]> = {
+  'legs':      ['upper legs', 'lower legs'],
+  'leg':       ['upper legs', 'lower legs'],
+  'arms':      ['upper arms', 'lower arms'],
+  'arm':       ['upper arms', 'lower arms'],
+  'abs':       ['waist'],
+  'core':      ['waist'],
+  'glutes':    ['upper legs'],
+  'quads':     ['upper legs'],
+  'hamstrings':['upper legs'],
+  'calves':    ['lower legs'],
+  'biceps':    ['upper arms'],
+  'triceps':   ['upper arms'],
+  'lats':      ['back'],
+  'delts':     ['shoulders'],
+};
+
 export async function searchExercises(
   query: string,
   filters?: { bodyPart?: string; equipment?: string; targetMuscle?: string },
-  limit = 100
+  limit = 150
 ): Promise<Exercise[]> {
+  const term = (query ?? '').trim();
+
   let q = db('exercises')
     .select(EXERCISE_SELECT)
     .order('name', { ascending: true })
     .limit(limit);
 
-  if (query && query.trim()) q = q.ilike('name', `%${query.trim()}%`);
+  // ── Text search: match name OR body_part OR target_muscle OR equipment ──
+  if (term) {
+    // Check if the term is an alias that maps to specific body parts
+    const termLower = term.toLowerCase();
+    const aliasedParts = BODY_PART_ALIASES[termLower];
+
+    if (aliasedParts) {
+      // e.g. "legs" → body_part in ['upper legs','lower legs'] OR name ilike
+      const bodyPartFilters = aliasedParts.map(p => `body_part.eq.${p}`).join(',');
+      q = q.or(`name.ilike.%${term}%,target_muscle.ilike.%${term}%,${bodyPartFilters}`);
+    } else {
+      // Generic: match name, body_part, target_muscle, or equipment
+      q = q.or(
+        `name.ilike.%${term}%,body_part.ilike.%${term}%,target_muscle.ilike.%${term}%,equipment.ilike.%${term}%`
+      );
+    }
+  }
+
+  // ── Dropdown filters (strict equality from filter pills) ──
   if (filters?.bodyPart)     q = q.eq('body_part',    filters.bodyPart);
   if (filters?.equipment)    q = q.eq('equipment',     filters.equipment);
   if (filters?.targetMuscle) q = q.eq('target_muscle', filters.targetMuscle);
@@ -179,16 +219,14 @@ export async function searchExercises(
   const { data, error } = await q;
 
   if (error) {
-    console.warn('[workoutService] searchExercises failed, trying legacy columns:', error.message);
-    let fallback = db('exercises')
-      .select('id,name,equipment,secondary_muscles,is_custom')
-      .order('name', { ascending: true })
+    console.warn('[workoutService] searchExercises error:', error.message);
+    // Minimal fallback
+    const { data: fb, error: fbErr } = await db('exercises')
+      .select('id,name,body_part,equipment,target_muscle,secondary_muscles,is_custom')
+      .ilike('name', `%${term}%`)
       .limit(limit);
-    if (query && query.trim()) fallback = fallback.ilike('name', `%${query.trim()}%`);
-    if (filters?.equipment)    fallback = fallback.eq('equipment', filters.equipment);
-    const { data: legacyData, error: legacyErr } = await fallback;
-    if (legacyErr) throw new Error('Could not load exercises: ' + legacyErr.message);
-    return normalizeExerciseRows((legacyData ?? []) as Record<string, unknown>[]);
+    if (fbErr) throw new Error('Could not load exercises: ' + fbErr.message);
+    return normalizeExerciseRows((fb ?? []) as Record<string, unknown>[]);
   }
 
   return normalizeExerciseRows((data ?? []) as Record<string, unknown>[]);
@@ -203,15 +241,9 @@ export async function getExercisesByBodyPart(bodyPart: string): Promise<Exercise
   return normalizeExerciseRows((data ?? []) as Record<string, unknown>[]);
 }
 
-const POPULAR_NAMES = [
-  'Barbell Bench Press', 'Barbell Squat', 'Barbell Deadlift', 'Barbell Row',
-  'Overhead Press', 'Pull Up', 'Dumbbell Bench Press', 'Lat Pulldown',
-  'Romanian Deadlift', 'Leg Press', 'Barbell Curl', 'Triceps Rope Pushdown',
-  'Dumbbell Shoulder Press', 'Lateral Raise (Dumbbell)', 'Leg Curl (Machine)',
-  'Hip Thrust (Barbell)', 'Bulgarian Split Squat', 'Cable Crossover', 'Face Pull', 'Plank',
-];
 
-const EXERCISE_SELECT = 'id,name,body_part,equipment,target_muscle,gif_url,image_url,exercise_type,secondary_muscles,is_custom,instructions';
+
+
 
 function normalizeExerciseRows(rows: Record<string, unknown>[]): Exercise[] {
   return rows.map(row => ({
@@ -232,26 +264,33 @@ function normalizeExerciseRows(rows: Record<string, unknown>[]): Exercise[] {
 }
 
 export async function getPopularExercises(): Promise<Exercise[]> {
-  // Try named popular exercises first
-  const { data, error } = await db('exercises')
-    .select(EXERCISE_SELECT)
-    .in('name', POPULAR_NAMES)
-    .order('name', { ascending: true })
-    .limit(20);
+  // Fetch a diverse set covering all major muscle groups
+  const BODY_PARTS = ['chest','back','shoulders','upper arms','upper legs','lower legs','waist','cardio'];
+  const perPart = 5;
 
-  if (!error && data && data.length > 0) {
-    return normalizeExerciseRows(data as Record<string, unknown>[]);
+  const results = await Promise.all(
+    BODY_PARTS.map(bp =>
+      db('exercises')
+        .select(EXERCISE_SELECT)
+        .eq('body_part', bp)
+        .order('name', { ascending: true })
+        .limit(perPart)
+    )
+  );
+
+  const exercises: Exercise[] = [];
+  for (const { data } of results) {
+    if (data) exercises.push(...normalizeExerciseRows(data as Record<string, unknown>[]));
   }
 
-  if (error) {
-    console.warn('[workoutService] getPopularExercises named query failed:', error.message);
-  }
+  // If we got enough, return
+  if (exercises.length >= 10) return exercises;
 
-  // Fallback: return any 30 exercises ordered by name
+  // Fallback: return first 80 exercises alphabetically
   const { data: fallback, error: fallbackErr } = await db('exercises')
     .select(EXERCISE_SELECT)
     .order('name', { ascending: true })
-    .limit(30);
+    .limit(80);
 
   if (fallbackErr) {
     console.error('[workoutService] getPopularExercises fallback error:', fallbackErr.message);
