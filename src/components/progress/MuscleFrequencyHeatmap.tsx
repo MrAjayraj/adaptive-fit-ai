@@ -26,8 +26,8 @@ function getSlug(muscleName: string): Slug | null {
   if (name.includes('forearm') || name.includes('wrist')) return 'forearm';
   if (name.includes('neck')) return 'neck';
   if (name.includes('adduct')) return 'adductors';
-  if (name.includes('abduct')) return 'abductors';
-  if (name.includes('spine') || name.includes('erector')) return 'spine';
+  if (name.includes('abduct')) return 'adductors';
+  if (name.includes('spine') || name.includes('erector')) return 'upper-back'; // erector spinae → upper-back is closest valid slug
   return null;
 }
 
