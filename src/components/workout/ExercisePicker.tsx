@@ -422,13 +422,7 @@ export default function ExercisePicker({
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputRef      = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setLoading(true);
-    getPopularExercises()
-      .then(setPopularExercises)
-      .catch(() => setPopularExercises([]))
-      .finally(() => setLoading(false));
-  }, []);
+
 
   useEffect(() => {
     if (query.trim()) { runSearch(query); return; }
