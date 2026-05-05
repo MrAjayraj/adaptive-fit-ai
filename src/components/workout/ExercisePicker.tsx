@@ -255,18 +255,64 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// ─── Muscle group colors ──────────────────────────────────────────────────────
+const MUSCLE_COLORS: Record<string, string> = {
+  chest:        '#f472b6',
+  back:         '#60a5fa',
+  shoulders:    '#a78bfa',
+  'upper arms': '#fb923c',
+  biceps:       '#fb923c',
+  triceps:      '#f97316',
+  'upper legs': '#34d399',
+  quads:        '#34d399',
+  hamstrings:   '#10b981',
+  glutes:       '#06d6a0',
+  'lower legs': '#22d3ee',
+  calves:       '#22d3ee',
+  waist:        '#facc15',
+  abs:          '#facc15',
+  core:         '#facc15',
+  cardio:       '#f87171',
+  delts:        '#a78bfa',
+  lats:         '#60a5fa',
+  traps:        '#818cf8',
+  forearms:     '#fb923c',
+};
+
+function muscleColor(muscle: string): string {
+  const m = (muscle || '').toLowerCase();
+  for (const [key, color] of Object.entries(MUSCLE_COLORS)) {
+    if (m.includes(key)) return color;
+  }
+  return ACCENT;
+}
+
+function muscleEmoji(bodyPart: string): string {
+  const b = (bodyPart || '').toLowerCase();
+  if (b.includes('chest'))       return '🫁';
+  if (b.includes('back') || b.includes('lat')) return '🔙';
+  if (b.includes('shoulder'))    return '💪';
+  if (b.includes('upper arm'))   return '💪';
+  if (b.includes('upper leg'))   return '🦵';
+  if (b.includes('lower leg'))   return '🦵';
+  if (b.includes('waist') || b.includes('abs')) return '⚡';
+  if (b.includes('cardio'))      return '❤️';
+  return '🏋️';
+}
+
 // ─── Exercise row ──────────────────────────────────────────────────────────────
 function ExerciseRow({ exercise, multiSelect, isSelected, isAlreadyAdded, onRowClick, onToggle }:
   { exercise:Exercise; multiSelect:boolean; isSelected:boolean; isAlreadyAdded:boolean;
     onRowClick:()=>void; onToggle:(id:string)=>void }) {
 
   const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1) : '';
-  const parts = [
-    exercise.body_part && cap(exercise.body_part),
-    exercise.target_muscle && cap(exercise.target_muscle),
+  const mColor = muscleColor(exercise.target_muscle || exercise.body_part || '');
+  const hasGif = !!(exercise.gif_url || (exercise as any).image_url);
+  const instrCount = Array.isArray((exercise as any).instructions) ? (exercise as any).instructions.length : 0;
+  const subtitle = [
     exercise.equipment && cap(exercise.equipment),
-  ].filter(Boolean);
-  const subtitle = parts.join(' · ');
+    instrCount > 0 && `${instrCount} steps`,
+  ].filter(Boolean).join(' · ');
 
   return (
     <div
@@ -277,9 +323,10 @@ function ExerciseRow({ exercise, multiSelect, isSelected, isAlreadyAdded, onRowC
       onMouseEnter={e => (e.currentTarget as HTMLDivElement).style.background = SURFACE_UP}
       onMouseLeave={e => (e.currentTarget as HTMLDivElement).style.background = 'transparent'}>
 
-      {/* Avatar */}
-      <div style={{ width:56, height:56, borderRadius:12, background:SURFACE_UP,
-        flexShrink:0, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      {/* Avatar: GIF, image, or colored muscle placeholder */}
+      <div style={{ width:52, height:52, borderRadius:12, background:SURFACE_UP,
+        flexShrink:0, overflow:'hidden', display:'flex', alignItems:'center', justifyContent:'center',
+        border:`1px solid ${hasGif ? 'transparent' : mColor + '33'}` }}>
         {exercise.gif_url ? (
           <img src={exercise.gif_url} alt={exercise.name} loading="lazy"
             style={{ width:'100%', height:'100%', objectFit:'cover' }} />
@@ -287,28 +334,33 @@ function ExerciseRow({ exercise, multiSelect, isSelected, isAlreadyAdded, onRowC
           <img src={(exercise as any).image_url} alt={exercise.name} loading="lazy"
             style={{ width:'100%', height:'100%', objectFit:'cover' }} />
         ) : (
-          <span style={{ fontSize:20, fontWeight:700, color:ACCENT, textTransform:'uppercase' }}>
-            {exercise.name.charAt(0)}
-          </span>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:1 }}>
+            <span style={{ fontSize:22 }}>{muscleEmoji(exercise.body_part || '')}</span>
+          </div>
         )}
       </div>
 
       {/* Text */}
       <div style={{ flex:1, minWidth:0 }}>
         <p style={{ fontSize:15, fontWeight:600, color: isAlreadyAdded ? T3 : T1,
-          margin:'0 0 3px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
+          margin:'0 0 2px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis',
           textTransform:'capitalize' }}>
           {exercise.name}
         </p>
-        <p style={{ fontSize:12, color:T3, margin:0, whiteSpace:'nowrap',
-          overflow:'hidden', textOverflow:'ellipsis' }}>
-          {subtitle || 'No data'}
+        {/* Target muscle colored badge */}
+        {(exercise.target_muscle || exercise.body_part) && (
+          <span style={{ fontSize:11, fontWeight:600, color: mColor,
+            background:`${mColor}18`, borderRadius:10, padding:'1px 8px',
+            display:'inline-block', marginBottom:2, textTransform:'capitalize' }}>
+            {exercise.target_muscle || exercise.body_part}
+          </span>
+        )}
+        <p style={{ fontSize:11, color:T3, margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          {subtitle || 'Tap to view details'}
         </p>
         {exercise.is_custom && (
           <span style={{ fontSize:10, fontWeight:600, color:ACCENT, background:`${ACCENT}18`,
-            borderRadius:10, padding:'1px 7px', display:'inline-block', marginTop:3 }}>
-            Custom
-          </span>
+            borderRadius:10, padding:'1px 7px', display:'inline-block', marginTop:2 }}>Custom</span>
         )}
       </div>
 
