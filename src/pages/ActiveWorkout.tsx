@@ -1267,6 +1267,7 @@ export default function ActiveWorkout() {
             style={{ position: 'fixed', inset: 0, zIndex: 100, background: BG }}
           >
             <ExercisePicker
+              defaultFilters={workoutName === 'Cardio / HIIT' ? { bodyPart: 'cardio' } : undefined}
               onAdd={async (exercise: Exercise) => {
                 const newEx: WorkoutExerciseEntry = {
                   exercise_id:       exercise.id,

@@ -36,6 +36,10 @@ interface ExercisePickerProps {
   onClose: () => void;
   multiSelect?: boolean;
   alreadyAdded?: string[];
+  defaultFilters?: {
+    bodyPart?: string;
+    equipment?: string;
+  };
 }
 
 // ─── Shimmer ───────────────────────────────────────────────────────────────────
@@ -400,7 +404,7 @@ function SectionHeader({ title }: { title: string }) {
 
 // ─── Main component ────────────────────────────────────────────────────────────
 export default function ExercisePicker({
-  onAdd, onClose, multiSelect = false, alreadyAdded = [],
+  onAdd, onClose, multiSelect = false, alreadyAdded = [], defaultFilters,
 }: ExercisePickerProps) {
   const [query, setQuery]                       = useState('');
   const [popularExercises, setPopularExercises] = useState<Exercise[]>([]);
@@ -410,8 +414,8 @@ export default function ExercisePicker({
   const [selectedIds, setSelectedIds]           = useState<Set<string>>(new Set());
   const [detailEx, setDetailEx]                 = useState<Exercise | null>(null);
 
-  const [bodyPart, setBodyPart]     = useState('all');
-  const [equipment, setEquipment]   = useState('all');
+  const [bodyPart, setBodyPart]     = useState(defaultFilters?.bodyPart || 'all');
+  const [equipment, setEquipment]   = useState(defaultFilters?.equipment || 'all');
   const [openDropdown, setOpenDropdown] = useState<'bodyPart'|'equipment'|null>(null);
 
   const navigate      = useNavigate();
