@@ -945,29 +945,41 @@ export default function ActiveWorkout() {
     if (hook.loading || initialized) return;
     const { routineId, routineName, mode, workoutId } = locationState;
 
-    if (hook.workout) {
-      setWorkoutName(hook.workout.name ?? 'Log Workout');
-      setInitialized(true);
-      return;
-    }
+    const startRequestedWorkout = async () => {
+      // If we got here with an explicit request to start something new,
+      // and we already have a workout in progress, we should cancel the old one first.
+      // (Unless we are explicitly resuming that specific workoutId)
+      if (hook.workout && (routineId || mode === 'empty') && hook.workout.id !== workoutId) {
+        await hook.cancel();
+      }
 
-    if (workoutId) {
-      // Resume a pre-built workout created by CreateWorkout flow
-      hook.resumeWorkout(workoutId).then(() => {
+      if (workoutId && (!hook.workout || hook.workout.id !== workoutId)) {
+        // Resume a pre-built workout created by CreateWorkout flow
+        await hook.resumeWorkout(workoutId);
         setInitialized(true);
-      });
-    } else if (routineId) {
-      hook.startFromRoutine(routineId).then(() => {
+      } else if (routineId && (!hook.workout || hook.workout.routine_id !== routineId)) {
+        await hook.startFromRoutine(routineId);
         setWorkoutName(routineName ?? 'Log Workout');
         setInitialized(true);
-      });
-    } else {
-      const name = routineName ?? 'Log Workout';
-      hook.startEmpty(name).then(() => {
+      } else if (mode === 'empty' && !hook.workout) {
+        const name = routineName ?? 'Log Workout';
+        await hook.startEmpty(name);
         setWorkoutName(name);
         setInitialized(true);
-      });
-    }
+      } else if (hook.workout) {
+        // Just resume whatever was there
+        setWorkoutName(hook.workout.name ?? 'Log Workout');
+        setInitialized(true);
+      } else {
+        // Fallback: start empty
+        const name = routineName ?? 'Log Workout';
+        await hook.startEmpty(name);
+        setWorkoutName(name);
+        setInitialized(true);
+      }
+    };
+
+    startRequestedWorkout();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hook.loading, hook.workout, initialized]);
 

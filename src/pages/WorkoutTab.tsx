@@ -248,22 +248,6 @@ export default function WorkoutTab() {
   const [community, setCommunity]           = useState<SharedRoutineRow[]>([]);
   const [sharedWithMe, setSharedWithMe]     = useState<SharedRoutineRow[]>([]);
   const [communityLoading, setCommunityLoading] = useState(true);
-
-  const handleStartRoutine = (routineId: string, routineName: string) => {
-    if (activeWorkout) {
-      alert('You already have a workout in progress. Please finish or cancel it first.');
-      return;
-    }
-    navigate('/workout/active', { state: { routineId, routineName } });
-  };
-
-  const handleQuickStart = (routineName: string) => {
-    if (activeWorkout) {
-      alert('You already have a workout in progress. Please finish or cancel it first.');
-      return;
-    }
-    navigate('/workout/active', { state: { routineName, mode: 'empty' } });
-  };
   const [addingId, setAddingId]             = useState<string | null>(null);
 
   useEffect(() => {
@@ -391,7 +375,7 @@ export default function WorkoutTab() {
         ) : (
           filtered.map((r, i) => (
             <RoutineCard key={r.id} routine={r} index={i}
-              onStart={() => handleStartRoutine(r.id, r.name)}
+              onStart={() => navigate('/workout/active', { state: { routineId: r.id, routineName: r.name } })}
               onEdit={() => navigate('/routine/new', { state: { existingRoutine: { id: r.id, name: r.name, exercises: r.exercises, notes: r.notes ?? '' } } })}
               onDuplicate={() => duplicate(r.id)}
               onShare={() => setShareTarget(r)}
@@ -415,19 +399,19 @@ export default function WorkoutTab() {
           icon={<Dumbbell style={{ width:20, height:20, color:ACCENT }} />}
           title="Strength"
           subtitle="45–60 min · 320 kcal"
-          onClick={() => handleQuickStart('Strength Workout')}
+          onClick={() => navigate('/workout/active', { state: { routineName: 'Strength Workout', mode: 'empty' } })}
         />
         <QuickCard
           icon={<Zap style={{ width:20, height:20, color:'#f87171', fill:'#f87171' }} />}
           title="Cardio / HIIT"
           subtitle="20–30 min · 280 kcal"
-          onClick={() => handleQuickStart('Cardio / HIIT')}
+          onClick={() => navigate('/workout/active', { state: { routineName: 'Cardio / HIIT', mode: 'empty' } })}
         />
         <QuickCard
           icon={<span style={{ fontSize:18 }}>🥊</span>}
           title="Skill / Boxing"
           subtitle="30 min · 240 kcal"
-          onClick={() => handleQuickStart('Skill / Boxing')}
+          onClick={() => navigate('/workout/active', { state: { routineName: 'Skill / Boxing', mode: 'empty' } })}
         />
 
         {/* ── DISCOVER / Community ── */}
