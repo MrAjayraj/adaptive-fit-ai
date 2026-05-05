@@ -84,7 +84,7 @@ export function useMuscleVolume(userId: string | undefined, period: 'week' | 'mo
             acc[m].frequency += curr.frequency;
             return acc;
           }, {} as Record<string, MuscleVolume>);
-          setData(Object.values(grouped).sort((a, b) => b.volume - a.volume));
+          setData((Object.values(grouped) as MuscleVolume[]).sort((a, b) => b.volume - a.volume));
         }
         setLoading(false);
       });
@@ -217,7 +217,7 @@ export function usePersonalRecordsBoard(userId: string | undefined) {
             muscle_group: r.exercises?.target_muscle ?? r.exercises?.body_part ?? 'Other',
             record_type: r.record_type,
             value: r.value,
-            achieved_at: r.achieved_at
+            achieved_at: r.achieved_at,
           }));
           setData(formatted);
         }

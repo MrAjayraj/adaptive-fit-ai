@@ -288,8 +288,6 @@ export async function createCustomExercise(
     exercise_type:     data.exercise_type ?? 'weight_reps',
     gif_url:           data.gif_url ?? null,
     image_url:         data.image_url ?? null,
-    category:          data.category ?? 'strength',
-    difficulty:        data.difficulty ?? 'intermediate',
     is_custom:         true,
     created_by:        userId,  // ← must match auth.uid() for RLS to pass
   };
