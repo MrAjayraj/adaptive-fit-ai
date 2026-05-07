@@ -425,7 +425,6 @@ export default function Progress() {
               {bdTotal === 0 && (
                 <span style={{ fontSize: 12, color: T3 }}>No data yet</span>
               )}
-            </div>
           </div>
         </motion.div>
 
