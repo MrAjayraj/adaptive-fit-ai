@@ -20,24 +20,48 @@ export function useExerciseProgress(exerciseId: string | null, userId: string | 
       return;
     }
 
+    // Derive exercise progress directly from completed workouts JSONB
+    // (exercise_progress_view doesn't exist yet in DB)
     setLoading(true);
     supabase
-      .from('exercise_progress_view' as any)
-      .select('week_start, estimated_1rm, total_volume, session_count')
+      .from('workouts' as any)
+      .select('date, exercises')
       .eq('user_id', userId)
-      .eq('exercise_id', exerciseId)
-      .order('week_start', { ascending: true })
-      .then(({ data, error: err }) => {
-        const res = data as any[];
-        if (err) {
-          setError(err.message);
-        } else {
-          // If the metric was 'max_weight', we actually need to fetch that from a different view or we can just use 1rm.
-          // Wait, the PM asked for 'Max Weight' toggle. The view exercise_progress_view only has estimated_1rm and total_volume.
-          // I will add max_weight to the view or fetch from personal_records.
-          // Actually, let's assume the view has max_weight too (I should update the SQL to include it).
-          setData((res as unknown as ExerciseProgress[]) ?? []);
+      .eq('status', 'completed')
+      .not('exercises', 'is', null)
+      .order('date', { ascending: true })
+      .then(({ data: rows, error: err }) => {
+        if (err) { setError(err.message); setLoading(false); return; }
+        // Group by week_start, compute estimated_1rm and total_volume
+        const weekMap = new Map<string, { estimated_1rm: number; total_volume: number; session_count: number }>();
+        for (const row of (rows as any[]) ?? []) {
+          const weekStart = row.date?.substring(0, 10);
+          if (!weekStart) continue;
+          const exList: any[] = row.exercises ?? [];
+          for (const ex of exList) {
+            if (ex.exercise_id !== exerciseId && ex.name?.toLowerCase() !== exerciseId?.toLowerCase()) continue;
+            if (!weekMap.has(weekStart)) weekMap.set(weekStart, { estimated_1rm: 0, total_volume: 0, session_count: 0 });
+            const entry = weekMap.get(weekStart)!;
+            entry.session_count += 1;
+            for (const set of (ex.sets ?? []) as any[]) {
+              if (!set.is_completed) continue;
+              const w = set.weight_kg ?? 0;
+              const r = set.reps ?? 0;
+              const vol = w * r;
+              entry.total_volume += vol;
+              // Epley formula for 1RM
+              const orm = r === 1 ? w : w * (1 + r / 30);
+              if (orm > entry.estimated_1rm) entry.estimated_1rm = orm;
+            }
+          }
         }
+        const result: ExerciseProgress[] = Array.from(weekMap.entries()).map(([week_start, v]) => ({
+          week_start,
+          estimated_1rm: Math.round(v.estimated_1rm * 10) / 10,
+          total_volume: Math.round(v.total_volume),
+          session_count: v.session_count,
+        }));
+        setData(result);
         setLoading(false);
       });
   }, [userId, exerciseId, metric]);
@@ -58,33 +82,40 @@ export function useMuscleVolume(userId: string | undefined, period: 'week' | 'mo
   useEffect(() => {
     if (!userId) return;
 
-    setLoading(true);
-    
-    // Calculate the start date based on the period
+    // Derive muscle volume directly from completed workouts JSONB
+    // (muscle_volume_view doesn't exist yet in DB)
     const startDate = new Date();
     if (period === 'week') {
       startDate.setDate(startDate.getDate() - 7);
     } else {
       startDate.setMonth(startDate.getMonth() - 1);
     }
-
+    setLoading(true);
     supabase
-      .from('muscle_volume_view' as any)
-      .select('muscle, volume, frequency')
+      .from('workouts' as any)
+      .select('exercises, date')
       .eq('user_id', userId)
-      .gte('week_start', startDate.toISOString())
+      .eq('status', 'completed')
+      .gte('date', startDate.toISOString().split('T')[0])
+      .not('exercises', 'is', null)
       .then(({ data, error: err }) => {
-        const res = data as any[];
-        if (!err && res) {
-          // Group by muscle since the view returns weekly chunks
-          const grouped = res.reduce((acc, curr) => {
-            const m = curr.muscle;
-            if (!acc[m]) acc[m] = { muscle: m, volume: 0, frequency: 0 };
-            acc[m].volume += curr.volume;
-            acc[m].frequency += curr.frequency;
-            return acc;
-          }, {} as Record<string, MuscleVolume>);
-          setData((Object.values(grouped) as MuscleVolume[]).sort((a, b) => b.volume - a.volume));
+        const rows = (data as any[]) ?? [];
+        if (!err && rows.length > 0) {
+          const grouped: Record<string, MuscleVolume> = {};
+          for (const row of rows) {
+            for (const ex of (row.exercises ?? []) as any[]) {
+              const muscle: string = ex.target_muscle || ex.body_part || 'Other';
+              if (!grouped[muscle]) grouped[muscle] = { muscle, volume: 0, frequency: 0 };
+              let vol = 0;
+              for (const set of (ex.sets ?? []) as any[]) {
+                if (!set.is_completed) continue;
+                vol += (set.weight_kg ?? 0) * (set.reps ?? 0);
+              }
+              grouped[muscle].volume += vol;
+              grouped[muscle].frequency += 1;
+            }
+          }
+          setData(Object.values(grouped).sort((a, b) => b.volume - a.volume));
         }
         setLoading(false);
       });
@@ -112,39 +143,12 @@ export function useMuscleFrequency(userId: string | undefined) {
     const startStr = startDate.toISOString().split('T')[0];
 
     async function load() {
-      // Primary: muscle_volume_view (needs workout_sets populated by trigger)
-      const { data: viewRows, error: viewErr } = await supabase
-        .from('muscle_volume_view' as any)
-        .select('muscle, volume, frequency, week_start')
-        .eq('user_id', userId)
-        .gte('week_start', startDate.toISOString());
-
-      const rows = (viewRows as any[]) ?? [];
-
-      if (!viewErr && rows.length > 0) {
-        const map: Record<string, MuscleFrequency> = {};
-        rows.forEach(row => {
-          if (!map[row.muscle]) {
-            map[row.muscle] = { sessions_this_week: 0, last_trained: null, total_volume: 0 };
-          }
-          map[row.muscle].sessions_this_week += row.frequency;
-          map[row.muscle].total_volume += row.volume;
-          if (!map[row.muscle].last_trained || new Date(row.week_start) > new Date(map[row.muscle].last_trained as string)) {
-            map[row.muscle].last_trained = row.week_start;
-          }
-        });
-        setData(map);
-        setLoading(false);
-        return;
-      }
-
-      // Fallback: derive muscle frequency from completed workouts' JSONB
-      // Counts the number of distinct workout sessions each muscle appears in this week
+      // Derive muscle frequency directly from completed workouts' JSONB
       const { data: workoutRows } = await supabase
         .from('workouts' as any)
         .select('id, exercises, date')
         .eq('user_id', userId)
-        .or('status.eq.completed,completed.eq.true')
+        .eq('status', 'completed')
         .gte('date', startStr)
         .not('exercises', 'is', null);
 
@@ -168,7 +172,6 @@ export function useMuscleFrequency(userId: string | undefined) {
         }
       }
 
-      // sessions_this_week = number of distinct workouts that included this muscle
       for (const muscle of Object.keys(fallback)) {
         fallback[muscle].sessions_this_week = muscleWorkoutIds[muscle]?.size ?? 0;
       }
@@ -201,23 +204,24 @@ export function usePersonalRecordsBoard(userId: string | undefined) {
   useEffect(() => {
     if (!userId) return;
     setLoading(true);
-    // Joining with exercises to get name and muscle group
+    // Joining with exercises to get name and muscle group — but personal_records
+    // uses 'exercise' (text) not 'exercise_id' FK, so no join needed.
     supabase
       .from('personal_records' as any)
-      .select('id, exercise_id, record_type, value, achieved_at, exercises(name, target_muscle, body_part)')
+      .select('id, exercise, unit, value, set_at, workout_id')
       .eq('user_id', userId)
-      .order('achieved_at', { ascending: false })
+      .order('set_at', { ascending: false })
       .then(({ data, error: err }) => {
         const res = data as any[];
         if (!err && res) {
           const formatted = res.map((r: any) => ({
             id: r.id,
-            exercise_id: r.exercise_id,
-            exercise_name: r.exercises?.name ?? 'Unknown',
-            muscle_group: r.exercises?.target_muscle ?? r.exercises?.body_part ?? 'Other',
-            record_type: r.record_type,
+            exercise_id: r.workout_id ?? r.id,
+            exercise_name: r.exercise ?? 'Unknown',
+            muscle_group: 'Other',
+            record_type: r.unit,
             value: r.value,
-            achieved_at: r.achieved_at,
+            achieved_at: r.set_at,
           }));
           setData(formatted);
         }
@@ -250,14 +254,13 @@ export function useUserExercises(userId: string | undefined) {
         return;
       }
 
-      // Fallback: pull distinct exercises from completed workouts' JSONB
-      // This covers the case where workout_sets hasn't been populated yet
-      // (e.g., the trigger backfill hasn't run, or workout_sets is empty).
+      // Derive distinct exercises directly from completed workouts JSONB
+      // (exercise_progress_view doesn't exist yet in DB)
       const { data: workoutData } = await supabase
         .from('workouts' as any)
         .select('exercises')
         .eq('user_id', userId)
-        .or('status.eq.completed,completed.eq.true')
+        .eq('status', 'completed')
         .not('exercises', 'is', null);
 
       const workoutRows = (workoutData as any[]) ?? [];

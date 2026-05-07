@@ -1036,7 +1036,7 @@ export async function getWorkoutHistory(
   // Accept workouts from BOTH systems:
   // Both systems must now set status='completed' as the source of truth.
   const { data, error } = await db('workouts')
-    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration,total_volume_kg,total_sets,total_reps,calories_burned,completed')
+    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration,total_sets,total_reps,calories_burned')
     .eq('user_id', userId)
     .eq('status', 'completed')
     .order('date', { ascending: false })
@@ -1078,9 +1078,9 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
   startOfWeek.setHours(0, 0, 0, 0);
 
   const { data, error } = await db('workouts')
-    .select('date,duration,total_volume_kg,calories_burned')
+    .select('date,duration,exercises,calories_burned')
     .eq('user_id', userId)
-    .or('status.eq.completed,completed.eq.true')
+    .eq('status', 'completed')
     .gte('date', startOfWeek.toISOString().split('T')[0]);
 
   if (error) {
@@ -1088,7 +1088,18 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
     return null;
   }
 
-  const rows = (data ?? []) as { date: string; duration: number | null; total_volume_kg: number | null; calories_burned: number | null }[];
+  // Compute volume from JSONB exercises (no total_volume_kg column in DB)
+  const rows = (data ?? []) as { date: string; duration: number | null; exercises: unknown; calories_burned: number | null }[];
+  const calcVolume = (exercises: unknown): number => {
+    if (!Array.isArray(exercises)) return 0;
+    return (exercises as any[]).reduce((sum: number, ex: any) => {
+      const sets: any[] = Array.isArray(ex.sets) ? ex.sets : [];
+      return sum + sets.reduce((s: number, set: any) => {
+        if (!set.is_completed) return s;
+        return s + ((set.weight_kg ?? 0) * (set.reps ?? 0));
+      }, 0);
+    }, 0);
+  };
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(startOfWeek);
@@ -1104,7 +1115,7 @@ export async function getWeeklyProgress(userId: string): Promise<WeeklyProgress 
   return {
     weekLabel:      'This Week',
     workoutCount:   workoutsThisWeek,
-    totalVolume:    rows.reduce((n, r) => n + (r.total_volume_kg ?? 0), 0),
+    totalVolume:    rows.reduce((n, r) => n + calcVolume(r.exercises), 0),
     totalMinutes,
     totalCalories:  rows.reduce((n, r) => n + (r.calories_burned ?? 0), 0),
     consistencyPct,
@@ -1119,7 +1130,7 @@ export async function getActivityBreakdown(userId: string, days = 30): Promise<A
   const { data, error } = await db('workouts')
     .select('name,duration')
     .eq('user_id', userId)
-    .or('status.eq.completed,completed.eq.true')
+    .eq('status', 'completed')
     .gte('date', since.toISOString().split('T')[0]);
 
   if (error) {
