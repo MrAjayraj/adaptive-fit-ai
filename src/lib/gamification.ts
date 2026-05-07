@@ -32,11 +32,9 @@ export interface GamificationState {
   stepsToday: number;
   stepDate: string | null;
   totalSteps: number;
-  dailyMissions: DailyMission[];
-  missionsDate: string | null;
+  totalSteps: number;
   streakFreezeUsed: boolean;
   streakFreezeWeek: string | null;
-  completedMissionIds: string[];
 }
 
 // ── Achievement Definitions ──
@@ -78,8 +76,6 @@ export const ACHIEVEMENT_DEFS: Achievement[] = [
 
   // MILESTONES
   { id: 'profile_complete', name: 'Profile Complete', description: 'Fill out all profile fields', icon: '📋', rarity: 'common', category: 'milestones' },
-  { id: 'mission_accomplished', name: 'Mission Accomplished', description: 'Complete all 3 daily missions', icon: '✅', rarity: 'common', category: 'milestones' },
-  { id: 'mission_master', name: 'Mission Master', description: 'Complete all daily missions 7 days in a row', icon: '🎯', rarity: 'rare', category: 'milestones' },
   { id: 'challenge_accepted', name: 'Challenge Accepted', description: 'Join your first challenge', icon: '⚔️', rarity: 'common', category: 'milestones' },
   { id: 'challenge_champion', name: 'Challenge Champion', description: 'Complete 5 challenges', icon: '🏆', rarity: 'epic', category: 'milestones', progressTarget: 5 },
   { id: 'level_10', name: 'Level 10', description: 'Reach Level 10', icon: '💎', rarity: 'rare', category: 'milestones', progressTarget: 10 },
@@ -96,8 +92,6 @@ export const XP_STREAK_BONUS = 50;
 export const XP_STEPS_PER_1000 = 25;
 export const XP_CHALLENGE_COMPLETE = 500;
 export const XP_LOG_STATS = 25;
-export const XP_ALL_MISSIONS = 100;
-
 export const XP_SOURCES = [
   { label: 'Complete a workout', xp: XP_WORKOUT_COMPLETE },
   { label: 'Set a new PR', xp: XP_NEW_PR },
@@ -105,7 +99,6 @@ export const XP_SOURCES = [
   { label: 'Walk 1,000 steps', xp: XP_STEPS_PER_1000 },
   { label: 'Complete a challenge', xp: XP_CHALLENGE_COMPLETE },
   { label: 'Log body stats', xp: XP_LOG_STATS },
-  { label: 'Complete all daily missions', xp: XP_ALL_MISSIONS },
 ];
 
 // ── Level Tiers ──
@@ -132,79 +125,6 @@ export function xpForNextLevel(level: number): number {
   return level * level * 50;
 }
 
-// ── Mission Pool ──
-
-export interface MissionTemplate {
-  type: DailyMission['type'];
-  title: string;
-  description: string;
-  xpReward: number;
-  target: number;
-}
-
-export const MISSION_POOL: MissionTemplate[] = [
-  { type: 'workout', title: 'Complete a workout', description: 'Finish any workout today', xpReward: 100, target: 1 },
-  { type: 'steps', title: 'Walk 5,000 steps', description: 'Get moving today', xpReward: 50, target: 5000 },
-  { type: 'steps', title: 'Walk 8,000 steps', description: 'Push your step count', xpReward: 75, target: 8000 },
-  { type: 'weight_log', title: 'Log your weight', description: 'Track your progress', xpReward: 25, target: 1 },
-  { type: 'stretch', title: 'Complete a stretch routine', description: '10 min stretching session', xpReward: 30, target: 1 },
-  { type: 'hydration', title: 'Drink 8 glasses of water', description: 'Stay hydrated all day', xpReward: 25, target: 1 },
-  { type: 'workout', title: 'Do 50 push-ups', description: 'Bodyweight challenge', xpReward: 40, target: 1 },
-  { type: 'steps', title: 'Walk 10,000 steps', description: 'Hit the big milestone', xpReward: 100, target: 10000 },
-];
-
-function hashCode(str: string): number {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) - hash) + str.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-export function getSelectedMissions(dateStr: string): MissionTemplate[] {
-  const hash = hashCode(dateStr);
-  const pool = [...MISSION_POOL];
-  const selected: MissionTemplate[] = [];
-  for (let i = 0; i < 3 && pool.length > 0; i++) {
-    const idx = ((hash * (i + 1) * 13) >>> 0) % pool.length;
-    selected.push(pool.splice(idx, 1)[0]);
-  }
-  return selected;
-}
-
-export function generateDailyMissions(
-  todayStr: string,
-  hasWorkoutToday: boolean,
-  stepsToday: number,
-  weightLoggedToday: boolean,
-  completedMissionIds: string[] = []
-): DailyMission[] {
-  const selected = getSelectedMissions(todayStr);
-
-  return selected.map((m, i) => {
-    const id = `mission-${todayStr}-${i}`;
-    let progress = 0;
-    let completed = completedMissionIds.includes(id);
-
-    if (!completed) {
-      if (m.type === 'workout' && m.title.toLowerCase().includes('complete a workout')) {
-        completed = hasWorkoutToday;
-        progress = hasWorkoutToday ? 1 : 0;
-      } else if (m.type === 'steps') {
-        progress = Math.min(stepsToday, m.target);
-        completed = stepsToday >= m.target;
-      } else if (m.type === 'weight_log') {
-        completed = weightLoggedToday;
-        progress = weightLoggedToday ? 1 : 0;
-      }
-    } else {
-      progress = m.target;
-    }
-
-    return { id, title: m.title, description: m.description, xpReward: m.xpReward, type: m.type, target: m.target, progress, completed };
-  });
-}
 
 // ── PR Detection ──
 

@@ -85,6 +85,7 @@ const ActiveWorkout       = lazy(() => import('./pages/ActiveWorkout'));
 const CreateRoutine       = lazy(() => import('./pages/CreateRoutine'));
 const ExplorePrograms     = lazy(() => import('./pages/ExplorePrograms'));
 const CreateCustomExercise = lazy(() => import('./pages/CreateCustomExercise'));
+const WorkoutHistoryScreen = lazy(() => import('./pages/WorkoutHistoryScreen'));
 
 // ── Suspense fallback ─────────────────────────────────────────────────────────
 function PageLoader() {
@@ -169,6 +170,7 @@ const App = () => (
                   <Route path="/workout-summary" element={<ProtectedRoute><WorkoutSummary /></ProtectedRoute>} />
                   {/* Hevy-style workout routes */}
                   <Route path="/workouts"        element={<ProtectedRoute><WorkoutTab /></ProtectedRoute>} />
+                  <Route path="/workout/history" element={<ProtectedRoute><WorkoutHistoryScreen /></ProtectedRoute>} />
                   <Route path="/workout/active"  element={<ProtectedRoute><ActiveWorkout /></ProtectedRoute>} />
                   <Route path="/routine/new"     element={<ProtectedRoute><CreateRoutine /></ProtectedRoute>} />
                   <Route path="/routine/:id"     element={<ProtectedRoute><CreateRoutine /></ProtectedRoute>} />

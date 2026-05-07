@@ -1,6 +1,7 @@
 // src/hooks/useDailyTracker.ts
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useFitness } from '@/context/FitnessContext';
 import {
   getUserTrackers, toggleTrackerCompletion, updateTrackerValue,
   createTracker, deleteTracker, createDefaultTrackers,
@@ -12,6 +13,7 @@ const todayStr = () => new Date().toISOString().split('T')[0];
 
 export function useDailyTracker(date = todayStr()) {
   const { user } = useAuth();
+  const { addXP } = useFitness();
   const [trackers, setTrackers] = useState<TrackerItem[]>([]);
   const [score, setScore]       = useState<DailyScore | null>(null);
   const [mood, setMood]         = useState<MoodLog | null>(null);
@@ -69,7 +71,22 @@ export function useDailyTracker(date = todayStr()) {
     ]);
     setTrackers(fresh);
     setScore(s);
-  }, [user, date]);
+    
+    // Check if we just completed it
+    const tracker = trackers.find(t => t.id === trackerId);
+    const wasCompleted = tracker?.completion?.is_completed;
+    const isNowCompleted = !wasCompleted;
+    if (isNowCompleted && tracker) {
+      addXP(25, `Completed: ${tracker.title}`);
+      
+      // Bonus if all trackers are completed
+      const totalCount = fresh.length;
+      const completedCount = fresh.filter(f => f.completion?.is_completed).length;
+      if (totalCount > 0 && completedCount === totalCount) {
+        addXP(100, 'All Daily Trackers Completed!');
+      }
+    }
+  }, [user, date, trackers, addXP]);
 
   const updateValue = useCallback(async (
     trackerId: string,
@@ -95,7 +112,22 @@ export function useDailyTracker(date = todayStr()) {
     ]);
     setTrackers(fresh);
     setScore(s);
-  }, [user, date]);
+
+    // Check if we just completed it
+    const tracker = trackers.find(t => t.id === trackerId);
+    const wasCompleted = tracker?.completion?.is_completed;
+    const isNowCompleted = value >= targetValue;
+    if (!wasCompleted && isNowCompleted && tracker) {
+      addXP(25, `Completed: ${tracker.title}`);
+
+      // Bonus if all trackers are completed
+      const totalCount = fresh.length;
+      const completedCount = fresh.filter(f => f.completion?.is_completed).length;
+      if (totalCount > 0 && completedCount === totalCount) {
+        addXP(100, 'All Daily Trackers Completed!');
+      }
+    }
+  }, [user, date, trackers, addXP]);
 
   const addTracker = useCallback(async (data: Partial<TrackerItem>) => {
     if (!user) return;

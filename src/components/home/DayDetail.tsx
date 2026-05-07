@@ -35,6 +35,7 @@ interface DayDetailProps {
 }
 
 function WorkoutCard({ workout }: { workout: Workout }) {
+  const isCompleted = workout.completed || workout.status === 'completed';
   const exCount = workout.exercises?.length ?? 0;
   const volume  = workout.exercises?.reduce((sum, ex) =>
     sum + ex.sets.filter(s => s.completed).reduce((ss, s) => ss + s.weight * s.reps, 0)
@@ -52,14 +53,14 @@ function WorkoutCard({ workout }: { workout: Workout }) {
         <div style={{
           width: 40, height: 40,
           borderRadius: 12,
-          background:   'rgba(226,255,49,0.08)',
-          border:       '1px solid rgba(226,255,49,0.15)',
+          background:   isCompleted ? 'rgba(226,255,49,0.08)' : 'rgba(255,255,255,0.05)',
+          border:       isCompleted ? '1px solid rgba(226,255,49,0.15)' : '1px solid rgba(255,255,255,0.1)',
           display:      'flex',
           alignItems:   'center',
           justifyContent: 'center',
           flexShrink:   0,
         }}>
-          <Dumbbell style={{ width: 18, height: 18, color: ACCENT }} />
+          <Dumbbell style={{ width: 18, height: 18, color: isCompleted ? ACCENT : '#aaa' }} />
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T1, marginBottom: 2 }}>
@@ -74,15 +75,15 @@ function WorkoutCard({ workout }: { workout: Workout }) {
           </div>
         </div>
         <div style={{
-          background:   'rgba(12,255,156,0.12)',
-          color:        '#0CFF9C',
+          background:   isCompleted ? 'rgba(12,255,156,0.12)' : 'rgba(255,255,255,0.08)',
+          color:        isCompleted ? '#0CFF9C' : '#aaa',
           fontSize:     10,
           fontWeight:   700,
           padding:      '3px 8px',
           borderRadius: 20,
           letterSpacing: '0.06em',
         }}>
-          DONE
+          {isCompleted ? 'DONE' : 'PLANNED'}
         </div>
       </div>
 

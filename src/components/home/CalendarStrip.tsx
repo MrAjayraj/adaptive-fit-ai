@@ -20,8 +20,7 @@ const TOTAL_DAYS  = 15;
 
 export interface DayActivity {
   hasWorkout:  boolean;
-  hasMissions: boolean;
-  hasTodos:    boolean;
+  hasPlannedWorkout?: boolean;
 }
 
 interface Props {
@@ -195,23 +194,16 @@ export function CalendarStrip({ selectedDate, onSelectDate, activities = {} }: P
                     display: 'block',
                     width: 5, height: 5,
                     borderRadius: '50%',
-                    background: isSel ? 'rgba(0,0,0,0.35)' : '#0CFF9C',
+                    background: isSel ? 'rgba(0,0,0,0.5)' : '#0CFF9C',
                   }} />
                 )}
-                {act?.hasMissions && (
+                {act?.hasPlannedWorkout && !act?.hasWorkout && (
                   <span style={{
                     display: 'block',
                     width: 5, height: 5,
                     borderRadius: '50%',
-                    background: isSel ? 'rgba(0,0,0,0.35)' : '#FFB800',
-                  }} />
-                )}
-                {act?.hasTodos && !act?.hasMissions && !act?.hasWorkout && (
-                  <span style={{
-                    display: 'block',
-                    width: 4, height: 4,
-                    borderRadius: '50%',
-                    background: isSel ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.3)',
+                    border: `1.5px solid ${isSel ? 'rgba(0,0,0,0.5)' : '#0CFF9C'}`,
+                    background: 'transparent',
                   }} />
                 )}
               </div>

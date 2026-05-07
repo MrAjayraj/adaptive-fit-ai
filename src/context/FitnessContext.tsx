@@ -1,13 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
-import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup, WorkoutExercise, DailyMission } from '@/types/fitness';
+import { UserProfile, Workout, ProgressEntry, WeeklyStats, MuscleGroup, WorkoutExercise } from '@/types/fitness';
 import { WorkoutTemplate } from '@/types/workout-templates';
 import { generateWeeklyPlan } from '@/lib/workout-generator';
 import {
   GamificationState, PR, Achievement, ACHIEVEMENT_DEFS,
   XP_WORKOUT_COMPLETE, XP_NEW_PR, XP_STREAK_BONUS, XP_LOG_STATS,
   calculateLevel, detectNewPRs, updateStreak, checkAchievements,
-  generateDailyMissions, getSelectedMissions,
 } from '@/lib/gamification';
 import {
   UserRank, RankHistoryEntry, getActiveSeason, getTierFromRP,
@@ -59,8 +58,7 @@ interface FitnessContextType extends FitnessState {
   updateWeight: (weight: number, date?: string, idToEdit?: string | null) => Promise<void>;
   deleteWeightLog: (id: string) => Promise<void>;
   refreshProfile: () => Promise<void>;
-  getDailyMissions: () => DailyMission[];
-  completeMission: (id: string) => void;
+  addXP: (amount: number, reason?: string) => void;
   signOut: () => Promise<void>;
   awardRP: (amount: number, reason: string) => void;
 }
@@ -80,11 +78,8 @@ const defaultGamification: GamificationState = {
   stepsToday: 0,
   stepDate: null,
   totalSteps: 0,
-  dailyMissions: [],
-  missionsDate: null,
   streakFreezeUsed: false,
   streakFreezeWeek: null,
-  completedMissionIds: [],
 };
 
 function getDefaultSeasonalRank(): SeasonalRankState {
@@ -271,7 +266,6 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
               stepsToday: prev.gamification.stepsToday,
               stepDate: prev.gamification.stepDate,
               totalSteps: Math.max(Number(dbGamification.total_steps), prev.gamification.totalSteps),
-              completedMissionIds: dbGamification.completed_mission_ids ?? prev.gamification.completedMissionIds,
               streakFreezeUsed: dbGamification.streak_freeze_used ?? prev.gamification.streakFreezeUsed,
             };
           }
@@ -587,7 +581,6 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         total_steps: prev.gamification.totalSteps,
         prs: updatedPRs,
         achievements: mergedAchievements,
-        completed_mission_ids: prev.gamification.completedMissionIds,
         streak_freeze_used: streakResult.usedFreeze ? true : prev.gamification.streakFreezeUsed,
       }).catch(e => console.error('syncGamification failed:', e));
 
@@ -704,37 +697,25 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     return state.progressHistory.reduce((s, p) => s + p.totalVolume, 0);
   }, [state.progressHistory]);
 
-  const getDailyMissions = useCallback((): DailyMission[] => {
-    const today = new Date().toISOString().split('T')[0];
-    const hasWorkoutToday = state.workouts.some(w => w.date === today && w.completed);
-    const steps = state.gamification.stepDate === today ? state.gamification.stepsToday : 0;
-    const weightLoggedToday = state.weightLogs.some(l => l.logged_at === today);
-    return generateDailyMissions(today, hasWorkoutToday, steps, weightLoggedToday, state.gamification.completedMissionIds);
-  }, [state.workouts, state.gamification.stepsToday, state.gamification.stepDate, state.weightLogs, state.gamification.completedMissionIds]);
-
-  const completeMission = useCallback((missionId: string) => {
+  const addXP = useCallback((amount: number, reason?: string) => {
     setState(prev => {
-      if (prev.gamification.completedMissionIds.includes(missionId)) return prev;
-      const today = new Date().toISOString().split('T')[0];
-      const selected = getSelectedMissions(today);
-      const idxStr = missionId.split('-').pop() || '';
-      const idx = /^\d+$/.test(idxStr) ? parseInt(idxStr, 10) : -1;
-      const xpGain = (idx >= 0 && selected[idx]) ? selected[idx].xpReward : 0;
-      const newIds = [...prev.gamification.completedMissionIds, missionId];
-      const newXP = prev.gamification.xp + xpGain;
+      const newXP = prev.gamification.xp + amount;
       return {
         ...prev,
         gamification: {
           ...prev.gamification,
-          completedMissionIds: newIds,
           xp: newXP,
           level: calculateLevel(newXP),
         },
       };
     });
-    awardRP(RP.MISSION_COMPLETE, 'Completed a daily mission');
-  }, [awardRP]);
-
+    if (reason) {
+      toast.success(`+${amount} XP: ${reason}`, {
+        icon: '⭐',
+        duration: 3000,
+      });
+    }
+  }, []);
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
     localStorage.removeItem(STORAGE_KEY);
@@ -766,8 +747,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         updateWeight,
         deleteWeightLog,
         refreshProfile,
-        getDailyMissions,
-        completeMission,
+        addXP,
         signOut,
         awardRP,
       }}

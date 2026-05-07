@@ -14,10 +14,12 @@ import { useFitness } from '@/context/FitnessContext';
 import {
   getActiveWorkout, getCommunityRoutines,
   getRoutinesSharedWithMe, cloneSharedRoutine,
+  getWorkoutHistory
 } from '@/services/workoutService';
 import type { ActiveWorkout, Routine, SharedRoutineRow } from '@/services/workoutService';
 import { useRoutines } from '@/hooks/useRoutines';
 import { ShareRoutineSheet } from '@/components/workout/ShareRoutineSheet';
+import { WorkoutDetailSheet } from '@/components/workout/WorkoutDetailSheet';
 import BottomNav from '@/components/layout/BottomNav';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
@@ -250,9 +252,14 @@ export default function WorkoutTab() {
   const [communityLoading, setCommunityLoading] = useState(true);
   const [addingId, setAddingId]             = useState<string | null>(null);
 
+  // History
+  const [recentWorkouts, setRecentWorkouts] = useState<ActiveWorkout[]>([]);
+  const [selectedHistory, setSelectedHistory] = useState<ActiveWorkout | null>(null);
+
   useEffect(() => {
     if (!user) return;
     getActiveWorkout(user.id).then(setActiveWorkout).catch(() => {});
+    getWorkoutHistory(user.id, 5).then(setRecentWorkouts).catch(() => {});
   }, [user]);
 
   useEffect(() => {
@@ -352,6 +359,42 @@ export default function WorkoutTab() {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ── RECENT WORKOUTS ── */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:T3, letterSpacing:'0.08em' }}>RECENT WORKOUTS</span>
+            {recentWorkouts.length > 0 && (
+              <span style={{ fontSize:11, fontWeight:700, color:T3, background:CARD2,
+                borderRadius:10, padding:'1px 7px' }}>{recentWorkouts.length}</span>
+            )}
+          </div>
+          {recentWorkouts.length > 0 && (
+            <button onClick={() => navigate('/workout/history')} style={{ background:'transparent', border:'none', color:ACCENT, fontSize:12, fontWeight:600, cursor:'pointer' }}>See All</button>
+          )}
+        </div>
+
+        {recentWorkouts.length === 0 ? (
+          <div style={{ textAlign:'center', padding:'20px 16px', background:CARD, borderRadius:14,
+            border:`1px dashed ${BORDER}`, marginBottom:24 }}>
+            <p style={{ fontSize:13, fontWeight:600, color:T2, margin:0 }}>No completed workouts yet.</p>
+          </div>
+        ) : (
+          <div style={{ display:'flex', gap:10, overflowX:'auto', paddingBottom:14, marginBottom:10, scrollbarWidth:'none' }}>
+            {recentWorkouts.map(w => (
+              <motion.div key={w.id} whileTap={{ scale:0.96 }} onClick={() => setSelectedHistory(w)}
+                style={{ flexShrink:0, width:180, background:CARD, borderRadius:14, padding:14, border:`1px solid ${BORDER}`, cursor:'pointer' }}>
+                <h4 style={{ margin:'0 0 4px', fontSize:14, fontWeight:700, color:T1, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                  {w.name}
+                </h4>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', color:T2, fontSize:12, marginTop:8 }}>
+                  <span>{timeAgo(w.date)}</span>
+                  <span>{w.duration ? `${w.duration}m` : ''}</span>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
 
         {/* ── MY ROUTINES ── */}
         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
@@ -466,6 +509,11 @@ export default function WorkoutTab() {
           <ShareRoutineSheet routine={shareTarget} userId={user?.id ?? ''}
             userProfile={profile ? { name: profile.name, avatar_url: profile.avatarUrl } : null}
             onClose={() => setShareTarget(null)} onShared={loadCommunity} />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {selectedHistory && (
+          <WorkoutDetailSheet workout={selectedHistory} onClose={() => setSelectedHistory(null)} />
         )}
       </AnimatePresence>
 

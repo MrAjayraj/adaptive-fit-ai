@@ -1034,13 +1034,11 @@ export async function getWorkoutHistory(
   offset = 0
 ): Promise<ActiveWorkout[]> {
   // Accept workouts from BOTH systems:
-  // • System B sets status='completed'
-  // • System A (legacy) sets completed=true but may leave status='active'
-  // After our unified migration both should be in sync, but we keep the OR as a safety net.
+  // Both systems must now set status='completed' as the source of truth.
   const { data, error } = await db('workouts')
     .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration,total_volume_kg,total_sets,total_reps,calories_burned,completed')
     .eq('user_id', userId)
-    .or('status.eq.completed,completed.eq.true')
+    .eq('status', 'completed')
     .order('date', { ascending: false })
     .range(offset, offset + limit - 1);
 

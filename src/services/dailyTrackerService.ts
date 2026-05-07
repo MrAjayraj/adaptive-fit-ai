@@ -288,6 +288,15 @@ export async function createDefaultTrackers(userId: string): Promise<void> {
 
 // ── Daily Score ────────────────────────────────────────────────────────────────
 
+export async function getAllTrackerCompletions(userId: string): Promise<TrackerCompletion[]> {
+  const { data, error } = await db('tracker_completions')
+    .select('*')
+    .eq('user_id', userId)
+    .order('completion_date', { ascending: false });
+  if (error) return [];
+  return (data ?? []) as TrackerCompletion[];
+}
+
 export async function calculateDailyScore(userId: string, date = todayStr()): Promise<DailyScore | null> {
   // Step 1: trackers for today
   const trackers = await getUserTrackers(userId, date);

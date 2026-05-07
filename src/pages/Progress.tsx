@@ -6,13 +6,16 @@ import { useFitness } from '@/context/FitnessContext';
 import { useAuth } from '@/context/AuthContext';
 import { getWeeklyProgress, getActivityBreakdown } from '@/services/workoutService';
 import type { WeeklyProgress, ActivityBreakdown } from '@/services/workoutService';
-import { getMoodHistory, getScoreHistory } from '@/services/dailyTrackerService';
-import type { MoodLog, DailyScore } from '@/services/dailyTrackerService';
+import { getMoodHistory, getScoreHistory, getAllTrackerCompletions } from '@/services/dailyTrackerService';
+import type { MoodLog, DailyScore, TrackerCompletion } from '@/services/dailyTrackerService';
+import { supabase } from '@/integrations/supabase/client';
 import BottomNav from '@/components/layout/BottomNav';
 import { ExerciseProgressChart } from '@/components/progress/ExerciseProgressChart';
 import { MuscleVolumeBreakdown } from '@/components/progress/MuscleVolumeBreakdown';
 import { MuscleFrequencyHeatmap } from '@/components/progress/MuscleFrequencyHeatmap';
 import { PersonalRecordsBoard } from '@/components/progress/PersonalRecordsBoard';
+import { WorkoutHeatmap } from '@/components/progress/WorkoutHeatmap';
+import { HabitStreaks } from '@/components/progress/HabitStreaks';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const ACCENT      = '#0CFF9C';
 const BG          = '#0C1015';
@@ -173,6 +176,7 @@ export default function Progress() {
   const [isLoading, setIsLoading]           = useState(true);
   const [moodHistory, setMoodHistory]       = useState<MoodLog[]>([]);
   const [scoreHistory, setScoreHistory]     = useState<DailyScore[]>([]);
+  const [trackerComps, setTrackerComps]     = useState<any[]>([]);
 
   // Derived: week ago date string
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -359,15 +363,38 @@ export default function Progress() {
               <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Consistency</div>
             </div>
 
+            {/* Completion Rate */}
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Target size={15} color={ACCENT} />
+                <span style={{ fontSize: 22, fontWeight: 800, color: T1, lineHeight: 1.1 }}>
+                  {workouts.filter(w => w.completed || w.status === 'completed').length > 0 
+                    ? Math.round((workouts.filter(w => w.completed || w.status === 'completed').length / Math.max(1, workouts.filter(w => w.date && w.date <= new Date().toISOString().split('T')[0]).length)) * 100)
+                    : 0}%
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Completion Rate</div>
+            </div>
+
           </div>
         </motion.div>
 
-        {/* ── SECTION 2: Activity Breakdown ─────────────────────────────────── */}
-        <div style={sectionLabel}>Activity Breakdown</div>
+        {/* ── SECTION 2: Habit/Tracker Streaks ──────────────────────────────── */}
+        <div style={sectionLabel}>Daily Habits</div>
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.28, delay: 0.05 }}
+        >
+          {user && <HabitStreaks userId={user.id} />}
+        </motion.div>
+
+        {/* ── SECTION 3: Activity Breakdown ─────────────────────────────────── */}
+        <div style={sectionLabel}>Activity Breakdown</div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.1 }}
           style={{ ...card, padding: '16px 12px' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -394,11 +421,22 @@ export default function Progress() {
                   </div>
                 );
               })}
+            </div>
               {bdTotal === 0 && (
                 <span style={{ fontSize: 12, color: T3 }}>No data yet</span>
               )}
             </div>
           </div>
+        </motion.div>
+
+        {/* ── SECTION 4: Heatmap ────────────────────────────────────────────── */}
+        <div style={sectionLabel}>Workout Heatmap (180 Days)</div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.15 }}
+        >
+          <WorkoutHeatmap workouts={workouts} />
         </motion.div>
 
         {/* ── SECTION 3: Weight Progress ──────────────────────────────────────── */}

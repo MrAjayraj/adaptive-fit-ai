@@ -8,15 +8,12 @@ import {
   Star, Footprints, CalendarDays, Plus, Minus,
 } from 'lucide-react';
 import BottomNav from '@/components/layout/BottomNav';
-import DailyMissions from '@/components/gamification/DailyMissions';
 import { motion, AnimatePresence } from 'framer-motion';
 import { upsertTodaySteps } from '@/services/api';
 import { useNotifications } from '@/hooks/useNotifications';
-import { useTodos } from '@/hooks/useTodos';
 import { useDailyTracker } from '@/hooks/useDailyTracker';
 import { CalendarStrip } from '@/components/home/CalendarStrip';
 import { DayDetail } from '@/components/home/DayDetail';
-import { TodoList } from '@/components/home/TodoList';
 import { DailyScoreRing } from '@/components/home/DailyScoreRing';
 import { EmotionTracker } from '@/components/home/EmotionTracker';
 import { DailyTrackerSection } from '@/components/home/DailyTrackerSection';
@@ -287,8 +284,6 @@ export default function Dashboard() {
   const today = useMemo(() => new Date().toISOString().split('T')[0], []);
   const [selectedDate, setSelectedDate] = useState<string>(today);
 
-  // ── Todos for selected date ──────────────────────────────
-  const { todos, isLoading: todosLoading, toggle: toggleTodo, remove: removeTodo, add: addTodo } = useTodos(selectedDate);
 
   // ── Daily tracker + mood + score (today only) ─────────────
   const {
@@ -314,9 +309,14 @@ export default function Dashboard() {
   const calendarActivities = useMemo<Record<string, DayActivity>>(() => {
     const map: Record<string, DayActivity> = {};
     for (const w of workouts) {
-      if (!w.date || !w.completed) continue;
-      const existing = map[w.date] ?? { hasWorkout: false, hasMissions: false, hasTodos: false };
-      map[w.date] = { ...existing, hasWorkout: true };
+      if (!w.date) continue;
+      const isCompleted = w.completed || w.status === 'completed';
+      const existing = map[w.date] ?? { hasWorkout: false, hasPlannedWorkout: false };
+      map[w.date] = { 
+        ...existing, 
+        hasWorkout: existing.hasWorkout || isCompleted,
+        hasPlannedWorkout: existing.hasPlannedWorkout || !isCompleted
+      };
     }
     return map;
   }, [workouts]);
@@ -338,7 +338,7 @@ export default function Dashboard() {
 
   // Workouts for the selected (past/future) date
   const dateWorkouts = useMemo(
-    () => workouts.filter(w => w.date === selectedDate && w.completed),
+    () => workouts.filter(w => w.date === selectedDate),
     [workouts, selectedDate]
   );
 
@@ -536,27 +536,6 @@ export default function Dashboard() {
 
               {/* Weekly Recap */}
               <WeeklyRecapBanner onNavigate={() => navigate('/progress')} />
-
-              {/* Daily Missions */}
-              <motion.div variants={itemVariants} ref={missionsRef} className="pb-2">
-                <div className="flex items-center justify-between mb-4 px-1">
-                  <h3 className="text-lg font-black text-white uppercase tracking-tight">Missions</h3>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-2">
-                  <DailyMissions />
-                </div>
-              </motion.div>
-
-              {/* ── TO-DO LIST ─────────────────────────────────────────── */}
-              <motion.div variants={itemVariants} className="pb-4">
-                <TodoList
-                  todos={todos}
-                  isLoading={todosLoading}
-                  onToggle={toggleTodo}
-                  onDelete={removeTodo}
-                  onAdd={addTodo}
-                />
-              </motion.div>
 
             </motion.div>
           )}
