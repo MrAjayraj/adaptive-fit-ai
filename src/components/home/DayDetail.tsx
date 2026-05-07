@@ -27,8 +27,6 @@ interface DayDetailProps {
   date: string;
   workouts: Workout[];          // already filtered to this date
   steps?: number;
-  missionsDone?: number;
-  missionsTotal?: number;
   todaySteps?: number;
   isFuture?: boolean;
   onPlanWorkout?: () => void;
@@ -143,14 +141,11 @@ function StatRow({ icon, label, value }: { icon: React.ReactNode; label: string;
 export function DayDetail({
   date,
   workouts,
-  missionsDone,
-  missionsTotal,
   isFuture = false,
   onPlanWorkout,
 }: DayDetailProps) {
   const hasWorkouts  = workouts.length > 0;
-  const hasMissions  = (missionsTotal ?? 0) > 0;
-  const hasAnything  = hasWorkouts || hasMissions;
+  const hasAnything  = hasWorkouts;
 
   return (
     <AnimatePresence mode="wait">
@@ -234,23 +229,7 @@ export function DayDetail({
           </div>
         )}
 
-        {/* Stats */}
-        {hasMissions && (
-          <div style={{
-            background:   SURFACE,
-            border:       `1px solid ${BORDER}`,
-            borderRadius: 14,
-            padding:      '4px 16px',
-          }}>
-            {hasMissions && (
-              <StatRow
-                icon={<CheckCircle2 style={{ width: 14, height: 14, color: ACCENT }} />}
-                label="Missions"
-                value={`${missionsDone}/${missionsTotal} complete`}
-              />
-            )}
-          </div>
-        )}
+
       </motion.div>
     </AnimatePresence>
   );

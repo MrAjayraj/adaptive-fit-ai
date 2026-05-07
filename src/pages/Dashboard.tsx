@@ -277,7 +277,7 @@ function WorkoutBento() {
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const { profile, workouts, gamification, getWeeklyStats, setStepsToday, getDailyMissions } = useFitness();
+  const { profile, workouts, gamification, getWeeklyStats, setStepsToday } = useFitness();
   const navigate = useNavigate();
   const missionsRef = useRef<HTMLDivElement>(null);
 
@@ -453,19 +453,8 @@ export default function Dashboard() {
               <DayDetail
                 date={selectedDate}
                 workouts={dateWorkouts}
-                missionsDone={missions.filter(m => m.completed).length}
-                missionsTotal={missions.length}
                 isFuture={isFuture}
                 onPlanWorkout={() => navigate('/create-workout?type=strength')}
-              />
-
-              {/* To-do list is always shown regardless of date */}
-              <TodoList
-                todos={todos}
-                isLoading={todosLoading}
-                onToggle={toggleTodo}
-                onDelete={removeTodo}
-                onAdd={addTodo}
               />
             </motion.div>
           )}
