@@ -13,21 +13,19 @@ export function HabitStreaks({ userId }: HabitStreaksProps) {
 
   useEffect(() => {
     async function load() {
-      const { data: items } = await supabase
-        .from('tracker_items')
+      const { data: items } = await (supabase as any).from('tracker_items')
         .select('*')
         .eq('user_id', userId)
         .eq('is_active', true);
         
-      const { data: comps } = await supabase
-        .from('tracker_completions')
+      const { data: comps } = await (supabase as any).from('tracker_completions')
         .select('*')
         .eq('user_id', userId)
         .eq('is_completed', true)
         .order('completion_date', { ascending: false });
 
-      if (items) setTrackers(items as TrackerItem[]);
-      if (comps) setCompletions(comps as TrackerCompletion[]);
+      if (items) setTrackers(items as any[]);
+      if (comps) setCompletions(comps as any[]);
     }
     load();
   }, [userId]);
@@ -75,7 +73,7 @@ export function HabitStreaks({ userId }: HabitStreaksProps) {
   if (streaks.length === 0) return null;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12 }}>
+    <div className="flex overflow-x-auto no-scrollbar gap-3 px-4 pb-2 -mx-4 scroll-smooth">
       {streaks.map(t => (
         <div key={t.id} style={{
           background: 'rgba(255,255,255,0.03)',
@@ -84,14 +82,17 @@ export function HabitStreaks({ userId }: HabitStreaksProps) {
           padding: 12,
           display: 'flex',
           alignItems: 'center',
-          gap: 12
+          gap: 12,
+          flexShrink: 0,
+          width: '180px'
         }}>
           <div style={{
             width: 36, height: 36,
             borderRadius: 10,
             background: t.streak > 0 ? 'rgba(255,184,0,0.15)' : 'rgba(255,255,255,0.05)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16
+            fontSize: 16,
+            flexShrink: 0
           }}>
             {t.icon}
           </div>

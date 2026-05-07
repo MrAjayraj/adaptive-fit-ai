@@ -16,6 +16,7 @@ import { MuscleVolumeBreakdown } from '@/components/progress/MuscleVolumeBreakdo
 import { PersonalRecordsBoard } from '@/components/progress/PersonalRecordsBoard';
 import { WorkoutHeatmap } from '@/components/progress/WorkoutHeatmap';
 import { HabitStreaks } from '@/components/progress/HabitStreaks';
+import { TrainerInsight } from '@/components/progress/TrainerInsight';
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const ACCENT      = '#0CFF9C';
 const BG          = '#0C1015';
@@ -200,18 +201,39 @@ export default function Progress() {
   }, [user, activePeriod]);
 
   // Derived workout data — normalise across BOTH systems
-  // System A sets completed=true; System B sets status='completed'.
-  // After our fix both flags should be in sync, but keep both checks as a safety net.
   const completedWorkouts = workouts.filter(
     w => w.completed || (w as unknown as Record<string, unknown>)['status'] === 'completed'
   );
-  const weekWorkouts      = completedWorkouts.filter(w => w.date >= weekAgo);
+
+  // Week boundary calculations for trends
+  const now = new Date();
+  const startOfThisWeek = new Date(now);
+  startOfThisWeek.setDate(now.getDate() - now.getDay());
+  startOfThisWeek.setHours(0, 0, 0, 0);
+  
+  const startOfLastWeek = new Date(startOfThisWeek);
+  startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+  
+  const thisWeekStr = startOfThisWeek.toISOString().split('T')[0];
+  const lastWeekStr = startOfLastWeek.toISOString().split('T')[0];
+  
+  const thisWeekWorkouts = completedWorkouts.filter(w => w.date >= thisWeekStr);
+  const lastWeekWorkouts = completedWorkouts.filter(w => w.date >= lastWeekStr && w.date < thisWeekStr);
 
   // Stat values
-  const statWorkouts    = weeklyProgress?.workoutCount ?? weekWorkouts.length;
-  const statCalories    = weeklyProgress?.totalCalories ?? 0;
-  const statMinutes     = weeklyProgress?.totalMinutes ?? 0;
-  const statConsistency = weeklyProgress?.consistencyPct ?? 0;
+  const statWorkouts    = weeklyProgress?.workoutCount ?? thisWeekWorkouts.length;
+  const statCalories    = weeklyProgress?.totalCalories ?? thisWeekWorkouts.reduce((sum, w) => sum + (((w as any).calories_burned || (w as any).caloriesBurned) || 0), 0);
+  const statMinutes     = weeklyProgress?.totalMinutes ?? thisWeekWorkouts.reduce((sum, w) => sum + (w.duration || 0), 0);
+  const statConsistency = weeklyProgress?.consistencyPct ?? Math.round((thisWeekWorkouts.length / 7) * 100);
+
+  // Last week stat values for trends
+  const lastWorkouts = lastWeekWorkouts.length;
+  const lastCalories = lastWeekWorkouts.reduce((sum, w) => sum + (((w as any).calories_burned || (w as any).caloriesBurned) || 0), 0);
+  const lastMinutes  = lastWeekWorkouts.reduce((sum, w) => sum + (w.duration || 0), 0);
+
+  const workoutsDiff = statWorkouts - lastWorkouts;
+  const caloriesDiffPct = lastCalories > 0 ? Math.round(((statCalories - lastCalories) / lastCalories) * 100) : (statCalories > 0 ? 100 : 0);
+  const minutesDiffPct = lastMinutes > 0 ? Math.round(((statMinutes - lastMinutes) / lastMinutes) * 100) : (statMinutes > 0 ? 100 : 0);
 
   const caloriesDisplay = statCalories > 1000
     ? `${(statCalories / 1000).toFixed(1)}k`
@@ -312,8 +334,13 @@ export default function Progress() {
       {/* ── CONTENT ─────────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 100 }}>
 
+        {/* ── AI TRAINER INSIGHT ────────────────────────────────────────────── */}
+        <div style={{ padding: '16px 16px 0' }}>
+          <TrainerInsight />
+        </div>
+
         {/* ── SECTION 1: This Week Overview ─────────────────────────────────── */}
-        <div style={sectionLabel}>This Week</div>
+        <div style={sectionLabel}>This Week Overview</div>
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -323,57 +350,61 @@ export default function Progress() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
             {/* Workouts */}
-            <div>
+            <div className="flex flex-col">
               <div style={{ fontSize: 22, fontWeight: 800, color: T1, lineHeight: 1.1 }}>
                 {statWorkouts}
               </div>
-              <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Workouts</div>
+              <div className="flex items-center justify-between mt-1">
+                <div style={{ fontSize: 11, color: T3 }}>Workouts</div>
+                <div className={`text-[10px] font-medium px-1.5 rounded ${workoutsDiff >= 0 ? 'text-green-500 bg-green-500/10' : 'text-red-500 bg-red-500/10'}`}>
+                  {workoutsDiff > 0 ? '+' : ''}{workoutsDiff} vs last
+                </div>
+              </div>
             </div>
 
             {/* Calories */}
-            <div>
+            <div className="flex flex-col">
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Flame size={15} color={ACCENT} />
                 <span style={{ fontSize: 22, fontWeight: 800, color: T1, lineHeight: 1.1 }}>
                   {caloriesDisplay}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Calories</div>
+              <div className="flex items-center justify-between mt-1">
+                <div style={{ fontSize: 11, color: T3 }}>Calories</div>
+                <div className={`text-[10px] font-medium px-1.5 rounded ${caloriesDiffPct >= 0 ? 'text-green-500 bg-green-500/10' : 'text-red-500 bg-red-500/10'}`}>
+                  {caloriesDiffPct > 0 ? '+' : ''}{caloriesDiffPct}%
+                </div>
+              </div>
             </div>
 
             {/* Minutes */}
-            <div>
+            <div className="flex flex-col">
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Clock size={15} color={T3} />
                 <span style={{ fontSize: 22, fontWeight: 800, color: T1, lineHeight: 1.1 }}>
                   {statMinutes}
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Minutes</div>
+              <div className="flex items-center justify-between mt-1">
+                <div style={{ fontSize: 11, color: T3 }}>Minutes</div>
+                <div className={`text-[10px] font-medium px-1.5 rounded ${minutesDiffPct >= 0 ? 'text-green-500 bg-green-500/10' : 'text-red-500 bg-red-500/10'}`}>
+                  {minutesDiffPct > 0 ? '+' : ''}{minutesDiffPct}%
+                </div>
+              </div>
             </div>
 
             {/* Consistency */}
-            <div>
+            <div className="flex flex-col">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <ConsistencyRing pct={statConsistency} />
                 <span style={{ fontSize: 22, fontWeight: 800, color: T1, lineHeight: 1.1 }}>
                   {statConsistency}%
                 </span>
               </div>
-              <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Consistency</div>
-            </div>
-
-            {/* Completion Rate */}
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Target size={15} color={ACCENT} />
-                <span style={{ fontSize: 22, fontWeight: 800, color: T1, lineHeight: 1.1 }}>
-                  {workouts.filter(w => w.completed || w.status === 'completed').length > 0 
-                    ? Math.round((workouts.filter(w => w.completed || w.status === 'completed').length / Math.max(1, workouts.filter(w => w.date && w.date <= new Date().toISOString().split('T')[0]).length)) * 100)
-                    : 0}%
-                </span>
+              <div className="flex items-center justify-between mt-1">
+                <div style={{ fontSize: 11, color: T3 }}>Consistency</div>
               </div>
-              <div style={{ fontSize: 11, color: T3, marginTop: 4 }}>Completion Rate</div>
             </div>
 
           </div>
@@ -426,79 +457,6 @@ export default function Progress() {
                 <span style={{ fontSize: 12, color: T3 }}>No data yet</span>
               )}
           </div>
-        </motion.div>
-
-        {/* ── SECTION 4: Heatmap ────────────────────────────────────────────── */}
-        <div style={sectionLabel}>Workout Heatmap (180 Days)</div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: 0.15 }}
-        >
-          <WorkoutHeatmap workouts={workouts} />
-        </motion.div>
-
-        {/* ── SECTION 3: Weight Progress ──────────────────────────────────────── */}
-        <div style={sectionLabel}>Weight History</div>
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.28, delay: 0.1 }}
-          style={card}
-        >
-          {weightLogs.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '16px 0' }}>
-              <div style={{ fontSize: 13, color: T3, marginBottom: 12 }}>No weight data yet</div>
-              <button
-                onClick={() => navigate('/profile')}
-                style={{
-                  background: GREEN_GLOW,
-                  border: `1px solid ${ACCENT}`,
-                  borderRadius: 8,
-                  color: ACCENT,
-                  fontSize: 13,
-                  fontWeight: 700,
-                  padding: '8px 20px',
-                  cursor: 'pointer',
-                }}
-              >
-                Log Weight
-              </button>
-            </div>
-          ) : (
-            <div>
-              {weightChartData.length >= 2 ? (
-                <div style={{ overflow: 'hidden', borderRadius: 8 }}>
-                  <WeightLineChart data={weightChartData} />
-                </div>
-              ) : null}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
-                <div>
-                  <div style={{ fontSize: 22, fontWeight: 800, color: T1 }}>
-                    {latestWeight != null ? `${latestWeight} kg` : '--'}
-                  </div>
-                  <div style={{ fontSize: 11, color: T3, marginTop: 2 }}>Latest weight</div>
-                </div>
-                {weightLogs.length >= 2 && (() => {
-                  const diff = weightLogs[0].weight - weightLogs[weightLogs.length - 1].weight;
-                  const diffAbs = Math.abs(diff).toFixed(1);
-                  const isDown = diff < 0;
-                  return (
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{
-                        fontSize: 14,
-                        fontWeight: 700,
-                        color: isDown ? ACCENT : '#EF4444',
-                      }}>
-                        {isDown ? '↓' : '↑'} {diffAbs} kg
-                      </div>
-                      <div style={{ fontSize: 11, color: T3 }}>All time</div>
-                    </div>
-                  );
-                })()}
-              </div>
-            </div>
-          )}
         </motion.div>
 
         {/* ── SECTION 4: Mood Trend ──────────────────────────────────────────── */}
@@ -673,7 +631,7 @@ export default function Progress() {
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {weeks.map((week, wi) => (
-                    <div key={wi} style={{ display: 'flex', gap: 4 }}>
+                     <div key={wi} style={{ display: 'flex', gap: 4 }}>
                       {week.map((day, di) => (
                         <div
                           key={di}
@@ -704,24 +662,98 @@ export default function Progress() {
           })()}
         </motion.div>
 
-        {/* ── NEW SECTIONS: Strength, Volume, PRs ─────────────────────────────── */}
+        {/* ── SECTION 7: Workout Heatmap ──────────────────────────────────────── */}
+        <div style={sectionLabel}>Workout Heatmap (180 Days)</div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.3 }}
+        >
+          <WorkoutHeatmap workouts={workouts} />
+        </motion.div>
+
+        {/* ── SECTION 8: Strength Progress ─────────────────────────────── */}
         <div style={sectionLabel}>Strength Progress</div>
         <div style={{ padding: '0 16px' }}>
           <ExerciseProgressChart />
         </div>
 
+        {/* ── SECTION 9: Muscle Volume ─────────────────────────────── */}
         <div style={sectionLabel}>Muscle Volume</div>
         <div style={{ padding: '0 16px' }}>
           <MuscleVolumeBreakdown />
         </div>
 
-
+        {/* ── SECTION 10: Personal Records ─────────────────────────────── */}
         <div style={sectionLabel}>Personal Records</div>
         <div style={{ padding: '0 16px' }}>
           <PersonalRecordsBoard />
         </div>
 
-        {/* ── SECTION 7: Recent Workouts ──────────────────────────────────────── */}
+        {/* ── SECTION 11: Weight Progress ──────────────────────────────────────── */}
+        <div style={sectionLabel}>Weight History</div>
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, delay: 0.35 }}
+          style={card}
+        >
+          {weightLogs.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '16px 0' }}>
+              <div style={{ fontSize: 13, color: T3, marginBottom: 12 }}>No weight data yet</div>
+              <button
+                onClick={() => navigate('/profile')}
+                style={{
+                  background: GREEN_GLOW,
+                  border: `1px solid ${ACCENT}`,
+                  borderRadius: 8,
+                  color: ACCENT,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: '8px 20px',
+                  cursor: 'pointer',
+                }}
+              >
+                Log Weight
+              </button>
+            </div>
+          ) : (
+            <div>
+              {weightChartData.length >= 2 ? (
+                <div style={{ overflow: 'hidden', borderRadius: 8 }}>
+                  <WeightLineChart data={weightChartData} />
+                </div>
+              ) : null}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: T1 }}>
+                    {latestWeight != null ? `${latestWeight} kg` : '--'}
+                  </div>
+                  <div style={{ fontSize: 11, color: T3, marginTop: 2 }}>Latest weight</div>
+                </div>
+                {weightLogs.length >= 2 && (() => {
+                  const diff = weightLogs[0].weight - weightLogs[weightLogs.length - 1].weight;
+                  const diffAbs = Math.abs(diff).toFixed(1);
+                  const isDown = diff < 0;
+                  return (
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{
+                        fontSize: 14,
+                        fontWeight: 700,
+                        color: isDown ? ACCENT : '#EF4444',
+                      }}>
+                        {isDown ? '↓' : '↑'} {diffAbs} kg
+                      </div>
+                      <div style={{ fontSize: 11, color: T3 }}>All time</div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+        </motion.div>
+
+        {/* ── SECTION 12: Recent Workouts ──────────────────────────────────────── */}
         <div style={sectionLabel}>Recent Workouts</div>
 
         {recentWorkouts.length === 0 ? (

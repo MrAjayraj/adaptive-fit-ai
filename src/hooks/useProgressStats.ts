@@ -20,47 +20,24 @@ export function useExerciseProgress(exerciseId: string | null, userId: string | 
       return;
     }
 
-    // Derive exercise progress directly from completed workouts JSONB
-    // (exercise_progress_view doesn't exist yet in DB)
     setLoading(true);
     supabase
-      .from('workouts' as any)
-      .select('date, exercises')
+      .from('exercise_progress_view' as any)
+      .select('week_start, estimated_1rm, total_volume, session_count, max_weight')
       .eq('user_id', userId)
-      .eq('status', 'completed')
-      .not('exercises', 'is', null)
-      .order('date', { ascending: true })
+      .eq('exercise_id', exerciseId)
+      .order('week_start', { ascending: true })
       .then(({ data: rows, error: err }) => {
         if (err) { setError(err.message); setLoading(false); return; }
-        // Group by week_start, compute estimated_1rm and total_volume
-        const weekMap = new Map<string, { estimated_1rm: number; total_volume: number; session_count: number }>();
-        for (const row of (rows as any[]) ?? []) {
-          const weekStart = row.date?.substring(0, 10);
-          if (!weekStart) continue;
-          const exList: any[] = row.exercises ?? [];
-          for (const ex of exList) {
-            if (ex.exercise_id !== exerciseId && ex.name?.toLowerCase() !== exerciseId?.toLowerCase()) continue;
-            if (!weekMap.has(weekStart)) weekMap.set(weekStart, { estimated_1rm: 0, total_volume: 0, session_count: 0 });
-            const entry = weekMap.get(weekStart)!;
-            entry.session_count += 1;
-            for (const set of (ex.sets ?? []) as any[]) {
-              if (!set.is_completed) continue;
-              const w = set.weight_kg ?? 0;
-              const r = set.reps ?? 0;
-              const vol = w * r;
-              entry.total_volume += vol;
-              // Epley formula for 1RM
-              const orm = r === 1 ? w : w * (1 + r / 30);
-              if (orm > entry.estimated_1rm) entry.estimated_1rm = orm;
-            }
-          }
-        }
-        const result: ExerciseProgress[] = Array.from(weekMap.entries()).map(([week_start, v]) => ({
-          week_start,
-          estimated_1rm: Math.round(v.estimated_1rm * 10) / 10,
-          total_volume: Math.round(v.total_volume),
-          session_count: v.session_count,
+        
+        const result: ExerciseProgress[] = ((rows as any[]) ?? []).map(r => ({
+          week_start: r.week_start.substring(0, 10),
+          estimated_1rm: Math.round((r.estimated_1rm ?? 0) * 10) / 10,
+          total_volume: Math.round(r.total_volume ?? 0),
+          session_count: r.session_count ?? 0,
+          max_weight: Math.round((r.max_weight ?? 0) * 10) / 10,
         }));
+        
         setData(result);
         setLoading(false);
       });
@@ -82,40 +59,32 @@ export function useMuscleVolume(userId: string | undefined, period: 'week' | 'mo
   useEffect(() => {
     if (!userId) return;
 
-    // Derive muscle volume directly from completed workouts JSONB
-    // (muscle_volume_view doesn't exist yet in DB)
     const startDate = new Date();
     if (period === 'week') {
       startDate.setDate(startDate.getDate() - 7);
     } else {
       startDate.setMonth(startDate.getMonth() - 1);
     }
+
     setLoading(true);
     supabase
-      .from('workouts' as any)
-      .select('exercises, date')
+      .from('muscle_volume_daily_view' as any)
+      .select('muscle_group, volume, frequency')
       .eq('user_id', userId)
-      .eq('status', 'completed')
-      .gte('date', startDate.toISOString().split('T')[0])
-      .not('exercises', 'is', null)
+      .gte('day_start', startDate.toISOString().split('T')[0])
       .then(({ data, error: err }) => {
         const rows = (data as any[]) ?? [];
         if (!err && rows.length > 0) {
           const grouped: Record<string, MuscleVolume> = {};
           for (const row of rows) {
-            for (const ex of (row.exercises ?? []) as any[]) {
-              const muscle: string = ex.target_muscle || ex.body_part || 'Other';
-              if (!grouped[muscle]) grouped[muscle] = { muscle, volume: 0, frequency: 0 };
-              let vol = 0;
-              for (const set of (ex.sets ?? []) as any[]) {
-                if (!set.is_completed) continue;
-                vol += (set.weight_kg ?? 0) * (set.reps ?? 0);
-              }
-              grouped[muscle].volume += vol;
-              grouped[muscle].frequency += 1;
-            }
+            const muscle = row.muscle_group || 'other';
+            if (!grouped[muscle]) grouped[muscle] = { muscle, volume: 0, frequency: 0 };
+            grouped[muscle].volume += row.volume || 0;
+            grouped[muscle].frequency += row.frequency || 0;
           }
           setData(Object.values(grouped).sort((a, b) => b.volume - a.volume));
+        } else {
+          setData([]);
         }
         setLoading(false);
       });
@@ -194,7 +163,7 @@ export function useUserExercises(userId: string | undefined) {
       }
 
       // Derive distinct exercises directly from completed workouts JSONB
-      // (exercise_progress_view doesn't exist yet in DB)
+      // (fallback if triggers haven't populated workout_sets yet)
       const { data: workoutData } = await supabase
         .from('workouts' as any)
         .select('exercises')
@@ -215,18 +184,6 @@ export function useUserExercises(userId: string | undefined) {
       }
 
       setExercises(Array.from(fallbackMap.entries()).map(([id, name]) => ({ id, name })));
-
-      // If still empty, load ALL exercises from the exercises table as last resort
-      // This ensures the dropdown is never empty even before any workout is completed
-      if (fallbackMap.size === 0) {
-        const { data: exRows } = await supabase
-          .from('exercises' as any)
-          .select('id, name, target_muscle, body_part')
-          .order('name', { ascending: true })
-          .limit(500);
-        const exList = (exRows as any[]) ?? [];
-        setExercises(exList.map((e: any) => ({ id: e.id, name: e.name })));
-      }
     }
 
     load();

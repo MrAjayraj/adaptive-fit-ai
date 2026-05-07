@@ -75,63 +75,73 @@ export function ExerciseProgressChart() {
         ))}
       </div>
 
-      <div className="h-48 w-full mb-4">
+      <div className="h-48 w-full mb-4 relative">
         {loading ? (
           <div className="w-full h-full flex items-center justify-center text-gray-500">Loading...</div>
         ) : error ? (
           <div className="w-full h-full flex items-center justify-center text-red-400">Error loading data</div>
-        ) : formattedData.length < 3 ? (
+        ) : formattedData.length === 0 ? (
           <div className="w-full h-full flex items-center justify-center text-gray-500 text-sm">
-            Log more sessions to see your trend
+            Log sessions to see your progress
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={formattedData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
-              <XAxis 
-                dataKey="dateLabel" 
-                stroke="#666" 
-                fontSize={12} 
-                tickLine={false}
-                axisLine={false}
-                dy={10}
-              />
-              <YAxis 
-                stroke="#666" 
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-                dx={-10}
-                domain={['auto', 'auto']}
-              />
-              <RechartsTooltip 
-                contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
-                itemStyle={{ color: '#22c55e' }}
-              />
-              <Line 
-                type="monotone" 
-                dataKey="value" 
-                stroke="#22c55e" 
-                strokeWidth={3}
-                dot={(props) => {
-                  const { cx, cy, index } = props;
-                  const isPR = formattedData[index].value === bestValue;
-                  return (
-                    <Dot 
-                      key={index} 
-                      cx={cx} 
-                      cy={cy} 
-                      r={isPR ? 6 : 4} 
-                      fill={isPR ? '#eab308' : '#1a1a1a'} 
-                      stroke={isPR ? '#eab308' : '#22c55e'} 
-                      strokeWidth={2} 
-                    />
-                  );
-                }}
-                activeDot={{ r: 6, fill: '#22c55e', stroke: '#1a1a1a', strokeWidth: 2 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <>
+            {formattedData.length > 0 && formattedData.length < 3 && (
+              <div className="absolute top-0 left-0 w-full flex justify-center z-10 pointer-events-none mt-2">
+                <div className="bg-black/60 px-3 py-1 rounded-full text-xs text-gray-400 backdrop-blur-sm">
+                  Log 3+ sessions to see your trend line
+                </div>
+              </div>
+            )}
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={formattedData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
+                <XAxis 
+                  dataKey="dateLabel" 
+                  stroke="#666" 
+                  fontSize={12} 
+                  tickLine={false}
+                  axisLine={false}
+                  dy={10}
+                />
+                <YAxis 
+                  stroke="#666" 
+                  fontSize={12}
+                  tickLine={false}
+                  axisLine={false}
+                  dx={-10}
+                  domain={['auto', 'auto']}
+                />
+                <RechartsTooltip 
+                  contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px' }}
+                  itemStyle={{ color: '#22c55e' }}
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  stroke="#22c55e" 
+                  strokeWidth={3}
+                  isAnimationActive={false}
+                  dot={(props) => {
+                    const { cx, cy, index } = props;
+                    const isPR = formattedData[index].value === bestValue && formattedData.length > 0;
+                    return (
+                      <Dot 
+                        key={index} 
+                        cx={cx} 
+                        cy={cy} 
+                        r={isPR ? 6 : 4} 
+                        fill={isPR ? '#eab308' : '#1a1a1a'} 
+                        stroke={isPR ? '#eab308' : '#22c55e'} 
+                        strokeWidth={2} 
+                      />
+                    );
+                  }}
+                  activeDot={{ r: 6, fill: '#22c55e', stroke: '#1a1a1a', strokeWidth: 2 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </>
         )}
       </div>
 
