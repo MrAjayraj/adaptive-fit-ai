@@ -279,7 +279,6 @@ function WorkoutBento() {
 export default function Dashboard() {
   const { profile, workouts, gamification, getWeeklyStats, setStepsToday } = useFitness();
   const navigate = useNavigate();
-  const missionsRef = useRef<HTMLDivElement>(null);
 
   const today = useMemo(() => new Date().toISOString().split('T')[0], []);
   const [selectedDate, setSelectedDate] = useState<string>(today);
@@ -321,8 +320,6 @@ export default function Dashboard() {
     return map;
   }, [workouts]);
 
-  // ── Today's missions ──────────────────────────────────────
-  const missions = getDailyMissions();
 
   // ── Misc ─────────────────────────────────────────────────
   const { unreadCount } = useNotifications();
