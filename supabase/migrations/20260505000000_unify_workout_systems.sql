@@ -105,22 +105,10 @@ JOIN exercises e ON e.id = ws.exercise_id
 WHERE ws.is_warmup = false
 GROUP BY ws.user_id, ws.exercise_id, e.name, e.primary_muscle, DATE_TRUNC('week', ws.logged_at);
 
--- 7. Rebuild muscle_volume_view to use target_muscle as fallback for primary_muscle
-CREATE OR REPLACE VIEW muscle_volume_view AS
-SELECT
-  ws.user_id,
-  COALESCE(e.primary_muscle, e.target_muscle, 'other') AS muscle,
-  DATE_TRUNC('week', ws.logged_at)                      AS week_start,
-  SUM(ws.weight_kg * ws.reps)                           AS volume,
-  COUNT(DISTINCT ws.workout_session_id)                 AS frequency
-FROM workout_sets ws
-JOIN exercises e ON e.id = ws.exercise_id
-WHERE ws.is_warmup = false
-GROUP BY ws.user_id, COALESCE(e.primary_muscle, e.target_muscle, 'other'), DATE_TRUNC('week', ws.logged_at);
+
 
 -- 8. Grant SELECT on views to authenticated role (required for PostgREST)
 GRANT SELECT ON exercise_progress_view TO authenticated;
-GRANT SELECT ON muscle_volume_view TO authenticated;
 
 -- 9. Ensure workout_sets has RLS policy allowing SELECT (was only ALL)
 DROP POLICY IF EXISTS "Users read own workout_sets" ON workout_sets;

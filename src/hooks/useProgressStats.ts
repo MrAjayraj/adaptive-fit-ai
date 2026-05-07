@@ -124,67 +124,6 @@ export function useMuscleVolume(userId: string | undefined, period: 'week' | 'mo
   return { data, loading };
 }
 
-export interface MuscleFrequency {
-  sessions_this_week: number;
-  last_trained: string | null;
-  total_volume: number;
-}
-
-export function useMuscleFrequency(userId: string | undefined) {
-  const [data, setData] = useState<Record<string, MuscleFrequency>>({});
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (!userId) return;
-    setLoading(true);
-
-    const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 7);
-    const startStr = startDate.toISOString().split('T')[0];
-
-    async function load() {
-      // Derive muscle frequency directly from completed workouts' JSONB
-      const { data: workoutRows } = await supabase
-        .from('workouts' as any)
-        .select('id, exercises, date')
-        .eq('user_id', userId)
-        .eq('status', 'completed')
-        .gte('date', startStr)
-        .not('exercises', 'is', null);
-
-      const fallback: Record<string, MuscleFrequency> = {};
-      const muscleWorkoutIds: Record<string, Set<string>> = {};
-
-      for (const w of (workoutRows as any[]) ?? []) {
-        for (const ex of (w.exercises ?? []) as any[]) {
-          const muscle: string = ex.target_muscle || ex.body_part || '';
-          if (!muscle) continue;
-          const hasCompletedSet = (ex.sets ?? []).some((s: any) => s.is_completed);
-          if (!hasCompletedSet) continue;
-
-          if (!muscleWorkoutIds[muscle]) muscleWorkoutIds[muscle] = new Set();
-          muscleWorkoutIds[muscle].add(w.id);
-
-          if (!fallback[muscle]) fallback[muscle] = { sessions_this_week: 0, last_trained: null, total_volume: 0 };
-          fallback[muscle].last_trained = fallback[muscle].last_trained
-            ? (w.date > fallback[muscle].last_trained! ? w.date : fallback[muscle].last_trained)
-            : w.date;
-        }
-      }
-
-      for (const muscle of Object.keys(fallback)) {
-        fallback[muscle].sessions_this_week = muscleWorkoutIds[muscle]?.size ?? 0;
-      }
-
-      setData(fallback);
-      setLoading(false);
-    }
-
-    load();
-  }, [userId]);
-
-  return { data, loading };
-}
 
 
 export interface PersonalRecordBoardItem {

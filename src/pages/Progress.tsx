@@ -12,7 +12,7 @@ import { supabase } from '@/integrations/supabase/client';
 import BottomNav from '@/components/layout/BottomNav';
 import { ExerciseProgressChart } from '@/components/progress/ExerciseProgressChart';
 import { MuscleVolumeBreakdown } from '@/components/progress/MuscleVolumeBreakdown';
-import { MuscleFrequencyHeatmap } from '@/components/progress/MuscleFrequencyHeatmap';
+
 import { PersonalRecordsBoard } from '@/components/progress/PersonalRecordsBoard';
 import { WorkoutHeatmap } from '@/components/progress/WorkoutHeatmap';
 import { HabitStreaks } from '@/components/progress/HabitStreaks';
@@ -716,10 +716,6 @@ export default function Progress() {
           <MuscleVolumeBreakdown />
         </div>
 
-        <div style={sectionLabel}>Muscle Heatmap</div>
-        <div style={{ padding: '0 16px' }}>
-          <MuscleFrequencyHeatmap />
-        </div>
 
         <div style={sectionLabel}>Personal Records</div>
         <div style={{ padding: '0 16px' }}>

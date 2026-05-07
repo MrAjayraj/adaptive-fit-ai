@@ -47,18 +47,6 @@ JOIN exercises e ON e.id = ws.exercise_id
 WHERE ws.is_warmup = false
 GROUP BY ws.user_id, ws.exercise_id, e.name, e.primary_muscle, DATE_TRUNC('week', ws.logged_at);
 
--- D) Create Supabase VIEW: muscle_volume_view
-CREATE OR REPLACE VIEW muscle_volume_view AS
-SELECT
-  ws.user_id,
-  e.primary_muscle AS muscle,
-  DATE_TRUNC('week', ws.logged_at) AS week_start,
-  SUM(ws.weight_kg * ws.reps) AS volume,
-  COUNT(DISTINCT ws.workout_session_id) AS frequency
-FROM workout_sets ws
-JOIN exercises e ON e.id = ws.exercise_id
-WHERE ws.is_warmup = false
-GROUP BY ws.user_id, e.primary_muscle, DATE_TRUNC('week', ws.logged_at);
 
 -- E) Create table: personal_records (if it doesn't already exist or alter it)
 -- Since it already exists in types.ts (with exercise text, notes, set_at, unit, value, workout_id),
