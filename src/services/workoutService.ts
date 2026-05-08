@@ -826,36 +826,25 @@ export async function reorderExercises(
 }
 
 export async function completeWorkout(workoutId: string): Promise<WorkoutSummaryData | null> {
-  // Fetch full workout row
-  const { data: workoutData, error: fetchErr } = await db('workouts')
+  const endedAt = new Date().toISOString();
+
+  // ─── Step 1: Fetch workout to calculate stats ──────────────────────────────
+  // We attempt a fetch, but we do NOT abort if it fails — the critical UPDATE
+  // (step 2) must always run so the workout leaves 'active' state.
+  const { data: workoutData } = await db('workouts')
     .select('id,name,exercises,started_at,duration,routine_id,user_id,date')
     .eq('id', workoutId)
     .single();
 
-  if (fetchErr || !workoutData) {
-    console.error('[workoutService] completeWorkout fetch error:', fetchErr?.message);
-    return null;
-  }
-
   const workout = workoutData as {
-    id: string;
-    name: string;
-    exercises: WorkoutExerciseEntry[];
-    started_at: string | null;
-    duration: number | null;
-    routine_id: string | null;
-    user_id: string;
-    date: string;
-  };
+    id: string; name: string; exercises: WorkoutExerciseEntry[];
+    started_at: string | null; duration: number | null;
+    routine_id: string | null; user_id: string; date: string;
+  } | null;
 
-  const exercises: WorkoutExerciseEntry[] = workout.exercises ?? [];
-
-  // Calculate stats from completed sets
-  let totalVolume = 0;
-  let totalSets = 0;
-  let totalReps = 0;
-  let prCount = 0;
-
+  // Calculate stats only when we have data
+  let totalVolume = 0, totalSets = 0, totalReps = 0, prCount = 0;
+  const exercises: WorkoutExerciseEntry[] = workout?.exercises ?? [];
   for (const ex of exercises) {
     for (const s of ex.sets ?? []) {
       if (s.is_completed) {
@@ -866,25 +855,20 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
       }
     }
   }
-
-  // Duration in minutes: use stored or compute from started_at
-  let duration = workout.duration ?? 0;
-  if (duration === 0 && workout.started_at) {
-    const startMs = new Date(workout.started_at).getTime();
-    duration = Math.round((Date.now() - startMs) / 60000);
+  let duration = workout?.duration ?? 0;
+  if (duration === 0 && workout?.started_at) {
+    duration = Math.round((Date.now() - new Date(workout.started_at).getTime()) / 60000);
   }
-
+  const exerciseCount = exercises.length;
   const caloriesBurned = Math.round(duration * 6.5);
   const xpEarned = 100 + prCount * 200;
   const rpEarned = 15 + prCount * 25;
-  const exerciseCount = exercises.length;
 
-  const endedAt = new Date().toISOString();
-
-  // Persist summary columns and status
+  // ─── Step 2: Critical UPDATE — always runs regardless of fetch result ───────
+  // This is the single source of truth. Once this succeeds the workout is done.
   const { error: updateErr } = await db('workouts').update({
     status: 'completed',
-    completed: true,           // ← keep System A (FitnessContext) in sync
+    completed: true,
     ended_at: endedAt,
     duration,
     total_volume_kg: totalVolume,
@@ -895,60 +879,49 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   }).eq('id', workoutId);
 
   if (updateErr) {
-    console.error('[workoutService] completeWorkout update error:', updateErr.message);
+    console.error('[workoutService] completeWorkout UPDATE failed:', updateErr.message);
     return null;
   }
 
-  // Create shareable card
-  const shareToken = `${workout.id.slice(0, 8)}-${Math.random().toString(36).slice(2, 8)}`;
-  const cardData = {
-    workout_name: workout.name,
-    duration,
-    total_volume_kg: totalVolume,
-    total_sets: totalSets,
-    total_reps: totalReps,
-    exercise_count: exerciseCount,
-    calories_burned: caloriesBurned,
-    pr_count: prCount,
-    xp_earned: xpEarned,
-    rp_earned: rpEarned,
-    completed_at: endedAt,
-    exercises: exercises.map(ex => ({ name: ex.name, sets: ex.sets.filter(s => s.is_completed).length })),
-  };
+  console.log('[workoutService] completeWorkout ✓ workoutId=', workoutId, 'sets=', totalSets, 'volume=', totalVolume);
 
-  await db('shared_workout_cards').insert({
-    user_id: workout.user_id,
-    workout_id: workout.id,
-    card_data: cardData,
-    share_token: shareToken,
-    view_count: 0,
-  });
+  // ─── Step 3: Non-critical side-effects (best-effort) ──────────────────────
+  // Wrapped in try-catch so they can NEVER cause the completion to appear failed.
+  try {
+    if (workout) {
+      const shareToken = `${workout.id.slice(0, 8)}-${Math.random().toString(36).slice(2, 8)}`;
+      await db('shared_workout_cards').insert({
+        user_id: workout.user_id, workout_id: workout.id,
+        card_data: {
+          workout_name: workout.name, duration, total_volume_kg: totalVolume,
+          total_sets: totalSets, total_reps: totalReps, exercise_count: exerciseCount,
+          calories_burned: caloriesBurned, pr_count: prCount,
+          xp_earned: xpEarned, rp_earned: rpEarned, completed_at: endedAt,
+          exercises: exercises.map(ex => ({ name: ex.name, sets: ex.sets.filter(s => s.is_completed).length })),
+        },
+        share_token: shareToken, view_count: 0,
+      });
+      await db('activity_feed').insert({
+        user_id: workout.user_id, activity_type: 'workout_completed',
+        title: `Completed "${workout.name}"`,
+        description: `${exerciseCount} exercises · ${totalSets} sets · ${totalVolume.toFixed(0)} kg`,
+        metadata: { workout_id: workout.id, shareToken, duration, total_volume_kg: totalVolume },
+        is_public: true,
+      });
+      return {
+        id: workout.id, name: workout.name, duration, totalVolume, totalSets,
+        totalReps, exerciseCount, caloriesBurned, prCount, xpEarned, rpEarned, shareToken,
+      };
+    }
+  } catch (e) {
+    console.warn('[workoutService] completeWorkout side-effects failed (non-critical):', e);
+  }
 
-  // Post to activity feed
-  await db('activity_feed').insert({
-    user_id: workout.user_id,
-    activity_type: 'workout_completed',
-    title: `Completed "${workout.name}"`,
-    description: `${exerciseCount} exercises · ${totalSets} sets · ${totalVolume.toFixed(0)} kg`,
-    metadata: { workout_id: workout.id, share_token: shareToken, duration, total_volume_kg: totalVolume },
-    is_public: true,
-  });
-
-  console.log('[workoutService] completeWorkout: workoutId=', workoutId, 'sets=', totalSets, 'volume=', totalVolume, 'prs=', prCount);
-
+  // Fallback summary when workout data wasn't available
   return {
-    id: workout.id,
-    name: workout.name,
-    duration,
-    totalVolume,
-    totalSets,
-    totalReps,
-    exerciseCount,
-    caloriesBurned,
-    prCount,
-    xpEarned,
-    rpEarned,
-    shareToken,
+    id: workoutId, name: 'Workout', duration, totalVolume, totalSets,
+    totalReps, exerciseCount, caloriesBurned, prCount, xpEarned, rpEarned,
+    shareToken: `${workoutId.slice(0, 8)}-fallback`,
   };
 }
 

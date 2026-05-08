@@ -474,14 +474,15 @@ export function useActiveWorkout() {
       const summary = await completeWorkout(workoutId);
       clearWorkoutId();
       setWorkout(null);
-
-      // Notify the rest of the app (e.g. WorkoutTab, Dashboard) that a
-      // workout was just completed so they can re-sync from the DB.
+      // Notify WorkoutTab / Progress to re-fetch from DB
       window.dispatchEvent(new CustomEvent('workout-completed', { detail: { workoutId } }));
-
       return summary;
     } catch (e) {
       console.error('[useActiveWorkout] finish failed:', e);
+      // Always clean up local state even on exception so the banner disappears
+      clearWorkoutId();
+      setWorkout(null);
+      window.dispatchEvent(new CustomEvent('workout-completed', { detail: { workoutId, error: true } }));
       return null;
     } finally {
       setSaving(false);
