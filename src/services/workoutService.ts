@@ -864,24 +864,30 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   const xpEarned = 100 + prCount * 200;
   const rpEarned = 15 + prCount * 25;
 
-  // ─── Step 2: Critical UPDATE — always runs regardless of fetch result ───────
-  // This is the single source of truth. Once this succeeds the workout is done.
-  const { error: updateErr } = await db('workouts').update({
+  // ─── Step 2a: CRITICAL UPDATE — only guaranteed-safe columns ──────────────
+  // Uses ONLY columns that exist in every schema version of this project.
+  // If this fails the workout cannot be completed — we return null.
+  const { error: criticalErr } = await db('workouts').update({
     status: 'completed',
     completed: true,
     ended_at: endedAt,
     duration,
+  }).eq('id', workoutId);
+
+  if (criticalErr) {
+    console.error('[workoutService] completeWorkout critical UPDATE failed:', criticalErr.message);
+    return null;
+  }
+
+  // ─── Step 2b: STATS UPDATE — best-effort (columns may not exist in older DBs)
+  // A 400 here (missing column) is swallowed — the workout is already completed.
+  await db('workouts').update({
     total_volume_kg: totalVolume,
     total_sets: totalSets,
     total_reps: totalReps,
     pr_count: prCount,
     calories_burned: caloriesBurned,
   }).eq('id', workoutId);
-
-  if (updateErr) {
-    console.error('[workoutService] completeWorkout UPDATE failed:', updateErr.message);
-    return null;
-  }
 
   console.log('[workoutService] completeWorkout ✓ workoutId=', workoutId, 'sets=', totalSets, 'volume=', totalVolume);
 
@@ -1006,10 +1012,11 @@ export async function getWorkoutHistory(
   limit = 20,
   offset = 0
 ): Promise<ActiveWorkout[]> {
-  // Accept workouts from BOTH systems:
-  // Both systems must now set status='completed' as the source of truth.
+  // Select only columns guaranteed to exist in every schema version.
+  // total_sets / total_reps / calories_burned may be missing in older projects
+  // and a single missing column causes a 400 that returns an empty array.
   const { data, error } = await db('workouts')
-    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration,total_sets,total_reps,calories_burned')
+    .select('id,user_id,name,date,status,exercises,routine_id,started_at,duration')
     .eq('user_id', userId)
     .eq('status', 'completed')
     .order('date', { ascending: false })
