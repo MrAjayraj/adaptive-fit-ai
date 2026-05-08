@@ -870,7 +870,6 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   const { error: criticalErr } = await db('workouts').update({
     status: 'completed',
     completed: true,
-    ended_at: endedAt,
     duration,
   }).eq('id', workoutId);
 
@@ -882,6 +881,7 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   // ─── Step 2b: STATS UPDATE — best-effort (columns may not exist in older DBs)
   // A 400 here (missing column) is swallowed — the workout is already completed.
   await db('workouts').update({
+    ended_at: endedAt,
     total_volume_kg: totalVolume,
     total_sets: totalSets,
     total_reps: totalReps,
