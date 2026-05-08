@@ -256,11 +256,35 @@ export default function WorkoutTab() {
   const [recentWorkouts, setRecentWorkouts] = useState<ActiveWorkout[]>([]);
   const [selectedHistory, setSelectedHistory] = useState<ActiveWorkout | null>(null);
 
-  useEffect(() => {
+  // ── Sync active workout + recent history from DB ──────────────────────────
+  const syncWorkoutState = useCallback(async () => {
     if (!user) return;
-    getActiveWorkout(user.id).then(setActiveWorkout).catch(() => {});
-    getWorkoutHistory(user.id, 5).then(setRecentWorkouts).catch(() => {});
+    const [active, history] = await Promise.allSettled([
+      getActiveWorkout(user.id),
+      getWorkoutHistory(user.id, 5),
+    ]);
+    setActiveWorkout(active.status === 'fulfilled' ? active.value : null);
+    if (history.status === 'fulfilled') setRecentWorkouts(history.value);
   }, [user]);
+
+  // Initial load
+  useEffect(() => { syncWorkoutState(); }, [syncWorkoutState]);
+
+  // Re-sync whenever a workout is completed (event from useActiveWorkout.finish)
+  useEffect(() => {
+    const handler = () => { syncWorkoutState(); };
+    window.addEventListener('workout-completed', handler);
+    return () => window.removeEventListener('workout-completed', handler);
+  }, [syncWorkoutState]);
+
+  // Re-sync when the user navigates back to this tab (page becomes visible)
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === 'visible') syncWorkoutState();
+    };
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [syncWorkoutState]);
 
   useEffect(() => {
     if (!activeWorkout) return;

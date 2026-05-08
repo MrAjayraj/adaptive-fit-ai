@@ -178,6 +178,8 @@ export default function Progress() {
   const [moodHistory, setMoodHistory]       = useState<MoodLog[]>([]);
   const [scoreHistory, setScoreHistory]     = useState<DailyScore[]>([]);
   const [trackerComps, setTrackerComps]     = useState<any[]>([]);
+  // Incremented when a workout finishes to force a data re-fetch
+  const [refreshKey, setRefreshKey]         = useState(0);
 
   // Derived: week ago date string
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -198,7 +200,14 @@ export default function Progress() {
       setScoreHistory(sh);
       setIsLoading(false);
     }).catch(() => setIsLoading(false));
-  }, [user, activePeriod]);
+  }, [user, activePeriod, refreshKey]); // refreshKey forces re-fetch after workout completion
+
+  // Re-fetch progress data when a workout is completed
+  useEffect(() => {
+    const handler = () => setRefreshKey(k => k + 1);
+    window.addEventListener('workout-completed', handler);
+    return () => window.removeEventListener('workout-completed', handler);
+  }, []);
 
   // Derived workout data — normalise across BOTH systems
   const completedWorkouts = workouts.filter(

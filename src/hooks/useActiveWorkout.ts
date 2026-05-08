@@ -474,6 +474,11 @@ export function useActiveWorkout() {
       const summary = await completeWorkout(workoutId);
       clearWorkoutId();
       setWorkout(null);
+
+      // Notify the rest of the app (e.g. WorkoutTab, Dashboard) that a
+      // workout was just completed so they can re-sync from the DB.
+      window.dispatchEvent(new CustomEvent('workout-completed', { detail: { workoutId } }));
+
       return summary;
     } catch (e) {
       console.error('[useActiveWorkout] finish failed:', e);
@@ -494,6 +499,9 @@ export function useActiveWorkout() {
       await cancelWorkout(workoutId);
       clearWorkoutId();
       setWorkout(null);
+
+      // Notify WorkoutTab so the "in progress" banner disappears immediately.
+      window.dispatchEvent(new CustomEvent('workout-completed', { detail: { workoutId, cancelled: true } }));
     } catch (e) {
       console.error('[useActiveWorkout] cancel failed:', e);
     } finally {
