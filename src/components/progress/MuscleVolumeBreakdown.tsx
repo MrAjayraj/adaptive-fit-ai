@@ -68,7 +68,7 @@ export function MuscleVolumeBreakdown() {
                 contentStyle={{ backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff' }}
                 formatter={(value: number) => [`${Math.round(value)} kg`, 'Volume']}
               />
-              <Bar dataKey="volume" radius={[0, 4, 4, 0]} barSize={20} label={{ position: 'right', fill: '#9ca3af', fontSize: 12, formatter: (val: number, entry: any) => `${entry.payload.percentage}%` }}>
+              <Bar dataKey="volume" radius={[0, 4, 4, 0]} barSize={20} label={{ position: 'right', fill: '#9ca3af', fontSize: 12, formatter: (val: number, entry: any) => `${entry?.payload?.percentage || 0}%` }}>
                 {chartData.map((entry, index) => {
                   // Color intensity based on position (0 is highest volume)
                   const intensity = Math.max(0.4, 1 - (index * 0.1));
