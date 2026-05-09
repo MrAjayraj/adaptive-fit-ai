@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useActiveWorkout } from '@/hooks/useActiveWorkout';
+import { useFitness } from '@/context/FitnessContext';
 import ExercisePicker from '@/components/workout/ExercisePicker';
 import type { WorkoutExerciseEntry, WorkoutSet, Exercise } from '@/services/workoutService';
 
@@ -910,6 +911,7 @@ export default function ActiveWorkout() {
   const navigate = useNavigate();
   const location = useLocation();
   const hook     = useActiveWorkout();
+  const { syncCompletedWorkout } = useFitness();
 
   const locationState = (location.state ?? {}) as {
     routineId?: string;
@@ -1032,8 +1034,12 @@ export default function ActiveWorkout() {
 
   const handleFinish = useCallback(async () => {
     setShowFinishConfirm(false);
+    const workoutToSync = hook.workout;
     const summary = await hook.finish();
     if (summary) {
+      if (workoutToSync) {
+        syncCompletedWorkout(workoutToSync, summary);
+      }
       setCompletedSummary({
         duration: summary.duration, totalVolume: summary.totalVolume,
         totalSets: summary.totalSets, exerciseCount: summary.exerciseCount,
@@ -1043,7 +1049,7 @@ export default function ActiveWorkout() {
     } else {
       navigate('/workouts');
     }
-  }, [hook, navigate]);
+  }, [hook, navigate, syncCompletedWorkout]);
 
   const handleCancel = useCallback(async () => {
     setShowCancelConfirm(false);

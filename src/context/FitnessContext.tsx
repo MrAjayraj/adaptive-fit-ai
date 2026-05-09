@@ -19,6 +19,7 @@ import {
   upsertRank, fetchRank,
 } from '@/services/api';
 import { supabase } from '@/integrations/supabase/client';
+import { ActiveWorkout, WorkoutSummary } from '@/services/workoutService';
 
 // ── Seasonal Rank State ──────────────────────────────────────
 interface SeasonalRankState {
@@ -46,6 +47,7 @@ interface FitnessContextType extends FitnessState {
   startWorkout: (id: string) => void;
   updateWorkout: (workout: Workout) => void;
   completeWorkout: (id: string, rating: number, duration: number) => void;
+  syncCompletedWorkout: (workout: ActiveWorkout, summary: WorkoutSummary) => void;
   getWeeklyStats: () => WeeklyStats;
   getTodaysWorkout: () => Workout | null;
   getExerciseHistory: (exerciseId: string) => ProgressEntry[];
@@ -591,6 +593,146 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const syncCompletedWorkout = useCallback((workout: ActiveWorkout, summary: WorkoutSummary) => {
+    setState(prev => {
+      // Map ActiveWorkout to legacy Workout format for detectNewPRs
+      const legacyWorkout: Workout = {
+        id: workout.id,
+        date: workout.date,
+        name: workout.name,
+        exercises: workout.exercises.map(ex => ({
+          id: ex.exercise_id,
+          exerciseId: ex.exercise_id,
+          exerciseName: ex.name,
+          muscleGroup: ex.body_part as MuscleGroup || 'core',
+          sets: ex.sets.map(s => ({
+            id: String(s.set_number),
+            weight: s.weight_kg ?? 0,
+            reps: s.reps ?? 0,
+            completed: s.is_completed ?? false,
+          })),
+          restSeconds: ex.rest_timer_seconds ?? 90,
+        })),
+        completed: true,
+        duration: summary.duration,
+      };
+
+      const newProgress: ProgressEntry[] = legacyWorkout.exercises.map(ex => {
+        const completedSets = ex.sets.filter(s => s.completed);
+        const bestSet = completedSets.reduce(
+          (best, s) => (s.weight * s.reps > best.weight * best.reps ? s : best),
+          { weight: 0, reps: 0, id: '', completed: false }
+        );
+        return {
+          date: workout.date,
+          exerciseId: ex.exerciseId,
+          exerciseName: ex.exerciseName,
+          bestSet: { weight: bestSet.weight, reps: bestSet.reps },
+          totalVolume: completedSets.reduce((sum, s) => sum + s.weight * s.reps, 0),
+        };
+      });
+
+      const newPRs = detectNewPRs(legacyWorkout, prev.gamification.prs);
+      const updatedPRs = [...prev.gamification.prs];
+      for (const pr of newPRs) {
+        const idx = updatedPRs.findIndex(p => p.exerciseId === pr.exerciseId && p.type === pr.type);
+        if (idx >= 0) updatedPRs[idx] = pr;
+        else updatedPRs.push(pr);
+      }
+
+      const canFreeze = !prev.gamification.streakFreezeUsed;
+      const streakResult = updateStreak(
+        prev.gamification.lastWorkoutDate, 
+        prev.gamification.streak, 
+        prev.profile?.workoutDays,
+        canFreeze
+      );
+
+      const newXP = prev.gamification.xp + summary.xpEarned;
+      const newLevel = calculateLevel(newXP);
+
+      const allProgress = [...prev.progressHistory, ...newProgress];
+      const workoutCount = prev.workouts.length + 1;
+
+      const newAchievements = checkAchievements(
+        workoutCount, summary.totalVolume, streakResult.streak, newLevel, updatedPRs.length,
+        prev.gamification.stepsToday, prev.gamification.totalSteps,
+        prev.gamification.achievements,
+        { prsInWorkout: summary.prCount }
+      );
+
+      const mergedAchievements = prev.gamification.achievements.map(a => {
+        const unlocked = newAchievements.find(na => na.id === a.id);
+        return unlocked || a;
+      });
+      for (const def of ACHIEVEMENT_DEFS) {
+        if (!mergedAchievements.find(a => a.id === def.id)) {
+          const unlocked = newAchievements.find(na => na.id === def.id);
+          mergedAchievements.push(unlocked || { ...def });
+        }
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+
+      const season = getActiveSeason();
+      const newRP = prev.seasonalRank.userRank.rp + summary.rpEarned;
+      const newTier = getTierFromRP(newRP);
+      const newDivision = getDivisionFromRP(newRP, newTier);
+      const rpEntry: RankHistoryEntry = {
+        id: v4(),
+        seasonId: season.id,
+        rpGained: summary.rpEarned,
+        reason: `Completed "${workout.name}"${newPRs.length > 0 ? ` (+${newPRs.length} PRs)` : ''}`,
+        createdAt: new Date().toISOString(),
+      };
+
+      const nextState = {
+        ...prev,
+        workouts: [...prev.workouts, legacyWorkout],
+        progressHistory: allProgress,
+        recentPRs: newPRs,
+        gamification: {
+          ...prev.gamification,
+          xp: newXP,
+          level: newLevel,
+          streak: streakResult.streak,
+          lastWorkoutDate: today,
+          prs: updatedPRs,
+          achievements: mergedAchievements,
+          streakFreezeUsed: streakResult.usedFreeze ? true : prev.gamification.streakFreezeUsed,
+        },
+        seasonalRank: {
+          userRank: {
+            ...prev.seasonalRank.userRank,
+            seasonId: season.id,
+            rp: newRP,
+            tier: newTier,
+            division: newDivision,
+          },
+          history: [rpEntry, ...prev.seasonalRank.history].slice(0, 100),
+        },
+      };
+
+      // ── Cloud backup — fire and forget ──
+      syncGamification({
+        xp: newXP,
+        level: newLevel,
+        current_streak: streakResult.streak,
+        longest_streak: Math.max(streakResult.streak, prev.gamification.streak),
+        last_workout_date: today,
+        total_steps: prev.gamification.totalSteps,
+        prs: updatedPRs,
+        achievements: mergedAchievements,
+        streak_freeze_used: streakResult.usedFreeze ? true : prev.gamification.streakFreezeUsed,
+      }).catch(e => console.error('syncGamification failed:', e));
+
+      upsertRank({ season_id: season.id, rp: newRP, tier: newTier, division: newDivision })
+        .catch(e => console.error('upsertRank failed:', e));
+
+      return nextState;
+    });
+  }, []);
+
   const getWeeklyStats = useCallback((): WeeklyStats => {
     const now = new Date();
     const weekStart = new Date(now);
@@ -735,6 +877,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         startWorkout,
         updateWorkout,
         completeWorkout,
+        syncCompletedWorkout,
         getWeeklyStats,
         getTodaysWorkout,
         getExerciseHistory,
