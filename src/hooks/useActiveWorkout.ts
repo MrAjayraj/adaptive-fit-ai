@@ -23,6 +23,8 @@ import type { WorkoutSummaryData } from '@/services/workoutService';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = 'fitai-active-workout-id';
+// Legacy key written by older versions of this hook — safe to always remove.
+const LEGACY_STORAGE_KEY = 'fitai-local-id';
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 
@@ -40,6 +42,11 @@ export function useActiveWorkout() {
     let cancelled = false;
 
     async function init() {
+      // 0. Always purge the legacy localStorage key written by old code.
+      //    It pointed to workout IDs that are now permanently stuck as 'active'
+      //    in older DB schemas — keeping it causes phantom banners.
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+
       // 1. Get auth session
       const { data: sessionData } = await supabase.auth.getSession();
       const uid = sessionData.session?.user.id ?? null;
@@ -63,7 +70,7 @@ export function useActiveWorkout() {
       if (cancelled) return;
 
       if (error || !data) {
-        console.error('[useActiveWorkout] Could not resume workout:', error?.message ?? 'not found');
+        // Workout no longer active in DB (completed, cancelled, or missing) — clear local ref
         localStorage.removeItem(STORAGE_KEY);
         setWorkout(null);
       } else {
