@@ -600,12 +600,12 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         id: workout.id,
         date: workout.date,
         name: workout.name,
-        exercises: workout.exercises.map(ex => ({
+        exercises: (workout.exercises || []).map(ex => ({
           id: ex.exercise_id,
           exerciseId: ex.exercise_id,
           exerciseName: ex.name,
           muscleGroup: ex.body_part as MuscleGroup || 'core',
-          sets: ex.sets.map(s => ({
+          sets: (ex.sets || []).map(s => ({
             id: String(s.set_number),
             weight: s.weight_kg ?? 0,
             reps: s.reps ?? 0,
