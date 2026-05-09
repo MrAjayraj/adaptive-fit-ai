@@ -488,9 +488,9 @@ export default function WorkoutTab() {
         />
         <QuickCard
           icon={<span style={{ fontSize:18 }}>🥊</span>}
-          title="Skill / Boxing"
-          subtitle="30 min · 240 kcal"
-          onClick={() => navigate('/workout/active', { state: { routineName: 'Skill / Boxing', mode: 'empty' } })}
+          title="MMA Skills"
+          subtitle="Technique Mastery OS"
+          onClick={() => navigate('/mma-dashboard')}
         />
 
         {/* ── DISCOVER / Community ── */}
