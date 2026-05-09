@@ -65,12 +65,12 @@ const QUICK_START = [
     workoutType: 'cardio',
   },
   {
-    id: 'skill',
-    label: 'Skill / Boxing',
-    subtitle: '30 min · 240 kcal',
+    id: 'mma',
+    label: 'MMA Skills',
+    subtitle: 'Track combat technique',
     color: ACCENT,
     icon: <Swords style={{ width: 22, height: 22, color: ACCENT }} />,
-    workoutType: 'skill',
+    workoutType: 'mma',
   },
 ] as const;
 
@@ -361,6 +361,10 @@ export default function WorkoutHub() {
 
   async function handleQuickStart(workoutType: string) {
     if (!user?.id || starting) return;
+    if (workoutType === 'mma') {
+      navigate('/mma-dashboard');
+      return;
+    }
     if (workoutType === 'skill') {
       navigate('/create-workout?type=skill');
       return;
