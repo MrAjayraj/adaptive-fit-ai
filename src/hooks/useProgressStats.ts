@@ -20,6 +20,17 @@ export function useExerciseProgress(exerciseId: string | null, userId: string | 
       return;
     }
 
+    // Check if it's a valid UUID (required by the exercise_progress_view)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(exerciseId);
+    
+    if (!isUuid) {
+      // If it's a legacy string ID (e.g., "0001"), the view will throw a 400 error.
+      // Return empty data gracefully instead of showing an error.
+      setData([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     supabase
       .from('exercise_progress_view' as any)
