@@ -272,7 +272,19 @@ export default function WorkoutTab() {
 
   // Re-sync whenever a workout is completed (event from useActiveWorkout.finish)
   useEffect(() => {
-    const handler = () => { syncWorkoutState(); };
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { workoutId?: string; completed?: boolean };
+      // Immediately clear the banner for the completed workout — don't wait for DB.
+      // This eliminates the race condition where the banner re-appears because the
+      // DB write hasn't committed yet when syncWorkoutState() fires.
+      if (detail?.workoutId) {
+        setActiveWorkout(prev =>
+          prev?.id === detail.workoutId ? null : prev
+        );
+      }
+      // Delayed DB re-fetch to update the recent history list (not the banner).
+      setTimeout(() => syncWorkoutState(), 800);
+    };
     window.addEventListener('workout-completed', handler);
     return () => window.removeEventListener('workout-completed', handler);
   }, [syncWorkoutState]);

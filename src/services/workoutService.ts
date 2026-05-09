@@ -864,19 +864,23 @@ export async function completeWorkout(workoutId: string): Promise<WorkoutSummary
   const xpEarned = 100 + prCount * 200;
   const rpEarned = 15 + prCount * 25;
 
-  // ─── Step 2a: CRITICAL UPDATE — only guaranteed-safe columns ──────────────
-  // Uses ONLY columns that exist in every schema version of this project.
-  // If this fails the workout cannot be completed — we return null.
-  const { error: criticalErr } = await db('workouts').update({
-    status: 'completed',
-    completed: true,
-    duration,
-  }).eq('id', workoutId);
+  // ─── Step 2a: CRITICAL UPDATE — status only (guaranteed column) ───────────
+  // Update ONLY status + duration first. These are guaranteed to exist with the
+  // correct CHECK constraint. If this fails we return null (workout stays active).
+  const { error: criticalErr } = await db('workouts')
+    .update({ status: 'completed', duration })
+    .eq('id', workoutId);
 
   if (criticalErr) {
     console.error('[workoutService] completeWorkout critical UPDATE failed:', criticalErr.message);
     return null;
   }
+
+  // ─── Step 2a2: Legacy `completed` boolean — best-effort ───────────────────
+  // Some schema versions have this column, some do not. A failure NEVER blocks.
+  await db('workouts').update({ completed: true }).eq('id', workoutId).then(
+    ({ error }) => { if (error) console.warn('[workoutService] completed boolean skipped:', error.message); }
+  );
 
   // ─── Step 2b: STATS UPDATE — best-effort (columns may not exist in older DBs)
   // A 400 here (missing column) is swallowed — the workout is already completed.

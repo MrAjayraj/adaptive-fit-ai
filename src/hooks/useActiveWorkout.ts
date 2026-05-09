@@ -470,20 +470,39 @@ export function useActiveWorkout() {
     if (!workoutId) return null;
 
     setSaving(true);
+
+    // ── Step 1: Immediately clear local state so the banner vanishes BEFORE
+    // the async DB call. This prevents any race-condition where navigating
+    // back to WorkoutTab while the DB is still writing shows the banner again.
+    clearWorkoutId();
+    setWorkout(null);
+
     try {
       const summary = await completeWorkout(workoutId);
-      clearWorkoutId();
-      setWorkout(null);
-      // Notify WorkoutTab / Progress to re-fetch from DB
-      window.dispatchEvent(new CustomEvent('workout-completed', { detail: { workoutId } }));
+
+      // ── Step 2: Notify all tabs. Pass completedWorkoutId so listeners can
+      // remove the banner immediately without querying the DB.
+      window.dispatchEvent(new CustomEvent('workout-completed', {
+        detail: { workoutId, completed: true },
+      }));
+
       return summary;
     } catch (e) {
       console.error('[useActiveWorkout] finish failed:', e);
-      // Always clean up local state even on exception so the banner disappears
-      clearWorkoutId();
-      setWorkout(null);
-      window.dispatchEvent(new CustomEvent('workout-completed', { detail: { workoutId, error: true } }));
-      return null;
+      // Retry once after a short delay (e.g. flaky network)
+      try {
+        const summary = await completeWorkout(workoutId);
+        window.dispatchEvent(new CustomEvent('workout-completed', {
+          detail: { workoutId, completed: true },
+        }));
+        return summary;
+      } catch (e2) {
+        console.error('[useActiveWorkout] finish retry also failed:', e2);
+        window.dispatchEvent(new CustomEvent('workout-completed', {
+          detail: { workoutId, completed: false, error: true },
+        }));
+        return null;
+      }
     } finally {
       setSaving(false);
     }

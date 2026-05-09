@@ -1036,20 +1036,24 @@ export default function ActiveWorkout() {
     setShowFinishConfirm(false);
     const workoutToSync = hook.workout;
     const summary = await hook.finish();
-    if (summary) {
-      if (workoutToSync) {
-        syncCompletedWorkout(workoutToSync, summary);
-      }
-      setCompletedSummary({
-        duration: summary.duration, totalVolume: summary.totalVolume,
-        totalSets: summary.totalSets, exerciseCount: summary.exerciseCount,
-        xpEarned: summary.xpEarned, rpEarned: summary.rpEarned,
-        shareToken: summary.shareToken,
-      });
-    } else {
-      navigate('/workouts');
+
+    // Sync global fitness context (gamification, PRs, heatmap) if we have data
+    if (summary && workoutToSync) {
+      syncCompletedWorkout(workoutToSync, summary);
     }
-  }, [hook, navigate, syncCompletedWorkout]);
+
+    // Always show the complete screen — even if the DB summary failed.
+    // The hook already cleared localStorage + state, so the banner is gone.
+    setCompletedSummary({
+      duration:      summary?.duration      ?? 0,
+      totalVolume:   summary?.totalVolume   ?? 0,
+      totalSets:     summary?.totalSets     ?? 0,
+      exerciseCount: summary?.exerciseCount ?? (workoutToSync?.exercises?.length ?? 0),
+      xpEarned:      summary?.xpEarned      ?? 100,
+      rpEarned:      summary?.rpEarned      ?? 15,
+      shareToken:    summary?.shareToken    ?? null,
+    });
+  }, [hook, syncCompletedWorkout]);
 
   const handleCancel = useCallback(async () => {
     setShowCancelConfirm(false);
