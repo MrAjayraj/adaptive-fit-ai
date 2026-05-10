@@ -81,6 +81,7 @@ const CreateWorkout       = lazy(() => import('./pages/CreateWorkout'));
 const SkillWorkoutTimer   = lazy(() => import('./pages/SkillWorkoutTimer'));
 const WorkoutSummary      = lazy(() => import('@/pages/WorkoutSummary'));
 const MmaDashboard        = lazy(() => import('@/pages/MmaDashboard'));
+const MmaTechniqueDetail  = lazy(() => import('./pages/MmaTechniqueDetail'));
 const WorkoutTab          = lazy(() => import('./pages/WorkoutTab'));
 const ActiveWorkout       = lazy(() => import('./pages/ActiveWorkout'));
 const CreateRoutine       = lazy(() => import('./pages/CreateRoutine'));
@@ -152,6 +153,7 @@ const App = () => (
                   {/* Protected App Routes */}
                   <Route path="/home"         element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
                   <Route path="/mma-dashboard"    element={<ProtectedRoute><MmaDashboard /></ProtectedRoute>} />
+                  <Route path="/mma/technique/:id" element={<ProtectedRoute><MmaTechniqueDetail /></ProtectedRoute>} />
                   <Route path="/workout"      element={<ProtectedRoute><WorkoutLogger /></ProtectedRoute>} />
                   <Route path="/progress"     element={<ProtectedRoute><Progress /></ProtectedRoute>} />
                   <Route path="/builder"      element={<ProtectedRoute><WorkoutBuilder /></ProtectedRoute>} />

@@ -352,6 +352,10 @@ export default function CreateWorkout() {
   }
 
   function handleNext() {
+    if (workoutType === 'skill' && step === 1) {
+      navigate('/mma-dashboard');
+      return;
+    }
     setStep(s => Math.min(s + 1, TOTAL_STEPS));
   }
 
@@ -466,8 +470,8 @@ export default function CreateWorkout() {
           onPress={() => setWorkoutType('cardio')}
         />
         <TypeCard
-          label="Skill Training"
-          subtitle="Boxing, MMA, Sports and more"
+          label="MMA Skills"
+          subtitle="Technique Mastery OS"
           icon={<Swords style={{ width: 24, height: 24, color: workoutType === 'skill' ? ACCENT : T2, flexShrink: 0 }} />}
           selected={workoutType === 'skill'}
           onPress={() => setWorkoutType('skill')}
