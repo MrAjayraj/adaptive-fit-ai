@@ -268,9 +268,10 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({
           <div style={{ marginTop: 2 }}>
             <MessageReactions
               reactions={msg.reactions}
-              onReaction={
-                onReaction ? (reaction) => onReaction(msg.id, reaction) : undefined
+              onToggle={
+                onReaction ? (reaction) => onReaction(msg.id, reaction) : () => {}
               }
+              isMine={isMine}
             />
           </div>
         )}

@@ -1,4 +1,4 @@
-import { Workout, DailyMission } from '@/types/fitness';
+import { Workout } from '@/types/fitness';
 
 export interface PR {
   exerciseId: string;
@@ -31,7 +31,6 @@ export interface GamificationState {
   achievements: Achievement[];
   stepsToday: number;
   stepDate: string | null;
-  totalSteps: number;
   totalSteps: number;
   streakFreezeUsed: boolean;
   streakFreezeWeek: string | null;

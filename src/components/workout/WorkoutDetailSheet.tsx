@@ -1,6 +1,6 @@
 import { X, Clock, Dumbbell, Zap, Flame, BarChart2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import type { ActiveWorkout } from '@/services/workoutService';
+import type { ActiveWorkout } from '@/services/workoutService'; 
 
 interface WorkoutDetailSheetProps {
   workout: ActiveWorkout;

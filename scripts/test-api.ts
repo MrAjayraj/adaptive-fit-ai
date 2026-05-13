@@ -11,8 +11,8 @@ async function test() {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${key}`,
-      'apikey': key,
+      'Authorization': `Bearer ${key ?? ''}`,
+      'apikey': key ?? '',
       'Prefer': 'return=representation'
     },
     body: JSON.stringify([{ 

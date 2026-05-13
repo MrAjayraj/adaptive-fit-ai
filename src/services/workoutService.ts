@@ -71,6 +71,8 @@ export interface ActiveWorkout {
   routine_id: string | null;
   started_at?: string;
   duration: number | null;
+  total_volume_kg?: number;
+  calories_burned?: number;
 }
 
 export interface Routine {

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, Dumbbell } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getWorkoutHistory } from '@/services/workoutService';
-import type { ActiveWorkout } from '@/services/workoutService';
+import type { ActiveWorkout } from '@/services/workoutService'; 
 import { useAuth } from '@/context/AuthContext';
 import { WorkoutDetailSheet } from '@/components/workout/WorkoutDetailSheet';
 
