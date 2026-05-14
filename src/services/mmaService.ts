@@ -78,13 +78,42 @@ export async function getFighterProfile(userId: string): Promise<UserFighterProf
 }
 
 export async function saveFighterProfile(profile: Partial<UserFighterProfile> & { user_id: string }): Promise<UserFighterProfile | null> {
-  const { data, error } = await supabase
+  // First check if a profile already exists
+  const { data: existing, error: fetchError } = await supabase
     .from('user_fighter_profiles')
-    .upsert(profile, { onConflict: 'user_id' })
-    .select()
-    .single();
-  if (error) { console.error('Error saving fighter profile:', error); return null; }
-  return data;
+    .select('id')
+    .eq('user_id', profile.user_id)
+    .maybeSingle();
+
+  if (fetchError) {
+    console.error('Error checking existing profile:', fetchError);
+  }
+
+  let result;
+  if (existing) {
+    // Update existing profile
+    const { data, error } = await supabase
+      .from('user_fighter_profiles')
+      .update(profile)
+      .eq('user_id', profile.user_id)
+      .select()
+      .single();
+    result = { data, error };
+  } else {
+    // Insert new profile
+    const { data, error } = await supabase
+      .from('user_fighter_profiles')
+      .insert([profile])
+      .select()
+      .single();
+    result = { data, error };
+  }
+
+  if (result.error) {
+    console.error('Error saving fighter profile:', result.error);
+    return null;
+  }
+  return result.data;
 }
 
 // ─── CATALOG ──────────────────────────────────────────────────────────────────
@@ -116,7 +145,7 @@ export async function getTechniquesByCategory(categoryId: string): Promise<Techn
     .eq('category_id', categoryId)
     .order('difficulty', { ascending: true });
   if (error) { console.error('Error fetching techniques:', error); return []; }
-  return data || [];
+  return (data as unknown as Technique[]) || [];
 }
 
 export async function getTechniqueById(techniqueId: string): Promise<Technique | null> {
@@ -126,7 +155,7 @@ export async function getTechniqueById(techniqueId: string): Promise<Technique |
     .eq('id', techniqueId)
     .single();
   if (error) { return null; }
-  return data;
+  return data as unknown as Technique;
 }
 
 // ─── PROGRESS ─────────────────────────────────────────────────────────────────

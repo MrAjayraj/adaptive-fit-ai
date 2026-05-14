@@ -30,6 +30,7 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
   const [experience,   setExperience]   = useState<string | null>(null);
   const [stance,       setStance]       = useState<string | null>(null);
   const [isSaving,     setIsSaving]     = useState(false);
+  const [saveError,    setSaveError]    = useState(false);
 
   const canNext =
     (step === 1 && !!primarySport) ||
@@ -50,7 +51,8 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
   const handleSave = async () => {
     if (!user) return;
     setIsSaving(true);
-    await saveFighterProfile({
+    setSaveError(false);
+    const saved = await saveFighterProfile({
       user_id: user.id,
       primary_sport_slug: SPORT_MAP[primarySport || 'mma'] || 'mma',
       experience_level: experience,
@@ -60,6 +62,10 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
       streak_longest: 0,
     });
     setIsSaving(false);
+    if (!saved) {
+      setSaveError(true);
+      return;
+    }
     onComplete(true); // pass true → dashboard opens QuickLog immediately
   };
 
@@ -162,11 +168,18 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
             Continue <ChevronRight size={20} />
           </button>
         ) : (
-          <button onClick={handleSave} disabled={isSaving}
-            style={{ width: '100%', height: 56, borderRadius: 16, background: ACCENT, color: '#000', fontSize: 16, fontWeight: 900, border: 'none', cursor: 'pointer', transition: 'opacity 0.2s', opacity: isSaving ? 0.7 : 1 }}
-          >
-            {isSaving ? 'Setting up...' : 'Start First Session →'}
-          </button>
+          <>
+            {saveError && (
+              <div style={{ color: '#ef4444', fontSize: 13, textAlign: 'center', marginBottom: 10 }}>
+                Failed to save your profile. Please check your connection and try again.
+              </div>
+            )}
+            <button onClick={handleSave} disabled={isSaving}
+              style={{ width: '100%', height: 56, borderRadius: 16, background: ACCENT, color: '#000', fontSize: 16, fontWeight: 900, border: 'none', cursor: 'pointer', transition: 'opacity 0.2s', opacity: isSaving ? 0.7 : 1 }}
+            >
+              {isSaving ? 'Setting up...' : saveError ? 'Retry →' : 'Start First Session →'}
+            </button>
+          </>
         )}
       </div>
     </div>
