@@ -111,7 +111,7 @@ export async function saveFighterProfile(profile: Partial<UserFighterProfile> & 
 
   if (result.error) {
     console.error('Error saving fighter profile:', result.error);
-    return null;
+    throw result.error;
   }
   return result.data;
 }

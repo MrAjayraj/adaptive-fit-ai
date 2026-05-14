@@ -30,7 +30,7 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
   const [experience,   setExperience]   = useState<string | null>(null);
   const [stance,       setStance]       = useState<string | null>(null);
   const [isSaving,     setIsSaving]     = useState(false);
-  const [saveError,    setSaveError]    = useState(false);
+  const [saveError,    setSaveError]    = useState<string | null>(null);
 
   const canNext =
     (step === 1 && !!primarySport) ||
@@ -51,22 +51,23 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
   const handleSave = async () => {
     if (!user) return;
     setIsSaving(true);
-    setSaveError(false);
-    const saved = await saveFighterProfile({
-      user_id: user.id,
-      primary_sport_slug: SPORT_MAP[primarySport || 'mma'] || 'mma',
-      experience_level: experience,
-      stance: stance || 'Orthodox',
-      onboarding_complete: true,
-      streak_current: 0,
-      streak_longest: 0,
-    });
-    setIsSaving(false);
-    if (!saved) {
-      setSaveError(true);
-      return;
+    setSaveError(null);
+    try {
+      await saveFighterProfile({
+        user_id: user.id,
+        primary_sport_slug: SPORT_MAP[primarySport || 'mma'] || 'mma',
+        experience_level: experience,
+        stance: stance || 'Orthodox',
+        onboarding_complete: true,
+        streak_current: 0,
+        streak_longest: 0,
+      });
+      setIsSaving(false);
+      onComplete(true); // pass true → dashboard opens QuickLog immediately
+    } catch (err: any) {
+      setIsSaving(false);
+      setSaveError(err.message || 'Unknown error occurred');
     }
-    onComplete(true); // pass true → dashboard opens QuickLog immediately
   };
 
   const progressDots = primarySport === 'grappling' ? 2 : 3;
@@ -171,7 +172,7 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
           <>
             {saveError && (
               <div style={{ color: '#ef4444', fontSize: 13, textAlign: 'center', marginBottom: 10 }}>
-                Failed to save your profile. Please check your connection and try again.
+                {saveError}
               </div>
             )}
             <button onClick={handleSave} disabled={isSaving}
