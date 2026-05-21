@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 export type NotificationType =
   | 'like' | 'comment' | 'follow' | 'rank_up' | 'ai'
   | 'challenge' | 'achievement' | 'workout_share'
-  | 'streak_milestone' | 'group_message' | 'dm' | 'system';
+  | 'streak_milestone' | 'system';
 
 export interface FitNotification {
   id: string;

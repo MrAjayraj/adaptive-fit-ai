@@ -49,13 +49,7 @@ export function usePushNotifications(userId?: string) {
         console.log('👉 Action:', action);
         const data = action.notification.data as Record<string, string> | undefined;
         if (!data) return;
-        if (data.type === 'chat_message' && data.chatId) {
-          window.location.href = `/chat/${data.chatId}`;
-        } else if (data.type === 'friend_request') {
-          window.location.href = '/social';
-        } else if (data.type === 'group_message') {
-          window.location.href = '/social';
-        } else if (data.type === 'achievement') {
+        if (data.type === 'achievement') {
           window.location.href = '/achievements';
         }
       });

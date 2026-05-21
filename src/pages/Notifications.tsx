@@ -20,23 +20,20 @@ const SURFACE_HI = '#252529';
 const BG       = '#111113';
 
 // ── Filter types ──────────────────────────────────────────────────────────────
-type FilterTab = 'all' | 'social' | 'workouts' | 'challenges' | 'ai';
+type FilterTab = 'all' | 'workouts' | 'challenges' | 'ai';
 
 const FILTERS: { id: FilterTab; label: string }[] = [
   { id: 'all',        label: 'All'        },
-  { id: 'social',     label: 'Social'     },
   { id: 'workouts',   label: 'Workouts'   },
   { id: 'challenges', label: 'Challenges' },
   { id: 'ai',         label: 'AI Coach'   },
 ];
 
 const TYPE_TO_FILTER: Record<NotificationType, FilterTab> = {
-  like:              'social',
-  comment:           'social',
-  follow:            'social',
-  workout_share:     'social',
-  group_message:     'social',
-  dm:                'social',
+  like:              'all',
+  comment:           'all',
+  follow:            'all',
+  workout_share:     'all',
   rank_up:           'workouts',
   streak_milestone:  'workouts',
   achievement:       'workouts',
@@ -57,8 +54,6 @@ function typeIcon(type: NotificationType) {
     achievement:      <Trophy  size={14} style={{ color: YELLOW }} />,
     workout_share:    <Dumbbell size={14} className="text-sky-400" />,
     streak_milestone: <Flame   size={14} className="text-orange-400" />,
-    group_message:    <Users   size={14} className="text-indigo-400" />,
-    dm:               <MessageCircle size={14} className="text-emerald-400" />,
     system:           <Bell    size={14} className="text-white/50" />,
   };
   return map[type] ?? <Bell size={14} className="text-white/50" />;
@@ -75,8 +70,6 @@ function typeBg(type: NotificationType) {
     achievement:      YELLOW_DIM,
     workout_share:    'rgba(14,165,233,0.12)',
     streak_milestone: 'rgba(249,115,22,0.12)',
-    group_message:    'rgba(99,102,241,0.12)',
-    dm:               'rgba(52,211,153,0.12)',
     system:           'rgba(255,255,255,0.06)',
   };
   return map[type] ?? 'rgba(255,255,255,0.06)';
@@ -282,7 +275,7 @@ export default function Notifications() {
             <p className="text-[17px] font-bold text-white">All caught up!</p>
             <p className="text-[13px] text-white/40 mt-1.5 max-w-xs leading-relaxed">
               {filter === 'all'
-                ? 'No notifications yet. Complete a workout or connect with friends.'
+                ? 'No notifications yet. Complete a workout to log progress!'
                 : `No ${filter} notifications yet.`}
             </p>
           </div>

@@ -70,11 +70,7 @@ const Challenges    = lazy(() => import('./pages/Challenges'));
 const Achievements  = lazy(() => import('./pages/Achievements'));
 const Rank          = lazy(() => import('./pages/Rank'));
 const NotFound      = lazy(() => import('./pages/NotFound'));
-const Social        = lazy(() => import('./pages/Social'));
 const DebugPanel    = lazy(() => import('./pages/DebugPanel'));
-const DMScreen      = lazy(() => import('./components/social/DMScreen'));
-const ConversationsScreen = lazy(() => import('./components/social/ConversationsScreen'));
-const ChatsScreen   = lazy(() => import('./pages/ChatsScreen'));
 const Notifications       = lazy(() => import('./pages/Notifications'));
 const WorkoutHub          = lazy(() => import('./pages/WorkoutHub'));
 const CreateWorkout       = lazy(() => import('./pages/CreateWorkout'));
@@ -162,10 +158,6 @@ const App = () => (
                   <Route path="/profile"      element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                   <Route path="/achievements" element={<ProtectedRoute><Achievements /></ProtectedRoute>} />
                   <Route path="/rank"         element={<ProtectedRoute><Rank /></ProtectedRoute>} />
-                  <Route path="/social"       element={<ProtectedRoute><Social /></ProtectedRoute>} />
-                  <Route path="/messages"     element={<ProtectedRoute><ConversationsScreen /></ProtectedRoute>} />
-                  <Route path="/chats"        element={<ProtectedRoute><ChatsScreen /></ProtectedRoute>} />
-                  <Route path="/chat/:friendId" element={<ProtectedRoute><DMScreen /></ProtectedRoute>} />
                   <Route path="/debug"        element={<ProtectedRoute><DebugPanel /></ProtectedRoute>} />
                   <Route path="/notifications"   element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
                   <Route path="/workout-hub"    element={<ProtectedRoute><WorkoutHub /></ProtectedRoute>} />
