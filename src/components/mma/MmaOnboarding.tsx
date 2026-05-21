@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 type Step = 1 | 2 | 3 | 4;
 
 interface MmaOnboardingProps {
-  onComplete: (openQuickLog?: boolean) => void;
+  onComplete: (profile: UserFighterProfile, openQuickLog?: boolean) => void;
 }
 
 const BG     = '#0d0d0d';
@@ -24,7 +24,7 @@ const SPORT_MAP: Record<string, string> = {
 };
 
 export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
-  const { user } = useAuth();
+  const { user, isGuest } = useAuth();
   const [step,         setStep]         = useState<Step>(1);
   const [primarySport, setPrimarySport] = useState<string | null>(null);
   const [experience,   setExperience]   = useState<string | null>(null);
@@ -49,12 +49,13 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
   };
 
   const handleSave = async () => {
-    if (!user) return;
+    const userId = user?.id || (isGuest ? 'guest' : null);
+    if (!userId) return;
     setIsSaving(true);
     setSaveError(null);
     try {
-      await saveFighterProfile({
-        user_id: user.id,
+      const savedProfile = await saveFighterProfile({
+        user_id: userId,
         primary_sport_slug: SPORT_MAP[primarySport || 'mma'] || 'mma',
         experience_level: experience,
         stance: stance || 'Orthodox',
@@ -63,7 +64,11 @@ export function MmaOnboarding({ onComplete }: MmaOnboardingProps) {
         streak_longest: 0,
       });
       setIsSaving(false);
-      onComplete(true); // pass true → dashboard opens QuickLog immediately
+      if (savedProfile) {
+        onComplete(savedProfile, true); // pass saved profile and true → dashboard opens QuickLog immediately
+      } else {
+        throw new Error('Failed to save fighter profile');
+      }
     } catch (err: any) {
       setIsSaving(false);
       setSaveError(err.message || 'Unknown error occurred');

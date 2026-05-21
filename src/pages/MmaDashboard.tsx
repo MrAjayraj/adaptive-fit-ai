@@ -35,7 +35,7 @@ type View =
 
 export default function MmaDashboard() {
   const navigate  = useNavigate();
-  const { user }  = useAuth();
+  const { user, isGuest } = useAuth();
 
   const [view,     setView]     = useState<View>({ type: 'dashboard' });
   const [profile,  setProfile]  = useState<UserFighterProfile | null>(null);
@@ -50,25 +50,37 @@ export default function MmaDashboard() {
   const [logTechnique,  setLogTechnique]  = useState<Technique | null>(null);
   const [logMode,       setLogMode]       = useState<'single'|'full'>('single');
 
-  const loadData = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    const [p, cat, prog, recent, stats] = await Promise.all([
-      getFighterProfile(user.id),
-      getTechniqueCatalog(),
-      getUserProgress(user.id),
-      getRecentTechniques(user.id, 7),
-      getWeeklyStats(user.id),
-    ]);
-    setProfile(p);
-    setCatalog(cat);
-    setProgress(prog);
-    setRecentIds(recent);
-    setWeekStats(stats);
-    setLoading(false);
-  }, [user]);
+  const loadData = useCallback(async (isSilent = false) => {
+    const userId = user?.id || (isGuest ? 'guest' : null);
+    if (!userId) return;
+    if (!isSilent) setLoading(true);
+    try {
+      const [p, cat, prog, recent, stats] = await Promise.all([
+        getFighterProfile(userId),
+        getTechniqueCatalog(),
+        getUserProgress(userId),
+        getRecentTechniques(userId, 7),
+        getWeeklyStats(userId),
+      ]);
+      setProfile(prev => {
+        if (p) return p;
+        if (prev?.onboarding_complete) return prev;
+        return null;
+      });
+      setCatalog(cat);
+      setProgress(prog);
+      setRecentIds(recent);
+      setWeekStats(stats);
+    } catch (err) {
+      console.error('Error loading MMA dashboard data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, isGuest]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   const openLog = (tech: Technique | null, mode: 'single' | 'full' = 'single') => {
     setLogTechnique(tech);
@@ -76,8 +88,10 @@ export default function MmaDashboard() {
     setIsLogOpen(true);
   };
 
-  const handleOnboardingComplete = (openQuickLog?: boolean) => {
-    loadData().then(() => {
+  const handleOnboardingComplete = (savedProfile: UserFighterProfile, openQuickLog?: boolean) => {
+    // Optimistic local state update to prevent the onboarding flow from remounting
+    setProfile(savedProfile);
+    loadData(true).then(() => {
       if (openQuickLog) {
         // Open log for the first beginner technique in their primary sport
         setIsLogOpen(true);
@@ -88,12 +102,13 @@ export default function MmaDashboard() {
   };
 
   const handleLogComplete = (result: QuickLogResult) => {
+    const userId = user?.id || (isGuest ? 'guest' : '');
     setProgress(prev => ({
       ...prev,
       [result.techniqueId]: {
         ...prev[result.techniqueId],
         id: prev[result.techniqueId]?.id || '',
-        user_id: user?.id || '',
+        user_id: userId,
         technique_id: result.techniqueId,
         total_reps: result.totalReps,
         mastery_level: result.newLevel,
@@ -197,7 +212,7 @@ export default function MmaDashboard() {
         <div style={{ background: `linear-gradient(135deg, ${CARD} 0%, rgba(30,215,96,0.05) 100%)`, borderRadius: 20, padding: 20, border: `1px solid ${BORDER}` }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: 22, fontWeight: 900, color: T1 }}>{user?.user_metadata?.username || user?.email?.split('@')[0] || 'Fighter'}</div>
+              <div style={{ fontSize: 22, fontWeight: 900, color: T1 }}>{user?.user_metadata?.username || user?.email?.split('@')[0] || (isGuest ? 'Guest Fighter' : 'Fighter')}</div>
               <div style={{ fontSize: 14, color: ACCENT, fontWeight: 700, marginTop: 2 }}>{fighterTitle}</div>
               <div style={{ fontSize: 12, color: T3, marginTop: 4 }}>{totalLifetimeReps.toLocaleString()} lifetime reps</div>
             </div>
