@@ -131,7 +131,15 @@ function loadState(): FitnessState {
       const parsed = JSON.parse(stored);
       return {
         ...parsed,
-        gamification: { ...defaultGamification, ...parsed.gamification },
+        workouts: parsed.workouts || [],
+        currentPlan: parsed.currentPlan || [],
+        progressHistory: parsed.progressHistory || [],
+        gamification: { 
+          ...defaultGamification, 
+          ...parsed.gamification,
+          prs: parsed.gamification?.prs || [],
+          achievements: parsed.gamification?.achievements || []
+        },
         templates: parsed.templates || [],
         recentPRs: [],
         weightLogs: [],
@@ -217,7 +225,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
               bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
               goalWeight: row.goal_weight_kg ? Number(row.goal_weight_kg) : undefined,
               activityLevel: (row.activity_level as UserProfile['activityLevel']) || 'moderately_active',
-              goal: dbProfile.goal as UserProfile['goal'],
+              goal: (dbProfile.goal === 'maintain' ? 'maintenance' : dbProfile.goal) as UserProfile['goal'],
               experience: dbProfile.experience as UserProfile['experience'],
               daysPerWeek: dbProfile.days_per_week,
               workoutDays: dbProfile.workout_days ?? [1, 2, 4, 5],
@@ -298,7 +306,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         bodyFat: dbProfile.body_fat ? Number(dbProfile.body_fat) : undefined,
         goalWeight: row.goal_weight_kg ? Number(row.goal_weight_kg) : undefined,
         activityLevel: (row.activity_level as UserProfile['activityLevel']) || 'moderately_active',
-        goal: dbProfile.goal as UserProfile['goal'],
+        goal: (dbProfile.goal === 'maintain' ? 'maintenance' : dbProfile.goal) as UserProfile['goal'],
         experience: dbProfile.experience as UserProfile['experience'],
         daysPerWeek: dbProfile.days_per_week,
         workoutDays: dbProfile.workout_days ?? [1, 2, 4, 5],
@@ -353,7 +361,7 @@ export function FitnessProvider({ children }: { children: React.ReactNode }) {
         gender: profile.gender,
         height: profile.height,
         body_fat: profile.bodyFat ?? null,
-        goal: profile.goal,
+        goal: profile.goal === 'maintain' ? 'maintenance' : profile.goal,
         experience: profile.experience,
         days_per_week: profile.daysPerWeek,
         workout_days: profile.workoutDays,

@@ -12,19 +12,24 @@ export function calculateBMR(
   gender: string,
   bodyFat?: number
 ): number {
+  const w = Number(weight) || 70;
+  const h = Number(height) || 175;
+  const a = Number(age) || 25;
+  const g = String(gender || 'male').toLowerCase();
+
   // Katch-McArdle if body fat available
   if (bodyFat && bodyFat > 0 && bodyFat < 100) {
-    const leanMass = weight * (1 - bodyFat / 100);
+    const leanMass = w * (1 - bodyFat / 100);
     return 370 + 21.6 * leanMass;
   }
   // Mifflin-St Jeor
-  if (gender === 'female') {
-    return 10 * weight + 6.25 * height - 5 * age - 161;
+  if (g === 'female') {
+    return 10 * w + 6.25 * h - 5 * a - 161;
   }
-  if (gender === 'other') {
-    return 10 * weight + 6.25 * height - 5 * age - 78;
+  if (g === 'other') {
+    return 10 * w + 6.25 * h - 5 * a - 78;
   }
-  return 10 * weight + 6.25 * height - 5 * age + 5;
+  return 10 * w + 6.25 * h - 5 * a + 5;
 }
 
 export const ACTIVITY_MULTIPLIERS: Record<ActivityLevel, number> = {

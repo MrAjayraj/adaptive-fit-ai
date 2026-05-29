@@ -13,7 +13,7 @@ const GOAL_OPTIONS = [
   { id: 'lose_fat', label: 'Lose Fat', icon: <Flame />, desc: 'Burn fat while preserving muscle', target: '-500 cal deficit', color: '#EF4444' },
   { id: 'lean_bulk', label: 'Lean Bulk', icon: <TrendingUp />, desc: 'Build muscle with minimal fat', target: '+250 cal surplus', color: '#00BFA5' },
   { id: 'build_muscle', label: 'Build Muscle', icon: <Dumbbell />, desc: 'Maximum muscle growth', target: '+500 cal surplus', color: '#00E676' },
-  { id: 'maintain', label: 'Maintain', icon: <Scale />, desc: 'Stay where you are', target: '0 cal adjustment', color: '#94A3B8' },
+  { id: 'maintenance', label: 'Maintain', icon: <Scale />, desc: 'Stay where you are', target: '0 cal adjustment', color: '#94A3B8' },
   { id: 'aggressive_cut', label: 'Aggressive Cut', icon: <Zap />, desc: 'Rapid fat loss', target: '-750 cal deficit', color: '#eab308' },
 ];
 
