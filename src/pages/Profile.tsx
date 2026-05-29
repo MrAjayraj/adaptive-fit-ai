@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Camera, User, Flame, Zap, Trophy,
-  ChevronRight, LogOut, Check, Trash, Edit2, Calendar
+  ChevronRight, LogOut, Trash, Edit2, Calendar, ShieldAlert
 } from 'lucide-react';
 import { xpForLevel, xpForNextLevel, getLevelTier } from '@/lib/gamification';
 import {
@@ -17,9 +17,11 @@ import { LineChart, Line, XAxis, YAxis, ResponsiveContainer, Tooltip, ReferenceL
 import BottomNav from '@/components/layout/BottomNav';
 import CalorieMacroCard from '@/components/profile/CalorieMacroCard';
 import XPBreakdownCard from '@/components/profile/XPBreakdownCard';
+import TrophyShowcase from '@/components/profile/TrophyShowcase';
+import PersonalRecordsRow from '@/components/profile/PersonalRecordsRow';
+import CustomFieldSheets from '@/components/profile/CustomFieldSheets';
 import { uploadAvatar, getCachedAvatarUrl, updateProfileField } from '@/services/api';
 
-// ── Types for the edit modal ─────────────────────────────────
 type FieldKey =
   | 'goalWeight' | 'bodyFat' | 'activityLevel'
   | 'goal' | 'preferredSplit' | 'workoutDays'
@@ -28,7 +30,7 @@ type FieldKey =
 interface FieldDef {
   key: FieldKey;
   label: string;
-  type: 'number' | 'select' | 'multiselect-days';
+  type: 'number' | 'select' | 'multiselect-days' | 'text';
   options?: { value: string; label: string; description?: string }[];
   min?: number;
   max?: number;
@@ -39,15 +41,15 @@ interface FieldDef {
 
 const FIELD_DEFS: FieldDef[] = [
   {
-    key: 'username' as any,
+    key: 'username',
     label: 'Username',
-    type: 'text' as any,
+    type: 'text',
     dbKey: 'username',
   },
   {
-    key: 'name' as any,
+    key: 'name',
     label: 'Full Name',
-    type: 'text' as any,
+    type: 'text',
     dbKey: 'name',
   },
   {
@@ -120,194 +122,14 @@ const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.05 } },
 };
-const itemVariants = { hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1 } };
-
-// ── Inline field-edit bottom sheet ──────────────────────────
-interface EditModalProps {
-  field: FieldDef | null;
-  currentValue: string | number | number[] | undefined;
-  onClose: () => void;
-  onSave: (key: FieldKey, value: string | number | number[]) => void;
-}
+const itemVariants = {
+  hidden: { y: 15, opacity: 0 },
+  visible: { y: 0, opacity: 1, transition: { type: 'spring', stiffness: 350, damping: 25 } }
+};
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const DAYS_SHORT = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
-function EditModal({ field, currentValue, onClose, onSave }: EditModalProps) {
-  const [val, setVal] = useState<string | number | number[]>(currentValue ?? '');
-
-  if (!field) return null;
-
-  const handleSave = () => {
-    if (field.type === 'number') {
-      const n = parseFloat(String(val));
-      if (isNaN(n) || n < (field.min ?? 0) || n > (field.max ?? 9999)) {
-        toast.error(`Enter a value between ${field.min} and ${field.max}`);
-        return;
-      }
-      onSave(field.key, n);
-    } else if (field.type === 'multiselect-days') {
-      if (Array.isArray(val) && val.length === 0) {
-        toast.error('Select at least one workout day');
-        return;
-      }
-      onSave(field.key, val);
-    } else if (field.key === 'username') {
-      const u = String(val);
-      if (u && (u.length < 3 || u.length > 20)) {
-        toast.error('Username must be between 3 and 20 characters');
-        return;
-      }
-      onSave(field.key, u);
-    } else {
-      onSave(field.key, String(val));
-    }
-    onClose();
-  };
-
-  const toggleDay = (dayIndex: number) => {
-    setVal(prev => {
-      const currentDays = Array.isArray(prev) ? prev : [];
-      if (currentDays.includes(dayIndex)) {
-        return currentDays.filter(d => d !== dayIndex).sort();
-      }
-      return [...currentDays, dayIndex].sort();
-    });
-  };
-
-  return (
-    <div
-      className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-end justify-center"
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ y: 80, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        exit={{ y: 80, opacity: 0 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 32 }}
-        className="w-full max-w-lg bg-surface-1 border-t border-border-subtle rounded-t-[28px] p-5 pb-24"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-5" />
-        <h3 className="text-[18px] font-bold text-text-1 mb-5">Edit {field.label}</h3>
-
-        {field.type === 'number' ? (
-          <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between bg-surface-2 border border-border-subtle rounded-2xl px-4 py-4">
-              <button
-                onClick={() => setVal(v => Math.max(field.min ?? 0, Number(v) - (field.step ?? 1)))}
-                className="w-11 h-11 rounded-xl bg-surface-3 flex items-center justify-center text-xl font-bold text-text-1"
-              >−</button>
-              <div className="text-center">
-                <span className="text-[36px] font-extrabold text-text-1 tabular-nums">{val}</span>
-                {field.unit && <span className="text-[16px] text-text-2 ml-1">{field.unit}</span>}
-              </div>
-              <button
-                onClick={() => setVal(v => Math.min(field.max ?? 9999, Number(v) + (field.step ?? 1)))}
-                className="w-11 h-11 rounded-xl bg-surface-3 flex items-center justify-center text-xl font-bold text-text-1"
-              >+</button>
-            </div>
-            <input
-              type="number"
-              value={String(val)}
-              min={field.min}
-              max={field.max}
-              step={field.step}
-              onChange={e => setVal(e.target.value)}
-              className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50 text-center"
-            />
-          </div>
-        ) : (field.type as any) === 'text' ? (
-          <div className="flex flex-col gap-4">
-            <input
-              type="text"
-              value={String(val)}
-              onChange={e => {
-                if (field.key === 'username') {
-                   // lowercase, alphanumeric + underscores only
-                   setVal(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''));
-                } else {
-                   setVal(e.target.value);
-                }
-              }}
-              placeholder={`Enter ${field.label}`}
-              className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3 text-[14px] text-text-1 outline-none focus:border-primary-accent/50"
-            />
-            {field.key === 'username' && (
-              <p className="text-[12px] text-text-3">Username must be unique, lowercase, and contain only letters, numbers, and underscores (3-20 characters).</p>
-            )}
-          </div>
-        ) : field.type === 'multiselect-days' ? (
-          <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-            {DAYS_OF_WEEK.map((day, idx) => {
-              const isSelected = Array.isArray(val) && val.includes(idx);
-              return (
-                <button
-                  key={idx}
-                  onClick={() => toggleDay(idx)}
-                  className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all text-left ${
-                    isSelected
-                      ? 'border-primary-accent/50 bg-primary-accent/8'
-                      : 'border-border-subtle bg-surface-2'
-                  }`}
-                >
-                  <p className="text-[14px] font-semibold text-text-1">{day}</p>
-                  <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 ml-3 transition-colors ${
-                    isSelected ? 'bg-primary-accent' : 'bg-surface-3'
-                  }`}>
-                    {isSelected && <Check className="w-3 h-3 text-canvas" />}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2 max-h-[60vh] overflow-y-auto">
-            {field.options?.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setVal(opt.value)}
-                className={`flex items-center justify-between px-4 py-3.5 rounded-2xl border transition-all text-left ${
-                  val === opt.value
-                    ? 'border-primary-accent/50 bg-primary-accent/8'
-                    : 'border-border-subtle bg-surface-2'
-                }`}
-              >
-                <div>
-                  <p className="text-[14px] font-semibold text-text-1">{opt.label}</p>
-                  {opt.description && (
-                    <p className="text-[12px] text-text-3 mt-0.5">{opt.description}</p>
-                  )}
-                </div>
-                {val === opt.value && (
-                  <div className="w-5 h-5 rounded-full bg-primary-accent flex items-center justify-center shrink-0 ml-3">
-                    <Check className="w-3 h-3 text-canvas" />
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="flex gap-3 mt-5">
-          <button
-            onClick={onClose}
-            className="flex-1 py-3.5 rounded-full bg-surface-2 border border-border-subtle text-[14px] font-semibold text-text-1"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            className="flex-1 py-3.5 rounded-full bg-primary-accent text-canvas text-[14px] font-bold"
-          >
-            Save
-          </button>
-        </div>
-      </motion.div>
-    </div>
-  );
-}
-
-// ── Main Profile Page ───────────────────────────────────────
 export default function Profile() {
   const { profile, gamification, weightLogs, signOut, updateWeight, deleteWeightLog, setProfile, isLoading } = useFitness();
   const { isGuest, signInWithGoogle, exitGuestMode } = useAuth();
@@ -320,7 +142,7 @@ export default function Profile() {
   const [logBodyFat, setLogBodyFat] = useState('');
   const [logDate, setLogDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [logIdToEdit, setLogIdToEdit] = useState<string | null>(null);
-  // Source of truth: DB profile.avatarUrl, then localStorage cache
+
   const [avatarUrl, setAvatarUrl] = useState<string | null>(
     () => profile?.avatarUrl ?? getCachedAvatarUrl()
   );
@@ -332,7 +154,7 @@ export default function Profile() {
   const closeField = useCallback(() => setEditingField(null), []);
 
   const saveField = useCallback(
-    async (key: FieldKey, value: string | number) => {
+    async (key: FieldKey, value: any) => {
       if (!profile) return;
       const def = FIELD_DEFS.find(f => f.key === key);
       if (!def) return;
@@ -342,10 +164,10 @@ export default function Profile() {
 
       try {
         await updateProfileField({ [def.dbKey]: value });
-        toast.success(`${def.label} updated`);
+        toast.success(`${def.label} updated successfully`);
       } catch {
         setProfile(profile); // rollback
-        toast.error('Failed to save — please try again');
+        toast.error('Failed to save field — please try again');
       }
     },
     [profile, setProfile]
@@ -353,28 +175,36 @@ export default function Profile() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-canvas flex items-center justify-center">
-        <div className="relative flex items-center justify-center w-12 h-12">
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="relative flex items-center justify-center w-14 h-14">
           <div className="absolute inset-0 rounded-full border-t-2 border-r-2 border-primary w-full h-full animate-spin" />
-          <div className="absolute inset-0 rounded-full blur-[8px] bg-primary/20 w-full h-full animate-pulse" />
+          <div className="absolute inset-0 rounded-full blur-[10px] bg-primary/20 w-full h-full animate-pulse" />
         </div>
       </div>
     );
   }
 
+  // Cohesive dark guest state matching design Guidelines
   if (isGuest) {
     return (
-      <div className="min-h-screen bg-canvas pb-[100px] flex flex-col items-center justify-center font-sans px-6 relative">
-        <div className="w-24 h-24 rounded-full bg-surface-2 flex items-center justify-center overflow-hidden border-2 border-surface-3 mb-6">
+      <div className="min-h-screen bg-background pb-[100px] flex flex-col items-center justify-center px-6 relative overflow-hidden font-sans">
+        <div className="absolute inset-0 bg-radial-gradient(circle at center, rgba(245,197,24,0.02), transparent 70%) pointer-events-none" />
+        
+        <div className="w-24 h-24 rounded-full bg-surface-2 flex items-center justify-center border border-border-subtle relative mb-6 shadow-glow">
           <User className="w-12 h-12 text-text-3" />
+          <div className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center">
+            <ShieldAlert className="w-3.5 h-3.5 text-destructive" />
+          </div>
         </div>
-        <h2 className="text-[22px] font-bold text-text-1 mb-2">Guest User</h2>
-        <p className="text-[14px] text-text-2 text-center mb-8 max-w-[280px]">
-          Sign in to save your workouts, track progress, and compete with others.
+
+        <h2 className="text-[24px] font-black text-text-1 mb-2 tracking-tight uppercase">Guest Athlete</h2>
+        <p className="text-[14px] text-text-2 text-center mb-8 max-w-[280px] leading-relaxed">
+          Sign in to secure your stats, track weight shifts, build custom splits, and compete with other athletes.
         </p>
+
         <button
           onClick={signInWithGoogle}
-          className="w-full max-w-xs flex items-center justify-center gap-3 bg-[#FAFAFA] text-[#111113] h-14 rounded-[16px] font-bold text-[15px] transition-transform active:scale-[0.98] mb-4 shadow-md"
+          className="w-full max-w-xs flex items-center justify-center gap-3 bg-[#FAFAFA] hover:bg-[#FAFAFA]/90 text-[#111113] h-14 rounded-2xl font-extrabold text-[15px] transition-transform active:scale-[0.98] mb-4 shadow-md uppercase tracking-wider"
         >
           <svg className="w-5 h-5 bg-white rounded-full p-0.5" viewBox="0 0 24 24">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
@@ -382,19 +212,21 @@ export default function Profile() {
             <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05" />
             <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335" />
           </svg>
-          Sign in with Google
+          Connect Google Account
         </button>
+
         <button
           onClick={() => navigate('/')}
-          className="text-[14px] font-semibold text-text-2 hover:text-text-1 transition-colors mb-12"
+          className="text-[14px] font-bold text-text-2 hover:text-text-1 transition-colors tracking-widest uppercase mb-6"
         >
           Back to Home
         </button>
+
         <button
           onClick={() => { if (exitGuestMode) exitGuestMode(); }}
-          className="text-[13px] font-semibold text-red-500 hover:text-red-400 transition-colors py-4 px-6 rounded-full border border-red-500/20 bg-red-500/5 mt-8"
+          className="text-[12px] font-bold text-destructive hover:text-destructive/80 transition-all py-3 px-6 rounded-full border border-destructive/20 bg-destructive/5 mt-10 tracking-widest uppercase"
         >
-          Exit Guest Mode
+          Exit Guest Session
         </button>
         <BottomNav />
       </div>
@@ -403,25 +235,25 @@ export default function Profile() {
 
   if (!profile) {
     return (
-      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center gap-6 px-6">
-        <div className="w-16 h-16 rounded-full bg-surface-2 flex items-center justify-center">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-6 px-6 relative font-sans">
+        <div className="w-16 h-16 rounded-full bg-surface-2 flex items-center justify-center border border-border/20">
           <User className="w-8 h-8 text-text-3" />
         </div>
         <div className="text-center">
-          <h2 className="text-[18px] font-bold text-text-1 mb-1">Profile not found</h2>
-          <p className="text-[13px] text-text-2">Your profile data couldn't be loaded.</p>
+          <h2 className="text-[20px] font-black text-text-1 mb-1 uppercase tracking-tight">Athlete profile not found</h2>
+          <p className="text-[13px] text-text-2">Your global user account information failed to retrieve.</p>
         </div>
         <button
           onClick={() => navigate('/onboarding')}
-          className="w-full max-w-xs h-[52px] bg-primary text-canvas font-bold text-[15px] rounded-[14px]"
+          className="w-full max-w-xs h-[54px] bg-primary text-background font-black text-[14px] rounded-full uppercase tracking-wider shadow-lg shadow-primary/15"
         >
-          Set Up Profile
+          Begin Profile Setup
         </button>
         <button
           onClick={signOut}
-          className="text-[13px] font-semibold text-red-500 hover:text-red-400 transition-colors flex items-center gap-2"
+          className="text-[13px] font-bold text-destructive hover:text-destructive/80 transition-colors flex items-center gap-2 tracking-wider uppercase mt-2"
         >
-          <LogOut className="w-4 h-4" /> Sign Out
+          <LogOut className="w-4 h-4" /> Terminate Session
         </button>
         <BottomNav />
       </div>
@@ -434,6 +266,11 @@ export default function Profile() {
   const xpProgress = nextLevelXP > currentLevelXP
     ? ((xp - currentLevelXP) / (nextLevelXP - currentLevelXP)) * 100
     : 100;
+
+  // Concentric circle SVG settings
+  const radius = 46;
+  const circumference = 2 * Math.PI * radius;
+  const strokeOffset = circumference - (circumference * xpProgress) / 100;
 
   const chartData = weightLogs.slice(0, 30).reverse().map(log => ({
     date: new Date(log.logged_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -448,14 +285,13 @@ export default function Profile() {
       const url = await uploadAvatar(file);
       if (url) {
         setAvatarUrl(url);
-        // Propagate to global context so Dashboard + BottomNav update immediately
         if (profile) setProfile({ ...profile, avatarUrl: url });
-        toast.success('Avatar updated!');
+        toast.success('Profile avatar updated');
       } else {
-        toast.error('Upload failed — check that the storage bucket is set to Public');
+        toast.error('Avatar upload failed — verify container visibility');
       }
     } catch {
-      toast.error('Failed to upload avatar');
+      toast.error('Unexpected avatar upload failure');
     } finally {
       setIsUploadingAvatar(false);
       e.target.value = '';
@@ -465,7 +301,7 @@ export default function Profile() {
   const handleLogMeasurement = async () => {
     const w = parseFloat(logWeight);
     if (!w || w <= 0) {
-      if (logWeight) toast.error('Please enter a valid weight.');
+      if (logWeight) toast.error('Enter a valid physical bodyweight');
       return;
     }
     await updateWeight(w, logDate, logIdToEdit);
@@ -478,206 +314,307 @@ export default function Profile() {
     setLogBodyFat('');
     setLogDate(new Date().toISOString().split('T')[0]);
     if (logIdToEdit) setLogIdToEdit(null);
-    toast.success(logIdToEdit ? 'Measurement updated' : 'Measurement logged');
+    toast.success(logIdToEdit ? 'Entry adjusted' : 'New weight entry logged');
   };
 
   const editingFieldDef = editingField ? FIELD_DEFS.find(f => f.key === editingField) ?? null : null;
-  const editingCurrentValue = editingField ? (profile as unknown as Record<string, unknown>)[editingField] as string | number | undefined : undefined;
+  const editingCurrentValue = editingField ? (profile as unknown as Record<string, unknown>)[editingField] as string | number | number[] | undefined : undefined;
 
-  type DetailRow = { label: string; value: string; fieldKey: FieldKey | null };
-
-  const DETAILS: DetailRow[] = [
-    { label: 'Username', value: profile.username ? `@${profile.username}` : 'Tap to set', fieldKey: 'username' as any },
-    { label: 'Full Name', value: profile.name || 'Not set', fieldKey: 'name' as any },
-    { label: 'Age', value: `${profile.age} years`, fieldKey: null },
-    { label: 'Sex', value: profile.gender.charAt(0).toUpperCase() + profile.gender.slice(1), fieldKey: null },
-    { label: 'Height', value: `${profile.height} cm`, fieldKey: null },
-    { label: 'Weight', value: `${profile.weight} kg`, fieldKey: null },
-    {
-      label: 'Goal Weight',
-      value: profile.goalWeight
-        ? `${profile.goalWeight} kg`
-        : 'Tap to set',
-      fieldKey: 'goalWeight',
-    },
-    {
-      label: 'Body Fat',
-      value: profile.bodyFat ? `${profile.bodyFat}%` : 'Tap to set',
-      fieldKey: 'bodyFat',
-    },
-    {
-      label: 'Activity',
-      value: ACTIVITY_LABELS[profile.activityLevel],
-      fieldKey: 'activityLevel',
-    },
-    {
-      label: 'Goal',
-      value: GOAL_LABELS[profile.goal],
-      fieldKey: 'goal',
-    },
-    {
-      label: 'Split',
-      value: SPLIT_LABELS[profile.preferredSplit],
-      fieldKey: 'preferredSplit',
-    },
-    {
-      label: 'Workout Days',
-      value: profile.workoutDays?.length 
-        ? `${profile.workoutDays.length} days (${profile.workoutDays.map((d: number) => DAYS_OF_WEEK[d].substring(0, 3)).join(', ')})` 
-        : 'Not set',
-      fieldKey: 'workoutDays',
-    },
-  ];
-
-  // Goal weight secondary hint (e.g. "4 kg less than current")
-  const goalWeightHint = (() => {
-    if (!profile.goalWeight) return null;
-    const diff = profile.goalWeight - profile.weight;
-    if (Math.abs(diff) < 0.5) return 'At goal weight';
-    return diff > 0
-      ? `${diff.toFixed(1)} kg to gain`
-      : `${Math.abs(diff).toFixed(1)} kg to lose`;
-  })();
+  // Weight goal helper calculation
+  const weightDifference = profile.goalWeight ? profile.goalWeight - profile.weight : 0;
+  const isGoalReached = Math.abs(weightDifference) < 0.2;
 
   return (
-    <div className="min-h-screen bg-canvas pb-[100px] font-sans">
+    <div className="min-h-screen bg-background pb-[100px] font-sans">
       <motion.div
         variants={containerVariants}
         initial="hidden"
         animate="visible"
-        className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8 space-y-5 px-4 pt-14 md:pt-10 mb-8"
+        className="w-full max-w-lg md:max-w-[1080px] mx-auto md:pl-[104px] md:pr-8 space-y-6 px-4 pt-14 md:pt-10 mb-8"
       >
         {/* HEADER */}
         <motion.div variants={itemVariants} className="flex items-center justify-between">
           <button
             onClick={() => navigate(-1)}
-            className="w-10 h-10 rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center"
+            className="w-10 h-10 rounded-full bg-surface-1 border border-border/40 flex items-center justify-center active:scale-95 transition-all hover:bg-surface-2"
           >
             <ArrowLeft className="w-4 h-4 text-text-1" />
           </button>
-          <h1 className="text-[18px] font-bold text-text-1">Profile</h1>
-          <div className="w-10" /> {/* spacer */}
+          <h1 className="text-[15px] font-black uppercase tracking-wider text-text-2">Athlete Dossier</h1>
+          <div className="w-10" />
         </motion.div>
 
-        {/* AVATAR + IDENTITY */}
-        <motion.div variants={itemVariants} className="flex flex-col items-center">
-          <div className="relative mb-4">
-            <div className="absolute inset-[-6px] rounded-full border-2 border-primary-accent/40" />
-            <div className="w-24 h-24 rounded-full bg-surface-2 flex items-center justify-center overflow-hidden border-2 border-surface-3">
+        {/* AVATAR + IDENTITY (Elite Dossier Header Layout) */}
+        <motion.div 
+          variants={itemVariants} 
+          className="relative flex flex-col items-center bg-surface-1 border border-border/40 rounded-[28px] p-6 overflow-hidden shadow-glow"
+        >
+          <div className="absolute inset-0 bg-radial-gradient(circle at top right, rgba(245,197,24,0.03), transparent 60%) pointer-events-none" />
+
+          <div className="relative mb-5 w-[112px] h-[112px] flex items-center justify-center">
+            {/* Dynamic concentric radial level border */}
+            <svg className="absolute w-full h-full -rotate-90">
+              <circle 
+                cx="56" 
+                cy="56" 
+                r={radius} 
+                stroke="rgba(255,255,255,0.04)" 
+                strokeWidth="3.5" 
+                fill="transparent" 
+              />
+              <motion.circle 
+                cx="56" 
+                cy="56" 
+                r={radius} 
+                stroke="#F5C518" 
+                strokeWidth="3.5" 
+                fill="transparent" 
+                strokeDasharray={circumference}
+                initial={{ strokeDashoffset: circumference }}
+                animate={{ strokeDashoffset: strokeOffset }}
+                transition={{ type: 'spring', stiffness: 45, delay: 0.1 }}
+              />
+            </svg>
+            
+            {/* User avatar core bubble */}
+            <div className="w-20 h-20 rounded-full bg-surface-2 flex items-center justify-center overflow-hidden border border-border/20 z-10 relative">
               {avatarUrl
                 ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
-                : <User className="w-12 h-12 text-text-3" />
+                : <User className="w-10 h-10 text-text-3" />
               }
             </div>
+            
             <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} />
             <button
               onClick={() => avatarInputRef.current?.click()}
               disabled={isUploadingAvatar}
-              className="absolute bottom-0 right-0 w-8 h-8 rounded-full bg-primary-accent flex items-center justify-center border-2 border-canvas disabled:opacity-60"
+              className="absolute bottom-1 right-1 w-8 h-8 rounded-full bg-primary hover:bg-primary-hover flex items-center justify-center border-2 border-surface-1 disabled:opacity-60 z-20 active:scale-90 transition-transform"
             >
-              <Camera className="w-3.5 h-3.5 text-canvas" />
+              <Camera className="w-3.5 h-3.5 text-background" />
             </button>
-            <div className="absolute -top-1 -left-1 w-8 h-8 rounded-full bg-primary-accent flex items-center justify-center">
-              <span className="text-[10px] font-extrabold text-canvas">L{level}</span>
+            
+            {/* Dynamic Level tag */}
+            <div className="absolute -top-0.5 -left-0.5 w-7 h-7 rounded-full bg-primary flex items-center justify-center z-20 shadow-md">
+              <span className="text-[10px] font-black text-background">L{level}</span>
             </div>
           </div>
-          <h2 className="text-[22px] font-bold text-text-1">{profile.name || 'Athlete'}</h2>
-          <div className="flex items-center gap-1.5 mt-1">
+
+          <h2 className="text-[24px] font-black text-text-1 tracking-tight">{profile.name || 'Athlete'}</h2>
+          
+          <div className="flex items-center gap-1.5 mt-0.5">
             <span className="text-[13px]">{tier.icon}</span>
-            <span className="text-[13px] text-text-2 capitalize">{tier.tier} · Lv.{level}</span>
+            <span className="text-[12px] text-text-2 capitalize font-bold tracking-wide">{tier.tier} · Level {level}</span>
           </div>
 
-          <div className="w-full max-w-xs mt-4">
-            <div className="flex justify-between text-[11px] mb-1.5">
-              <span className="text-text-2">{xp} XP</span>
-              <span className="text-primary-accent font-semibold">{nextLevelXP} XP</span>
-            </div>
-            <div className="h-2 w-full bg-surface-2 rounded-full overflow-hidden">
-              <motion.div
-                className="h-full bg-gradient-to-r from-primary-accent to-accent-alt rounded-full"
-                layoutId="xpBar"
-                initial={{ width: 0 }}
-                animate={{ width: `${xpProgress}%` }}
-                transition={{ type: 'spring', stiffness: 50 }}
-              />
-            </div>
+          {/* Clean metadata strip */}
+          <div className="text-[11px] text-text-3 font-semibold uppercase tracking-wider mt-1.5 flex gap-2 items-center">
+            <span>{xp} XP Total</span>
+            <span className="w-1 h-1 rounded-full bg-surface-3" />
+            <span className="text-primary">{nextLevelXP - xp} XP to level {level + 1}</span>
           </div>
 
-          <div className="flex gap-3 mt-4">
-            <div className="flex items-center gap-1.5 bg-surface-1 border border-border-subtle rounded-full px-3 py-1.5">
-              <Flame className="w-3.5 h-3.5 text-orange-400" />
-              <span className="text-[12px] font-bold text-text-1">{streak}</span>
-              <span className="text-[11px] text-text-3">streak</span>
+          {/* Core high-end stat indicators layout */}
+          <div className="flex gap-2.5 mt-5 w-full max-w-xs">
+            <div className="flex-1 flex flex-col items-center p-3 rounded-2xl bg-surface-2/60 border border-border/10">
+              <Flame className="w-4 h-4 text-orange-400 mb-1" />
+              <span className="text-[15px] font-black text-text-1 leading-none">{streak}</span>
+              <span className="text-[9px] text-text-3 uppercase font-bold tracking-widest mt-1">Streak</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-surface-1 border border-border-subtle rounded-full px-3 py-1.5">
-              <Zap className="w-3.5 h-3.5 text-primary-accent" />
-              <span className="text-[12px] font-bold text-text-1">{xp}</span>
-              <span className="text-[11px] text-text-3">XP</span>
+            <div className="flex-1 flex flex-col items-center p-3 rounded-2xl bg-surface-2/60 border border-border/10">
+              <Zap className="w-4 h-4 text-primary mb-1" />
+              <span className="text-[15px] font-black text-text-1 leading-none">{xp}</span>
+              <span className="text-[9px] text-text-3 uppercase font-bold tracking-widest mt-1">XP Total</span>
             </div>
-            <div className="flex items-center gap-1.5 bg-surface-1 border border-border-subtle rounded-full px-3 py-1.5">
-              <Trophy className="w-3.5 h-3.5 text-primary-accent" />
-              <span className="text-[12px] font-bold text-text-1">{gamification.prs.length}</span>
-              <span className="text-[11px] text-text-3">PRs</span>
+            <div className="flex-1 flex flex-col items-center p-3 rounded-2xl bg-surface-2/60 border border-border/10">
+              <Trophy className="w-4 h-4 text-primary mb-1" />
+              <span className="text-[15px] font-black text-text-1 leading-none">{gamification.prs.length}</span>
+              <span className="text-[9px] text-text-3 uppercase font-bold tracking-widest mt-1">Records</span>
             </div>
           </div>
         </motion.div>
 
-        {/* SPLIT GRID */}
+        {/* SPLIT DOUBLE GRID LAYOUT */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          
+          {/* COLUMN 1: Visual properties selectors + Trophy widgets */}
           <div className="space-y-6">
 
-            {/* PERSONAL DETAILS — tappable rows */}
-            <motion.div variants={itemVariants}>
-              <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-3 px-1">Personal Details</p>
-              <div className="bg-surface-1 rounded-[20px] border border-border-subtle overflow-hidden">
-                {DETAILS.map(({ label, value, fieldKey }, i) => {
-                  const isTappable = fieldKey !== null;
-                  const isGoalWeight = fieldKey === 'goalWeight';
-                  return (
-                    <button
-                      key={label}
-                      disabled={!isTappable}
-                      onClick={() => isTappable && openField(fieldKey!)}
-                      className={`w-full flex items-center justify-between px-4 py-3 text-left transition-colors ${
-                        i < DETAILS.length - 1 ? 'border-b border-border-subtle' : ''
-                      } ${isTappable ? 'hover:bg-surface-2 active:bg-surface-2 cursor-pointer' : 'cursor-default'}`}
-                    >
-                      <span className="text-[13px] text-text-2">{label}</span>
-                      <div className="flex items-center gap-2">
-                        <div className="text-right">
-                          <span className={`text-[13px] font-semibold ${
-                            value === 'Tap to set' ? 'text-text-3 italic' : 'text-text-1'
-                          }`}>
-                            {value}
-                          </span>
-                          {isGoalWeight && goalWeightHint && (
-                            <p className="text-[10px] text-text-3 mt-0.5">{goalWeightHint}</p>
-                          )}
-                        </div>
-                        {isTappable && <ChevronRight className="w-3.5 h-3.5 text-text-3 shrink-0" />}
-                      </div>
-                    </button>
-                  );
-                })}
+            {/* REDESIGNED CORE PROFILE BOARDS (Grouped by Contexts) */}
+            <motion.div variants={itemVariants} className="space-y-4">
+              
+              {/* Group A: Bio Identity */}
+              <div className="bg-surface-1 rounded-3xl border border-border/40 overflow-hidden">
+                <div className="px-4 py-3 bg-surface-2/30 border-b border-border/30">
+                  <h3 className="text-[10px] uppercase font-bold tracking-widest text-text-3">Bio Info</h3>
+                </div>
+                
+                <button
+                  onClick={() => openField('username')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left border-b border-border/20"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Username</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-text-1">{profile.username ? `@${profile.username}` : 'Not set'}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => openField('name')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Full Name</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-text-1">{profile.name || 'Not configured'}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
               </div>
+
+              {/* Group B: Physical Metrics with Delta tags */}
+              <div className="bg-surface-1 rounded-3xl border border-border/40 overflow-hidden">
+                <div className="px-4 py-3 bg-surface-2/30 border-b border-border/30">
+                  <h3 className="text-[10px] uppercase font-bold tracking-widest text-text-3">Body Dimensions</h3>
+                </div>
+
+                <div className="flex items-center justify-between px-4 py-3.5 border-b border-border/20 bg-surface-2/10">
+                  <span className="text-[13px] text-text-2 font-medium">Starting Dimensions</span>
+                  <div className="text-right">
+                    <span className="text-[13px] font-bold text-text-1">{profile.height} cm · {profile.weight} kg</span>
+                    <p className="text-[9px] text-text-3 mt-0.5">Logged age: {profile.age} yrs · Sex: {profile.gender}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => openField('goalWeight')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left border-b border-border/20"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Goal Target Weight</span>
+                  <div className="flex items-center gap-2">
+                    <div className="text-right">
+                      <span className="text-[13px] font-bold text-text-1">
+                        {profile.goalWeight ? `${profile.goalWeight} kg` : 'Not configured'}
+                      </span>
+                      {profile.goalWeight && (
+                        <p className={`text-[10px] font-bold mt-0.5 ${
+                          isGoalReached ? 'text-emerald-400' : 'text-primary'
+                        }`}>
+                          {isGoalReached ? 'Target Achieved 🎉' : 
+                           weightDifference > 0 ? `+${weightDifference.toFixed(1)} kg to bulk` : 
+                           `–${Math.abs(weightDifference).toFixed(1)} kg to cut`}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => openField('bodyFat')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Body Fat Ratio</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-text-1">{profile.bodyFat ? `${profile.bodyFat}%` : 'Tap to log'}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
+              </div>
+
+              {/* Group C: Training Strategies with active Week circles */}
+              <div className="bg-surface-1 rounded-3xl border border-border/40 overflow-hidden">
+                <div className="px-4 py-3 bg-surface-2/30 border-b border-border/30">
+                  <h3 className="text-[10px] uppercase font-bold tracking-widest text-text-3">Training Strategy</h3>
+                </div>
+
+                <button
+                  onClick={() => openField('goal')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left border-b border-border/20"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Fitness Goal</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-text-1 capitalize">{GOAL_LABELS[profile.goal]}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => openField('activityLevel')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left border-b border-border/20"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Physical Activity</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-text-1">{ACTIVITY_LABELS[profile.activityLevel]}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => openField('preferredSplit')}
+                  className="w-full flex items-center justify-between px-4 py-3.5 hover:bg-surface-2/50 transition-colors text-left border-b border-border/20"
+                >
+                  <span className="text-[13px] text-text-2 font-medium">Preferred Split</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[13px] font-bold text-text-1">{SPLIT_LABELS[profile.preferredSplit]}</span>
+                    <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                  </div>
+                </button>
+
+                {/* Training days - visual bubble layout directly in detail list */}
+                <button
+                  onClick={() => openField('workoutDays')}
+                  className="w-full flex flex-col px-4 py-4 hover:bg-surface-2/50 transition-colors text-left gap-3"
+                >
+                  <div className="w-full flex items-center justify-between">
+                    <span className="text-[13px] text-text-2 font-medium">Active Training Schedule</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[12px] font-extrabold text-primary">{profile.workoutDays?.length || 0} Days/Wk</span>
+                      <ChevronRight className="w-3.5 h-3.5 text-text-3" />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between w-full max-w-[280px] mx-auto py-1 px-3 bg-surface-2/80 rounded-2xl border border-border/5">
+                    {DAYS_SHORT.map((day, idx) => {
+                      const isActive = profile.workoutDays?.includes(idx);
+                      return (
+                        <div 
+                          key={idx}
+                          className={`w-6 h-6 rounded-full text-[10px] font-black flex items-center justify-center transition-all ${
+                            isActive ? 'bg-primary text-background' : 'text-text-3 bg-surface-3/50'
+                          }`}
+                        >
+                          {day}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </button>
+              </div>
+
             </motion.div>
 
-            {/* NUTRITION & XP BREAKDOWN */}
+            {/* NEW TROPHY SHOWCASE COMPONENT */}
             <motion.div variants={itemVariants}>
-              <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-3 px-1">Nutrition</p>
-              <CalorieMacroCard />
+              <TrophyShowcase />
             </motion.div>
+
+            {/* PR CAROUSEL */}
             <motion.div variants={itemVariants}>
-              <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-3 px-1">XP Breakdown</p>
-              <XPBreakdownCard />
+              <PersonalRecordsRow />
             </motion.div>
+
           </div>
 
+          {/* COLUMN 2: Weight logs, charts, Calorie dashboard, setting blocks */}
           <div className="space-y-6">
-            {/* BODY STATS */}
+            
+            {/* BODY STATS (Redesigned Weight History) */}
             <motion.div variants={itemVariants}>
               <div className="flex items-center justify-between mb-3 px-1">
-                <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest">Weight History</p>
+                <div className="flex items-center gap-1.5">
+                  <Scale className="w-4 h-4 text-primary" />
+                  <h3 className="text-[12px] font-bold text-text-3 uppercase tracking-wider">Weight History Chart</h3>
+                </div>
                 <button
                   onClick={() => {
                     setLogIdToEdit(null);
@@ -686,36 +623,62 @@ export default function Profile() {
                     setLogDate(new Date().toISOString().split('T')[0]);
                     setShowLogModal(true);
                   }}
-                  className="px-3 py-1.5 rounded-full bg-primary-accent text-canvas text-[11px] font-bold"
+                  className="px-3 py-1.5 rounded-full bg-primary hover:bg-primary-hover text-background text-[11px] font-black uppercase tracking-wider shadow-md shadow-primary/10 active:scale-95 transition-all"
                 >
-                  Log New
+                  Log Metric
                 </button>
               </div>
-              <div className="bg-surface-1 rounded-[20px] border border-border-subtle p-4">
+              
+              <div className="bg-surface-1 rounded-3xl border border-border/40 p-4 shadow-glow">
                 {chartData.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={160}>
-                    <LineChart data={chartData}>
-                      <XAxis dataKey="date" tick={{ fill: '#565660', fontSize: 10 }} axisLine={false} tickLine={false} tickMargin={8} />
-                      <YAxis domain={['auto', 'auto']} tick={{ fill: '#565660', fontSize: 10 }} axisLine={false} tickLine={false} tickMargin={8} width={32} />
-                      <Tooltip contentStyle={{ background: '#252529', border: 'none', borderRadius: 12, color: '#FAFAFA', fontSize: 12 }} itemStyle={{ color: '#F5C518' }} />
-                      <Line type="monotone" dataKey="weight" stroke="#F5C518" strokeWidth={2.5} dot={{ fill: '#F5C518', stroke: '#111113', strokeWidth: 2, r: 4 }} />
-                      {profile.goalWeight && <ReferenceLine y={profile.goalWeight} stroke="#4ADE80" strokeDasharray="3 3" />}
-                    </LineChart>
-                  </ResponsiveContainer>
+                  <div className="relative pt-2">
+                    <ResponsiveContainer width="100%" height={170}>
+                      <LineChart data={chartData}>
+                        <XAxis 
+                          dataKey="date" 
+                          tick={{ fill: '#818188', fontSize: 9, fontWeight: 'bold' }} 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tickMargin={8} 
+                        />
+                        <YAxis 
+                          domain={['auto', 'auto']} 
+                          tick={{ fill: '#818188', fontSize: 9, fontWeight: 'bold' }} 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tickMargin={8} 
+                          width={28} 
+                        />
+                        <Tooltip 
+                          contentStyle={{ background: '#1C1C1E', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 16, color: '#FCFCFC', fontSize: 11, fontWeight: 'bold' }} 
+                          itemStyle={{ color: '#F5C518' }} 
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="weight" 
+                          stroke="#F5C518" 
+                          strokeWidth={3} 
+                          dot={{ fill: '#F5C518', stroke: '#111113', strokeWidth: 2.5, r: 5.5 }} 
+                          activeDot={{ fill: '#F5C518', stroke: '#1C1C1E', strokeWidth: 3, r: 7 }}
+                        />
+                        {profile.goalWeight && <ReferenceLine y={profile.goalWeight} stroke="#4ADE80" strokeDasharray="3 3" strokeWidth={1.5} />}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
                 ) : (
-                  <p className="text-[13px] text-text-3 text-center py-8">Log measurements to see your weight trend</p>
+                  <p className="text-[13px] text-text-3 text-center py-8">Log weight measurements to populate your trend chart</p>
                 )}
 
                 {/* Recent Entries */}
                 {weightLogs.length > 0 && (
-                  <div className="mt-6">
-                    <p className="text-[11px] uppercase font-bold text-text-3 tracking-widest mb-3">Recent Entries</p>
-                    <div className="space-y-2 max-h-[200px] overflow-y-auto no-scrollbar">
+                  <div className="mt-5 border-t border-border/20 pt-4">
+                    <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-3">Recent Logs</p>
+                    <div className="space-y-2 max-h-[170px] overflow-y-auto no-scrollbar">
                       {weightLogs.slice(0, 5).map(log => (
-                        <div key={log.id} className="flex items-center justify-between p-3 rounded-xl bg-surface-2 border border-border-subtle">
+                        <div key={log.id} className="flex items-center justify-between p-3 rounded-2xl bg-surface-2 border border-border/10 hover:border-border/30 transition-all">
                           <div>
-                            <p className="text-[14px] font-bold text-text-1">{log.weight} kg</p>
-                            <p className="text-[11px] text-text-3">{new Date(log.logged_at).toLocaleDateString()}</p>
+                            <p className="text-[14px] font-black text-text-1 tabular-nums">{log.weight} kg</p>
+                            <p className="text-[10px] font-bold text-text-3 uppercase tracking-wider">{new Date(log.logged_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</p>
                           </div>
                           <div className="flex gap-2">
                             <button
@@ -731,15 +694,15 @@ export default function Profile() {
                             </button>
                             <button
                               onClick={() => {
-                                if (window.confirm('Delete this entry?')) {
+                                if (window.confirm('Remove this bodyweight entry permanently?')) {
                                   deleteWeightLog(log.id)
-                                    .then(() => toast.success('Entry deleted'))
-                                    .catch(() => toast.error('Failed to delete entry'));
+                                    .then(() => toast.success('Entry removed'))
+                                    .catch(() => toast.error('Failed to remove entry'));
                                 }
                               }}
-                              className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center hover:bg-red-500/20 transition-colors"
+                              className="w-8 h-8 rounded-full bg-destructive/10 flex items-center justify-center hover:bg-destructive/20 transition-colors"
                             >
-                              <Trash className="w-3.5 h-3.5 text-red-500" />
+                              <Trash className="w-3.5 h-3.5 text-destructive" />
                             </button>
                           </div>
                         </div>
@@ -750,44 +713,49 @@ export default function Profile() {
               </div>
             </motion.div>
 
-            {/* ACHIEVEMENTS */}
+            {/* FUEL & NUTRITIONTARGETS */}
             <motion.div variants={itemVariants}>
-              <button onClick={() => navigate('/achievements')} className="flex items-center justify-between w-full mb-3 px-1">
-                <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest">Achievements</p>
-                <ChevronRight className="w-4 h-4 text-text-3" />
-              </button>
-              <div className="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-                {gamification.achievements.filter(a => a.unlockedAt).slice(0, 6).map(a => (
-                  <div key={a.id} className="shrink-0 w-[60px] h-[60px] rounded-full bg-surface-1 border border-border-subtle flex items-center justify-center text-xl">
-                    {a.icon}
-                  </div>
-                ))}
-                {gamification.achievements.filter(a => a.unlockedAt).length === 0 && (
-                  <p className="text-[12px] text-text-3 py-2">Complete workouts to earn achievements</p>
-                )}
+              <div className="px-1 mb-3">
+                <h3 className="text-[12px] font-bold text-text-3 uppercase tracking-wider">Nutrition targets</h3>
               </div>
+              <CalorieMacroCard />
             </motion.div>
 
-            {/* SETTINGS */}
+            {/* XP BREAKDOWNCARD */}
             <motion.div variants={itemVariants}>
-              <p className="text-[10px] uppercase font-bold text-text-3 tracking-widest mb-3 px-1">Settings</p>
-              <div className="bg-surface-1 rounded-[20px] border border-border-subtle overflow-hidden">
-                <div className="flex items-center justify-between p-4 border-b border-border-subtle">
-                  <span className="text-[14px] font-medium text-text-1">Unit</span>
-                  <div className="flex rounded-full overflow-hidden border border-border-subtle">
+              <div className="px-1 mb-3">
+                <h3 className="text-[12px] font-bold text-text-3 uppercase tracking-wider">XP Allocation</h3>
+              </div>
+              <XPBreakdownCard />
+            </motion.div>
+
+            {/* SETTINGS CARD */}
+            <motion.div variants={itemVariants}>
+              <div className="px-1 mb-3">
+                <h3 className="text-[12px] font-bold text-text-3 uppercase tracking-wider">System Settings</h3>
+              </div>
+              <div className="bg-surface-1 rounded-3xl border border-border/40 overflow-hidden">
+                <div className="flex items-center justify-between p-4 border-b border-border/20">
+                  <span className="text-[13px] font-bold text-text-1 uppercase tracking-wider">Units of measure</span>
+                  <div className="flex rounded-full overflow-hidden border border-border/30 bg-surface-2 p-0.5">
                     <button
                       onClick={() => setUnitPref('metric')}
-                      className={`px-3.5 py-1.5 text-[12px] font-bold transition-colors ${unitPref === 'metric' ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'}`}
+                      className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider transition-all ${
+                        unitPref === 'metric' ? 'bg-primary text-background font-black shadow' : 'text-text-3 hover:text-text-2'
+                      }`}
                     >Metric</button>
                     <button
                       onClick={() => setUnitPref('imperial')}
-                      className={`px-3.5 py-1.5 text-[12px] font-medium transition-colors ${unitPref === 'imperial' ? 'bg-primary-accent text-canvas' : 'bg-surface-2 text-text-2'}`}
+                      className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-wider transition-all ${
+                        unitPref === 'imperial' ? 'bg-primary text-background font-black shadow' : 'text-text-3 hover:text-text-2'
+                      }`}
                     >Imperial</button>
                   </div>
                 </div>
-                <button onClick={signOut} className="flex items-center gap-2.5 p-4 w-full text-red-500 hover:bg-surface-2 transition-colors">
+                
+                <button onClick={signOut} className="flex items-center gap-2.5 p-4 w-full text-destructive hover:bg-destructive/5 transition-colors font-bold text-[13px] uppercase tracking-wider">
                   <LogOut className="w-4 h-4" />
-                  <span className="text-[14px] font-semibold">Sign Out</span>
+                  <span>Terminate session</span>
                 </button>
               </div>
             </motion.div>
@@ -795,62 +763,75 @@ export default function Profile() {
         </div>
       </motion.div>
 
-      {/* LOG MODAL */}
+      {/* DYNAMIC LOG MODAL */}
       <AnimatePresence>
         {showLogModal && (
-          <div className="fixed inset-0 z-[60] bg-black/50 backdrop-blur-sm flex items-end justify-center" onClick={() => setShowLogModal(false)}>
+          <div className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-md flex items-end justify-center" onClick={() => setShowLogModal(false)}>
             <motion.div
-              initial={{ y: 80, opacity: 0 }}
+              initial={{ y: 280, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 80, opacity: 0 }}
-              className="w-full max-w-lg bg-surface-1 border-t border-border-subtle p-5 rounded-t-[28px] pb-24"
+              exit={{ y: 280, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+              className="w-full max-w-lg bg-surface-1 border-t border-border-subtle p-6 rounded-t-[32px] pb-12 shadow-[0_-12px_40px_rgba(0,0,0,0.6)]"
               onClick={e => e.stopPropagation()}
             >
-              <div className="w-10 h-1 bg-surface-3 rounded-full mx-auto mb-4" />
-              <h3 className="text-[18px] font-bold text-text-1 mb-4">{logIdToEdit ? 'Edit Measurement' : 'Log Measurement'}</h3>
+              <div className="w-12 h-1.5 bg-surface-3 rounded-full mx-auto mb-5" />
+              <h3 className="text-[20px] font-black text-text-1 mb-5 uppercase tracking-tight">
+                {logIdToEdit ? 'Adjust Log' : 'New Metric Log'}
+              </h3>
+              
               <div className="flex flex-col gap-4 mb-6">
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[12px] font-semibold text-text-3 uppercase tracking-wider ml-1">Weight (kg)</span>
+                  <span className="text-[10px] font-bold text-text-3 uppercase tracking-wider ml-1">Current Bodyweight (kg)</span>
                   <input
                     type="number"
                     step="0.1"
-                    className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3.5 text-[15px] font-medium text-text-1 outline-none focus:border-primary-accent/50"
+                    className="bg-surface-2 border border-border-subtle rounded-2xl px-4 py-3.5 text-[15px] font-bold text-text-1 outline-none focus:border-primary/50"
                     value={logWeight}
                     onChange={e => setLogWeight(e.target.value)}
                     placeholder={`${profile.weight}`}
                     autoFocus
                   />
                 </label>
+                
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[12px] font-semibold text-text-3 uppercase tracking-wider ml-1">Body Fat % (Optional)</span>
+                  <span className="text-[10px] font-bold text-text-3 uppercase tracking-wider ml-1">Current Body Fat % (Optional)</span>
                   <input
                     type="number"
                     step="0.1"
-                    placeholder="Optional"
-                    className="bg-surface-2 border border-border-subtle rounded-xl px-4 py-3.5 text-[15px] font-medium text-text-1 outline-none focus:border-primary-accent/50"
+                    placeholder="Optional metric value"
+                    className="bg-surface-2 border border-border-subtle rounded-2xl px-4 py-3.5 text-[15px] font-bold text-text-1 outline-none focus:border-primary/50"
                     value={logBodyFat}
                     onChange={e => setLogBodyFat(e.target.value)}
                   />
                 </label>
+                
                 <label className="flex flex-col gap-1.5">
-                  <span className="text-[12px] font-semibold text-text-3 uppercase tracking-wider ml-1">Date</span>
+                  <span className="text-[10px] font-bold text-text-3 uppercase tracking-wider ml-1">Log Date</span>
                   <div className="relative">
                     <Calendar className="w-4 h-4 text-text-3 absolute left-4 top-1/2 -translate-y-1/2" />
                     <input
                       type="date"
-                      className="w-full bg-surface-2 border border-border-subtle rounded-xl pl-10 pr-4 py-3.5 text-[15px] font-medium text-text-1 outline-none focus:border-primary-accent/50 filter-calendar-icon-light"
+                      className="w-full bg-surface-2 border border-border-subtle rounded-2xl pl-10 pr-4 py-3.5 text-[15px] font-bold text-text-1 outline-none focus:border-primary/50 filter-calendar-icon-light"
                       value={logDate}
                       onChange={e => setLogDate(e.target.value)}
                     />
                   </div>
                 </label>
               </div>
-              <div className="flex flex-col gap-3">
-                <button onClick={handleLogMeasurement} className="w-full py-4 rounded-full bg-primary-accent text-canvas text-[15px] font-bold">
-                  Save
-                </button>
-                <button onClick={() => setShowLogModal(false)} className="w-full py-3.5 rounded-full bg-transparent text-text-2 hover:text-text-1 hover:bg-surface-2 transition-colors text-[14px] font-bold">
+              
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setShowLogModal(false)} 
+                  className="flex-1 py-4 rounded-full bg-surface-2 hover:bg-surface-3 text-[14px] font-bold text-text-2 active:scale-95 transition-all border border-border/10"
+                >
                   Cancel
+                </button>
+                <button 
+                  onClick={handleLogMeasurement} 
+                  className="flex-1 py-4 rounded-full bg-primary hover:bg-primary-hover text-background text-[14px] font-black uppercase tracking-wider active:scale-95 transition-all shadow-lg shadow-primary/10"
+                >
+                  Save Log
                 </button>
               </div>
             </motion.div>
@@ -858,10 +839,10 @@ export default function Profile() {
         )}
       </AnimatePresence>
 
-      {/* FIELD EDIT MODAL */}
+      {/* DYNAMIC FIELD EDIT SHEETS */}
       <AnimatePresence>
         {editingField && (
-          <EditModal
+          <CustomFieldSheets
             field={editingFieldDef}
             currentValue={editingCurrentValue}
             onClose={closeField}
