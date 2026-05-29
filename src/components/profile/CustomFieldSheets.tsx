@@ -2,7 +2,7 @@
 // FitPulse — Bespoke, high-fidelity mobile bottom sheets for profile property customization.
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Check, Calendar, ChevronRight, Scale, Activity, Flame, Compass, Dumbbell, User, Info } from 'lucide-react';
+import { Check, Calendar, ChevronRight, Scale, Activity, Flame, Compass, Dumbbell, User, Info, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 
 type FieldKey =
