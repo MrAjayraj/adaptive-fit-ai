@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Camera, User, Flame, Zap, Trophy,
-  ChevronRight, LogOut, Trash, Edit2, Calendar, ShieldAlert
+  ChevronRight, LogOut, Trash, Edit2, Calendar, ShieldAlert, Scale
 } from 'lucide-react';
 import { xpForLevel, xpForNextLevel, getLevelTier } from '@/lib/gamification';
 import {
